@@ -1,0 +1,78 @@
+# Cloud Build: test → build → push to Artifact Registry → deploy lenden to Cloud Run.
+# Ingress is internal: the POS reaches lenden through dwaar, and Razorpay webhooks
+# arrive at https://api.taraju.in/api/lenden/v1/webhooks/{razorpay|cashfree} (public routes on dwaar).
+#
+# Cloud Scheduler calls POST /internal/v1/jobs/reconcile every 10 minutes
+# (sanchalan/scripts/scheduler-setup.sh) with X-Service-Secret + OIDC.
+substitutions:
+  _SERVICE: lenden
+  _ENV: dev
+  _REGION: asia-south1
+  _REPO: taraju
+  _MOOL_REPO: github.com/taraju/mool
+  _MOOL_REF: main
+  _VPC_NETWORK: taraju-vpc
+  _VPC_SUBNET: taraju-run-subnet
+  _PAYMENT_GATEWAY: razorpay     # or cashfree: the default for new payment requests
+  _CASHFREE_ENV: sandbox         # production in the prod project
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/github-token/versions/latest
+      env: GITHUB_TOKEN
+
+steps:
+  - id: test
+    name: golang:1.25
+    entrypoint: bash
+    secretEnv: [GITHUB_TOKEN]
+    args:
+      - -c
+      - |
+        git clone --depth 1 --branch ${_MOOL_REF} https://x-access-token:$$GITHUB_TOKEN@${_MOOL_REPO}.git ../mool
+        cp -r ../mool .mool
+        go vet ./... && go test ./...
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - buildx
+      - build
+      - --build-context
+      - mool=.mool
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --push
+      - .
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
+      - --ingress=internal
+      - --no-allow-unauthenticated
+      - --network=${_VPC_NETWORK}
+      - --subnet=${_VPC_SUBNET}
+      - --vpc-egress=private-ranges-only   # Razorpay API is public internet; DB/Redis are private
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=80
+      - --min-instances=1           # QR at the counter must not cold-start
+      - --max-instances=10
+      - --no-cpu-throttling         # outbox relay runs between requests
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,PAYMENT_GATEWAY=${_PAYMENT_GATEWAY},CASHFREE_ENV=${_CASHFREE_ENV},PAYEE_DISPLAY_NAME=Taraju Store
+      - --update-secrets=DATABASE_URL=lenden-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
+      - --update-secrets=RAZORPAY_KEY_ID=razorpay-key-id:latest,RAZORPAY_KEY_SECRET=razorpay-key-secret:latest,RAZORPAY_WEBHOOK_SECRET=razorpay-webhook-secret:latest,CASHFREE_CLIENT_ID=cashfree-client-id:latest,CASHFREE_CLIENT_SECRET=cashfree-client-secret:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

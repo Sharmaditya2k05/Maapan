@@ -1,0 +1,73 @@
+# Cloud Build: test → build → push to Artifact Registry → deploy to Cloud Run.
+# Trigger: push to `main` (dev) and tags `v*` (staging/prod via _ENV).
+# One-time GCP setup: sanchalan/scripts/gcp-bootstrap.sh
+substitutions:
+  _SERVICE: pehchaan
+  _ENV: dev
+  _REGION: asia-south1
+  _REPO: taraju
+  _MOOL_REPO: github.com/taraju/mool
+  _MOOL_REF: main
+  _VPC_NETWORK: taraju-vpc
+  _VPC_SUBNET: taraju-run-subnet
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/github-token/versions/latest
+      env: GITHUB_TOKEN
+
+steps:
+  - id: test
+    name: golang:1.25
+    entrypoint: bash
+    secretEnv: [GITHUB_TOKEN]
+    args:
+      - -c
+      - |
+        git clone --depth 1 --branch ${_MOOL_REF} https://x-access-token:$$GITHUB_TOKEN@${_MOOL_REPO}.git ../mool
+        cp -r ../mool .mool
+        go vet ./... && go test ./...
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - buildx
+      - build
+      - --build-context
+      - mool=.mool
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --push
+      - .
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
+      - --ingress=internal          # only dwaar (and Pub/Sub) reach it
+      - --no-allow-unauthenticated
+      - --network=${_VPC_NETWORK}
+      - --subnet=${_VPC_SUBNET}
+      - --vpc-egress=private-ranges-only   # Memorystore + Cloud SQL private IP
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=80
+      - --min-instances=1           # login must never cold-start
+      - --max-instances=10
+      - --no-cpu-throttling         # outbox relay (pehchaan.tenant.created)
+      # --update-* keeps vars set by hand (template ids etc.); a repeated --set-env-vars flag would not.
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,SOOCHNA_URL=https://soochna-$PROJECT_NUMBER.${_REGION}.run.app
+      - --update-secrets=DATABASE_URL=pehchaan-database-url:latest,REDIS_URL=redis-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

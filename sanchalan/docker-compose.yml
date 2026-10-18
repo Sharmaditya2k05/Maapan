@@ -1,0 +1,159 @@
+# Taraju local stack.
+#
+#   docker compose up -d postgres redis      # infra only, run services with `make run` in each repo
+#   docker compose --profile apps up -d --build   # everything in containers
+#
+# Expects all repos checked out side by side:  taraju/{sanchalan,mool,dwaar,pehchaan,...}
+
+x-go-service: &go-service
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  profiles: [apps]
+  environment: &common-env
+    APP_ENV: local
+    PORT: "8080"
+    LOG_LEVEL: info
+    AUTO_MIGRATE: "true"
+    JWT_SECRET: local-dev-jwt-secret-change-me-32chars
+    SERVICE_SECRET: local-dev-service-secret
+    CORS_ORIGINS: http://localhost:3000
+    EVENTS_DRIVER: direct
+    REDIS_URL: redis://redis:6379/0
+    DWAAR_URL: http://dwaar:8080
+    PEHCHAAN_URL: http://pehchaan:8080
+    BAHI_URL: http://bahi:8080
+    KAR_URL: http://kar:8080
+    AADESH_URL: http://aadesh:8080
+    LENDEN_URL: http://lenden:8080
+    SOOCHNA_URL: http://soochna:8080
+    AAYAAT_URL: http://aayaat:8080
+    BHANDAR_URL: http://bhandar:8080
+    NIRMAAN_URL: http://nirmaan:8080
+    BUDDHI_URL: http://buddhi:8080
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: taraju-postgres
+    environment:
+      POSTGRES_USER: taraju
+      POSTGRES_PASSWORD: taraju
+      POSTGRES_DB: taraju
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./local/init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taraju"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: taraju-redis
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  dwaar:
+    <<: *go-service
+    build: { context: ../dwaar, additional_contexts: { mool: ../mool } }
+    ports: ["8000:8080"]
+
+  pehchaan:
+    <<: *go-service
+    build: { context: ../pehchaan, additional_contexts: { mool: ../mool } }
+    ports: ["7001:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_pehchaan?sslmode=disable
+      OTP_DEV_FIXED: "123456"
+
+  bahi:
+    <<: *go-service
+    build: { context: ../bahi, additional_contexts: { mool: ../mool } }
+    ports: ["7002:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_bahi?sslmode=disable
+
+  kar:
+    <<: *go-service
+    build: { context: ../kar, additional_contexts: { mool: ../mool } }
+    ports: ["7003:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_kar?sslmode=disable
+
+  aadesh:
+    <<: *go-service
+    build: { context: ../aadesh, additional_contexts: { mool: ../mool } }
+    ports: ["7004:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_aadesh?sslmode=disable
+
+  lenden:
+    <<: *go-service
+    build: { context: ../lenden, additional_contexts: { mool: ../mool } }
+    ports: ["7005:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_lenden?sslmode=disable
+
+  soochna:
+    <<: *go-service
+    build: { context: ../soochna, additional_contexts: { mool: ../mool } }
+    ports: ["7006:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_soochna?sslmode=disable
+
+  aayaat:
+    <<: *go-service
+    build: { context: ../aayaat, additional_contexts: { mool: ../mool } }
+    ports: ["7007:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_aayaat?sslmode=disable
+
+  bhandar:
+    <<: *go-service
+    build: { context: ../bhandar, additional_contexts: { mool: ../mool } }
+    ports: ["7008:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_bhandar?sslmode=disable
+
+  nirmaan:
+    <<: *go-service
+    build: { context: ../nirmaan, additional_contexts: { mool: ../mool } }
+    ports: ["7009:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_nirmaan?sslmode=disable
+
+  buddhi:
+    <<: *go-service
+    build: { context: ../buddhi, additional_contexts: { mool: ../mool } }
+    ports: ["7010:8080"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_buddhi?sslmode=disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+  dukaan:
+    profiles: [apps]
+    build:
+      context: ../dukaan
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    ports: ["3000:8080"]
+    depends_on: [dwaar]
+
+volumes:
+  pgdata:

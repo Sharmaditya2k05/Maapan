@@ -1,0 +1,99 @@
+# Cloud Build: build → push to Artifact Registry → deploy to Cloud Run.
+# Trigger: push to `main` (deploys to dev) and tags `v*` (deploy to staging/prod via _ENV).
+#
+# One-time setup is in sanchalan/scripts/gcp-bootstrap.sh. Substitutions you may override
+# on the trigger: _ENV, _REGION, _MOOL_REF.
+substitutions:
+  _SERVICE: aayaat
+  _ENV: dev
+  _REGION: asia-south1
+  _REPO: taraju
+  _MOOL_REPO: github.com/taraju/mool
+  _MOOL_REF: main
+  _VPC_NETWORK: taraju-vpc
+  _VPC_SUBNET: taraju-run-subnet
+  _BUCKET: taraju-dev-files
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/github-token/versions/latest
+      env: GITHUB_TOKEN
+
+steps:
+  - id: test
+    name: golang:1.25
+    entrypoint: bash
+    secretEnv: [GITHUB_TOKEN]
+    args:
+      - -c
+      - |
+        git clone --depth 1 --branch ${_MOOL_REF} https://x-access-token:$$GITHUB_TOKEN@${_MOOL_REPO}.git ../mool
+        cp -r ../mool .mool
+        go vet ./... && go test ./...
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - buildx
+      - build
+      - --build-context
+      - mool=.mool
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --push
+      - .
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
+      - --ingress=internal
+      - --no-allow-unauthenticated
+      - --network=${_VPC_NETWORK}
+      - --subnet=${_VPC_SUBNET}
+      - --vpc-egress=private-ranges-only
+      - --cpu=1
+      - --memory=2Gi                 # xlsx files are unzipped in memory
+      - --concurrency=80
+      - --min-instances=0           # imports are occasional
+      - --max-instances=3
+      - --no-cpu-throttling         # commits run in a goroutine after the request returns
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,STORAGE_DRIVER=gcs,GCS_BUCKET=${_BUCKET},WORKER_JOB_NAME=aayaat-worker,GCP_REGION=${_REGION},LARGE_IMPORT_ROWS=50000
+      - --update-secrets=DATABASE_URL=aayaat-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
+
+  # Same image as a Cloud Run Job for imports above LARGE_IMPORT_ROWS. The API
+  # starts executions with args `-job <id> -tenant <id>` (needs roles/run.developer
+  # on the aayaat service account).
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - aayaat-worker
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
+      - --network=${_VPC_NETWORK}
+      - --subnet=${_VPC_SUBNET}
+      - --vpc-egress=private-ranges-only
+      - --cpu=2
+      - --memory=4Gi
+      - --task-timeout=3600s
+      - --max-retries=0
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,USE_ID_TOKENS=true,AUTO_MIGRATE=false,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,STORAGE_DRIVER=gcs,GCS_BUCKET=${_BUCKET}
+      - --update-secrets=DATABASE_URL=aayaat-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

@@ -1,4 +1,21 @@
-node_modules
-dist
+# Dependencies & build output
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS / editor
 .DS_Store
-.wrangler
+Thumbs.db
+.idea/
+.vscode/

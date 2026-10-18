@@ -1,0 +1,16 @@
+{
+  "name": "Taraju — GST Billing & POS",
+  "short_name": "Taraju POS",
+  "description": "GST billing, POS, inventory and accounting. Works offline at the counter.",
+  "start_url": "/pos",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#062c60",
+  "icons": [
+    { "src": "/brand/mark-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/favicon-64.png", "sizes": "64x64", "type": "image/png" }
+  ]
+}

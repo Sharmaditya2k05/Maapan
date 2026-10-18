@@ -1,0 +1,53 @@
+# Cloud Build: test → build image → push to Artifact Registry → deploy dukaan to Cloud Run.
+# Trigger: push to `main` (dev). Override _ENV / _API_URL on staging/prod triggers.
+substitutions:
+  _SERVICE: dukaan
+  _ENV: dev
+  _REGION: asia-south1
+  _REPO: taraju
+  _API_URL: https://api-dev.taraju.in/api
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: test
+    name: node:22-alpine
+    entrypoint: sh
+    args: ['-c', 'npm ci --no-audit --no-fund && npm test && npm run typecheck']
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=NEXT_PUBLIC_API_URL=${_API_URL}
+      - --build-arg=NEXT_PUBLIC_APP_ENV=${_ENV}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA']
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SERVICE}@$PROJECT_ID.iam.gserviceaccount.com
+      - --ingress=all                 # behind the external HTTPS load balancer + Cloud Armor in prod
+      - --allow-unauthenticated
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=80
+      - --min-instances=1             # stores open at 8am; no cold start on first login
+      - --max-instances=10
+      - --set-env-vars=NEXT_PUBLIC_APP_ENV=${_ENV}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
