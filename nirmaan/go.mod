@@ -3,7 +3,7 @@ module github.com/taraju/nirmaan
 go 1.25.0
 
 require (
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/taraju/mool v0.0.0
 )
 
