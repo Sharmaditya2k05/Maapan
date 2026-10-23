@@ -18,7 +18,8 @@ echo "==> service → service"
 allow pehchaan soochna
 allow aadesh pehchaan; allow aadesh bahi; allow aadesh bhandar; allow aadesh lenden
 allow bahi kar; allow aadesh kar
-allow kar aadesh;   allow kar pehchaan
+allow kar aadesh;   allow kar pehchaan; allow kar bahi
+allow buddhi pehchaan
 allow aayaat bahi;  allow aayaat bhandar
 allow nirmaan bhandar
 allow soochna pehchaan

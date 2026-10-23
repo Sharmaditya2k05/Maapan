@@ -38,11 +38,11 @@ func New(baseURL, serviceSecret string, useIDToken bool) *Client {
 	}
 }
 
-type reqIDKey struct{}
-
 // WithRequestID stores the inbound request ID so outbound calls carry it.
+// The httpx.RequestID middleware already does this for every request, so
+// handlers never need to call it; it remains for jobs and tests.
 func WithRequestID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, reqIDKey{}, id)
+	return httpx.WithRequestID(ctx, id)
 }
 
 // Do sends method path with body (JSON-encoded unless nil) and decodes into out (unless nil).
@@ -74,7 +74,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		}
 		req.Header.Set(auth.HeaderUserID, p.UserID())
 	}
-	if id, ok := ctx.Value(reqIDKey{}).(string); ok && id != "" {
+	if id := httpx.RequestIDFrom(ctx); id != "" {
 		req.Header.Set(httpx.HeaderRequestID, id)
 	}
 	if c.UseIDToken {

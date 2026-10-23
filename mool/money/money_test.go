@@ -19,3 +19,24 @@ func TestFormatAndRound(t *testing.T) {
 		t.Error("ApplyBP/MulDiv")
 	}
 }
+
+func TestParseRupees(t *testing.T) {
+	cases := map[string]int64{
+		"1,23,456.78": 12345678, "₹ 99": 9900, "Rs.1500": 150000, "-250": -25000, "(250)": -25000,
+		"0.5": 50, "1.005": 101, "1.004": 100, ".75": 75, "  12  ": 1200, "+3.1": 310, "1,000": 100000,
+	}
+	for in, want := range cases {
+		got, err := ParseRupees(in)
+		if err != nil || got != want {
+			t.Errorf("ParseRupees(%q)=%d,%v want %d", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "abc", "1.2.3", "12-", "--5"} {
+		if _, err := ParseRupees(bad); err == nil {
+			t.Errorf("ParseRupees(%q) must fail", bad)
+		}
+	}
+	if FromRupees(1.005) != 101 || FromRupees(99.99) != 9999 || FromRupees(-0.5) != -50 {
+		t.Errorf("FromRupees: %d %d %d", FromRupees(1.005), FromRupees(99.99), FromRupees(-0.5))
+	}
+}

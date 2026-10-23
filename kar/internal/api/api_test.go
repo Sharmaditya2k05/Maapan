@@ -16,7 +16,7 @@ func TestPlaceFromAddress(t *testing.T) {
 }
 
 func TestSettingsUpdateValidate(t *testing.T) {
-	bad := "99"
+	bad := "00" // 99 is Centre Jurisdiction and valid since mool/gst gained it
 	if err := (&SettingsUpdate{StateCode: &bad}).Validate(); err == nil {
 		t.Fatal("unknown state must fail")
 	}

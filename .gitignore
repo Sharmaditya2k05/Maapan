@@ -19,3 +19,9 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+# Go build output & local logs
+bin/
+*.exe
+sanchalan/logs/
+.mool/

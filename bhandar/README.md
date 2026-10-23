@@ -15,7 +15,7 @@
 |---|---|
 | Port (local) | `7008` |
 | Database | `taraju_bhandar` |
-| Publishes | `bhandar.stock.low`, `bhandar.batch.expiring` |
+| Publishes | `bhandar.stock.low`, `bhandar.batch.expiring`, `bhandar.stock.moved` (every costed movement of a document, for bahi's COGS / inventory vouchers) |
 | Subscribes | `aadesh.invoice.created`, `aadesh.invoice.cancelled`, `aadesh.note.created`, `nirmaan.production.completed`, `pehchaan.tenant.created` |
 | Calls | nothing synchronously |
 | Called by | aadesh (item lookup), aayaat (bulk items / opening stock), nirmaan (lookup, stock summary), buddhi (stock summary) |
@@ -37,6 +37,15 @@
 
 Negative stock is allowed on purpose: a POS must never refuse a sale because the books are behind.
 Invoice lines without `item_id` (free-text lines) do not touch stock.
+
+Costing rules (`internal/inventory/model.go`, unit-tested): an arrival re-averages the position
+(`(old qty × old cost + in qty × in cost) ÷ total`); an issue leaves the average untouched and is
+costed at it; an empty or negative position takes the next arrival's cost; a cancellation returns
+goods at the cost the original document applied. Quantities on invoice, production and transfer
+lines may be in an alternate unit (`BOX`) and are converted to the base unit through `item_units`.
+Every write is one transaction: movement rows, balances, `bhandar.stock.moved` and any
+`bhandar.stock.low` alert go into the outbox together, and `(source, source_id, line_no)` makes a
+redelivered event a no-op.
 
 ## Run locally
 
@@ -74,7 +83,7 @@ curl -s localhost:7008/v1/items -H "Authorization: Bearer $TOKEN" -H 'Content-Ty
 | `GET /v1/items?q=&category=&status=` | read | Search by name / exact SKU / exact barcode |
 | `POST /v1/items` | `item:manage` | Create (barcode auto-generated unless `generate_barcode:false`) |
 | `GET /v1/items/{id}` · `PUT` · `DELETE` | read · `item:manage` | Get / replace / deactivate (soft) |
-| `GET /v1/barcodes/{code}` | read | Scanner lookup (barcode or SKU) |
+| `GET /v1/barcodes/{code}` | read | Scanner lookup (barcode, SKU, or a weighing-scale code whose PLU matches the item's `plu`/`sku`; the response then carries `scale: {kind: price\|weight, value}`) |
 | `GET /v1/items/pos-catalog?store_id=` | read | Compact catalog + on-hand; honours `If-None-Match` |
 | `PUT /v1/items/{id}/reorder` | `item:manage` or `stock:manage` | `{reorder_level, reorder_qty, preferred_supplier_id}` |
 | `GET /v1/items/{id}/barcode.svg?module=2&height=60` | read | Barcode image |
@@ -99,6 +108,7 @@ curl -s localhost:7008/v1/items -H "Authorization: Bearer $TOKEN" -H 'Content-Ty
 | `GET /internal/v1/stock/summary?store_id=` | service secret | On hand + value + re-order level per item |
 | `POST /internal/v1/jobs/expiry-scan` | service secret | Daily Cloud Scheduler job |
 | `POST /internal/v1/jobs/reorder-scan` | service secret | Daily Cloud Scheduler job |
+| `GET /internal/v1/outbox/dead` · `POST /internal/v1/outbox/replay?id=` | service secret | Events parked after 20 failed publishes, and their replay (ops) |
 | `POST /events` | service secret / IAM | Pub/Sub push endpoint |
 | `GET /healthz`, `GET /readyz` | none | Probes |
 
@@ -108,17 +118,22 @@ Internal calls need `X-Service-Secret` and `X-Tenant-ID` (jobs run across all te
 
 ```
 cmd/server/main.go              wiring
-internal/barcode/               EAN-13 / Code 128 generation, validation, SVG
-internal/inventory/model.go     types + pure rules (weighted average, transfer states, re-order maths, aging)
-internal/inventory/items.go     item master, units, POS catalog, lookup, bulk items
-internal/inventory/stock.go     movement engine, on hand, ledger, adjustments, opening stock
-internal/inventory/transfers.go inter-store transfers
-internal/inventory/reorder.go   suggestions, purchase drafts, expiry, return-to-vendor, scheduled scans
+internal/barcode/               EAN-13 / Code 128-B generation, validation, weighing-scale parsing, SVG (stdlib only)
+internal/inventory/service.go   Service struct, store-access helpers, outbox emit
+internal/inventory/model.go     types + pure rules (weighted average, transfer states, re-order maths, aging, unit conversion)
+internal/inventory/items.go     item master, units, barcode/PLU lookup, POS catalog (ETag), lookup, bulk upsert
+internal/inventory/stock.go     movement engine (post), on hand, ledger with running qty, adjustments, opening stock
+internal/inventory/transfers.go inter-store transfers (draft → dispatched → received / cancelled)
+internal/inventory/reorder.go   suggestions, purchase drafts, expiry list, return-to-vendor, scheduled scans
 internal/inventory/analytics.go dead stock, aging, valuation, internal summary
-internal/inventory/events.go    event subscribers
-internal/inventory/handlers.go  HTTP routes
+internal/inventory/events.go    event subscribers (invoice, note, cancel, production, tenant)
+internal/inventory/handlers.go  HTTP routes and permissions
 migrations/                     *.up.sql, embedded and applied at startup
 ```
+
+Tests: `go test ./...` runs the pure rules and the barcode package; set
+`TEST_DATABASE_URL=postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable` to also run
+the end-to-end stock engine and HTTP tests (they create and drop their own schema).
 
 ## Deploy (Cloud Run)
 

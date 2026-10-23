@@ -149,6 +149,7 @@ Envelope (JSON, same for Pub/Sub and local direct delivery):
 | `lenden.payment.refunded` | lenden | bahi, aadesh | reverse receipt |
 | `bhandar.stock.low` | bhandar | soochna, buddhi | re-order alert, purchase draft suggestion |
 | `bhandar.batch.expiring` | bhandar | soochna | expiry early warning |
+| `bhandar.stock.moved` | bhandar | bahi, buddhi | every costed stock movement of a document (weighted-average cost) → COGS / inventory vouchers, margin KPIs |
 | `nirmaan.production.completed` | nirmaan | bhandar, bahi | consume raw material, add finished goods, WIP costing |
 | `aayaat.import.completed` | aayaat | soochna | tell the owner the migration finished |
 | `pehchaan.tenant.created` | pehchaan | bahi, bhandar, kar | seed chart of accounts, default store/units, tax slabs |

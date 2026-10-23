@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -15,6 +16,20 @@ import (
 
 // HeaderRequestID carries the correlation ID across services.
 const HeaderRequestID = "X-Request-ID"
+
+type reqIDKey struct{}
+
+// WithRequestID stores the request ID in ctx so outbound calls (mool/svc) and
+// event publishers can carry it on.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, reqIDKey{}, id)
+}
+
+// RequestIDFrom returns the request ID stored by the RequestID middleware ("" if none).
+func RequestIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(reqIDKey{}).(string)
+	return id
+}
 
 // Middleware wraps a handler.
 type Middleware func(http.Handler) http.Handler
@@ -59,7 +74,7 @@ func RequestID(base *slog.Logger) Middleware {
 				r.Header.Set(HeaderRequestID, id)
 			}
 			w.Header().Set(HeaderRequestID, id)
-			ctx := logx.With(r.Context(), base.With("request_id", id))
+			ctx := logx.With(WithRequestID(r.Context(), id), base.With("request_id", id))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

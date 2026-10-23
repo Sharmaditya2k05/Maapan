@@ -64,7 +64,7 @@ else
   have_secret redis-url || secret redis-url "CHANGE_ME_rediss://default:password@host:6379"
 fi
 for s in github-token razorpay-key-id razorpay-key-secret razorpay-webhook-secret cashfree-client-id cashfree-client-secret \
-         msg91-auth-key gupshup-api-key gsp-client-id gsp-client-secret anthropic-api-key; do
+         msg91-auth-key gupshup-api-key soochna-webhook-token gsp-client-id gsp-client-secret anthropic-api-key; do
   have_secret "$s" || secret "$s" "CHANGE_ME"
 done
 

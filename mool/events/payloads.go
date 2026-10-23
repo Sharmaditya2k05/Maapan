@@ -6,69 +6,86 @@ package events
 
 // InvoiceLine is one line of an invoice/note event.
 type InvoiceLine struct {
-	LineNo         int     `json:"line_no"`
-	ItemID         string  `json:"item_id,omitempty"`
-	Name           string  `json:"name"`
-	HSN            string  `json:"hsn,omitempty"`
-	Unit           string  `json:"unit"`
-	BatchNo        string  `json:"batch_no,omitempty"`
-	Qty            float64 `json:"qty"`
-	UnitPricePaise int64   `json:"unit_price_paise"`
-	DiscountPaise  int64   `json:"discount_paise"`
-	PriceInclTax   bool    `json:"price_includes_tax"`
-	TaxRateBP      int     `json:"tax_rate_bp"`
-	TaxablePaise   int64   `json:"taxable_paise"`
-	CGSTPaise      int64   `json:"cgst_paise"`
-	SGSTPaise      int64   `json:"sgst_paise"`
-	IGSTPaise      int64   `json:"igst_paise"`
-	CessPaise      int64   `json:"cess_paise"`
-	TotalPaise     int64   `json:"total_paise"`
+	LineNo           int     `json:"line_no"`
+	ItemID           string  `json:"item_id,omitempty"`
+	Name             string  `json:"name"`
+	HSN              string  `json:"hsn,omitempty"`
+	Unit             string  `json:"unit"`
+	BatchNo          string  `json:"batch_no,omitempty"`
+	Qty              float64 `json:"qty"`
+	UnitPricePaise   int64   `json:"unit_price_paise"`
+	DiscountPaise    int64   `json:"discount_paise"`
+	PriceInclTax     bool    `json:"price_includes_tax"`
+	TaxRateBP        int     `json:"tax_rate_bp"`
+	CessRateBP       int     `json:"cess_rate_bp,omitempty"`
+	CessPerUnitPaise int64   `json:"cess_per_unit_paise,omitempty"`
+	TaxCategory      string  `json:"tax_category,omitempty"` // taxable | exempt | nil_rated | non_gst
+	TaxablePaise     int64   `json:"taxable_paise"`
+	CGSTPaise        int64   `json:"cgst_paise"`
+	SGSTPaise        int64   `json:"sgst_paise"`
+	IGSTPaise        int64   `json:"igst_paise"`
+	CessPaise        int64   `json:"cess_paise"`
+	TotalPaise       int64   `json:"total_paise"`
 }
 
 // Tender is a counter payment recorded on the invoice.
 type Tender struct {
-	Mode        string `json:"mode"` // cash | card | upi | bank | credit | other
-	AmountPaise int64  `json:"amount_paise"`
-	Reference   string `json:"reference,omitempty"`
+	Mode             string `json:"mode"` // cash | card | upi | bank | credit | other
+	AmountPaise      int64  `json:"amount_paise"`
+	Reference        string `json:"reference,omitempty"`
+	PaymentRequestID string `json:"payment_request_id,omitempty"` // lenden request behind a counter UPI/card tender
 }
 
 // InvoicePayload is the data of aadesh.invoice.created / .cancelled and aadesh.note.created.
 type InvoicePayload struct {
-	InvoiceID       string        `json:"invoice_id"`
-	StoreID         string        `json:"store_id"`
-	DocType         string        `json:"doc_type"` // sale | purchase | sale_return | purchase_return
-	Number          string        `json:"number"`
-	InvoiceDate     string        `json:"invoice_date"` // YYYY-MM-DD
-	RefInvoiceID    string        `json:"ref_invoice_id,omitempty"`
-	PartyID         string        `json:"party_id,omitempty"`
-	PartyName       string        `json:"party_name"`
-	PartyPhone      string        `json:"party_phone,omitempty"`
-	PartyGSTIN      string        `json:"party_gstin,omitempty"`
-	PlaceOfSupply   string        `json:"place_of_supply"`
-	InterState      bool          `json:"inter_state"`
-	TaxablePaise    int64         `json:"taxable_paise"`
-	CGSTPaise       int64         `json:"cgst_paise"`
-	SGSTPaise       int64         `json:"sgst_paise"`
-	IGSTPaise       int64         `json:"igst_paise"`
-	CessPaise       int64         `json:"cess_paise"`
-	RoundOffPaise   int64         `json:"round_off_paise"`
-	GrandTotalPaise int64         `json:"grand_total_paise"`
-	Lines           []InvoiceLine `json:"lines"`
-	Tenders         []Tender      `json:"tenders,omitempty"`
-	CreatedBy       string        `json:"created_by"`
+	InvoiceID           string        `json:"invoice_id"`
+	StoreID             string        `json:"store_id"`
+	StoreState          string        `json:"store_state,omitempty"`
+	StoreGSTIN          string        `json:"store_gstin,omitempty"`
+	DocType             string        `json:"doc_type"` // sale | purchase | sale_return | purchase_return
+	Number              string        `json:"number"`
+	InvoiceDate         string        `json:"invoice_date"` // YYYY-MM-DD
+	DueDate             string        `json:"due_date,omitempty"`
+	RefInvoiceID        string        `json:"ref_invoice_id,omitempty"`
+	SupplierInvoiceNo   string        `json:"supplier_invoice_no,omitempty"`
+	SupplierInvoiceDate string        `json:"supplier_invoice_date,omitempty"`
+	PartyID             string        `json:"party_id,omitempty"`
+	PartyName           string        `json:"party_name"`
+	PartyPhone          string        `json:"party_phone,omitempty"`
+	PartyGSTIN          string        `json:"party_gstin,omitempty"`
+	PlaceOfSupply       string        `json:"place_of_supply"`
+	InterState          bool          `json:"inter_state"`
+	SupplyCategory      string        `json:"supply_category,omitempty"` // "", sez_*, export_*, deemed_export
+	ReverseCharge       bool          `json:"reverse_charge,omitempty"`
+	BillOfSupply        bool          `json:"bill_of_supply,omitempty"`
+	TaxablePaise        int64         `json:"taxable_paise"`
+	DiscountPaise       int64         `json:"discount_paise,omitempty"`
+	CGSTPaise           int64         `json:"cgst_paise"`
+	SGSTPaise           int64         `json:"sgst_paise"`
+	IGSTPaise           int64         `json:"igst_paise"`
+	CessPaise           int64         `json:"cess_paise"`
+	TCSPaise            int64         `json:"tcs_paise,omitempty"`
+	RoundOffPaise       int64         `json:"round_off_paise"`
+	GrandTotalPaise     int64         `json:"grand_total_paise"`
+	IRN                 string        `json:"irn,omitempty"`
+	Lines               []InvoiceLine `json:"lines"`
+	Tenders             []Tender      `json:"tenders,omitempty"`
+	CreatedBy           string        `json:"created_by"`
 }
 
 // PaymentPayload is the data of lenden.payment.captured / .refunded.
 type PaymentPayload struct {
-	PaymentID   string `json:"payment_id"` // lenden's id (stable, used for idempotency)
-	InvoiceID   string `json:"invoice_id,omitempty"`
-	PartyID     string `json:"party_id,omitempty"`
-	PartyPhone  string `json:"party_phone,omitempty"`
-	AmountPaise int64  `json:"amount_paise"`
-	Method      string `json:"method"`  // upi | card | netbanking | wallet
-	Gateway     string `json:"gateway"` // razorpay
-	GatewayRef  string `json:"gateway_ref"`
-	CapturedAt  string `json:"captured_at"` // RFC3339
+	PaymentID        string `json:"payment_id"`                   // lenden's id (stable, used for idempotency)
+	RefundID         string `json:"refund_id,omitempty"`          // set on .refunded; each partial refund has its own
+	PaymentRequestID string `json:"payment_request_id,omitempty"` // counter QR/link request this capture answers
+	InvoiceID        string `json:"invoice_id,omitempty"`
+	PartyID          string `json:"party_id,omitempty"`
+	PartyPhone       string `json:"party_phone,omitempty"`
+	AmountPaise      int64  `json:"amount_paise"`
+	Method           string `json:"method"`  // upi | card | netbanking | wallet | cash | cheque | bank
+	Gateway          string `json:"gateway"` // razorpay | cashfree | manual
+	GatewayRef       string `json:"gateway_ref"`
+	CapturedAt       string `json:"captured_at"` // RFC3339
 }
 
 // StockLowPayload is the data of bhandar.stock.low.
@@ -93,10 +110,39 @@ type BatchExpiringPayload struct {
 	DaysLeft   int     `json:"days_left"`
 }
 
+// StockMovement is one line of bhandar.stock.moved.
+type StockMovement struct {
+	MovementID    string  `json:"movement_id"`
+	LineNo        int     `json:"line_no"`
+	ItemID        string  `json:"item_id"`
+	ItemName      string  `json:"item_name"`
+	Unit          string  `json:"unit"`
+	BatchNo       string  `json:"batch_no,omitempty"`
+	Qty           float64 `json:"qty"`             // signed: positive into the store, negative out
+	UnitCostPaise int64   `json:"unit_cost_paise"` // weighted-average cost applied to this movement
+	ValuePaise    int64   `json:"value_paise"`     // round(qty × unit cost), signed
+	Reason        string  `json:"reason"`          // sale | purchase | sale_return | purchase_return | transfer_in | transfer_out | adjustment | opening | production_consume | production_output | expiry_writeoff
+}
+
+// StockMovedPayload is the data of bhandar.stock.moved: every stock movement
+// posted for one source document, with its cost, so bahi can book COGS and
+// inventory (perpetual costing) and buddhi can track margins.
+type StockMovedPayload struct {
+	StoreID    string          `json:"store_id"`
+	Source     string          `json:"source"`    // aadesh.invoice | aadesh.note | nirmaan.production | adjustment | transfer | opening
+	SourceID   string          `json:"source_id"` // invoice id, run id, transfer id …
+	Reason     string          `json:"reason"`
+	Movements  []StockMovement `json:"movements"`
+	ValuePaise int64           `json:"value_paise"` // Σ movement value, signed
+	OccurredAt string          `json:"occurred_at"` // RFC3339
+	Reversal   bool            `json:"reversal,omitempty"`
+}
+
 // ProductionLine is a material consumed or produced.
 type ProductionLine struct {
 	ItemID        string  `json:"item_id"`
 	Qty           float64 `json:"qty"`
+	Unit          string  `json:"unit,omitempty"` // unit the qty is expressed in; empty = the item's base unit
 	UnitCostPaise int64   `json:"unit_cost_paise"`
 	BatchNo       string  `json:"batch_no,omitempty"`
 }

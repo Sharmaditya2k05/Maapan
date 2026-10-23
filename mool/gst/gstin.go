@@ -1,6 +1,6 @@
 // Package gst holds the pure GST rules: GSTIN validation, state codes, the
-// CGST/SGST vs IGST tax engine and amount-in-words. No I/O — safe to call on
-// the POS hot path.
+// CGST/SGST vs IGST tax engine, rate schedule, place of supply and
+// amount-in-words. No I/O — safe to call on the POS hot path.
 package gst
 
 import (
@@ -11,16 +11,19 @@ import (
 
 const gstinChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-var gstinPattern = regexp.MustCompile(`^[0-9]{2}[A-Z0-9]{10}[0-9A-Z]Z[0-9A-Z]$`)
+// A GSTIN is: 2-digit state code, 10-character PAN (AAAAA9999A), one
+// registration-count character (1-9 then A-Z), one entity-kind character
+// (Z regular taxpayer, D tax deductor, C tax collector) and a mod-36 checksum.
+var gstinPattern = regexp.MustCompile(`^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][ZDC][0-9A-Z]$`)
 
 // Normalize upper-cases and trims a GSTIN.
 func Normalize(gstin string) string { return strings.ToUpper(strings.TrimSpace(gstin)) }
 
-// ValidateGSTIN checks format, state code and the mod-36 check digit.
+// ValidateGSTIN checks format, PAN shape, state code and the mod-36 check digit.
 func ValidateGSTIN(gstin string) error {
 	g := Normalize(gstin)
 	if len(g) != 15 || !gstinPattern.MatchString(g) {
-		return errors.New("GSTIN must be 15 characters: 2-digit state, 10-char PAN, entity, Z, checksum")
+		return errors.New("GSTIN must be 15 characters: 2-digit state, 10-char PAN (AAAAA9999A), entity number, Z/D/C, checksum")
 	}
 	if _, ok := States[g[:2]]; !ok {
 		return errors.New("GSTIN has an unknown state code " + g[:2])
@@ -64,17 +67,25 @@ func PAN(gstin string) string {
 	return g[2:12]
 }
 
-// States maps GST state codes to names.
+// IsTaxDeductor reports whether the GSTIN belongs to a TDS deductor (Sec 51).
+func IsTaxDeductor(gstin string) bool { g := Normalize(gstin); return len(g) == 15 && g[13] == 'D' }
+
+// IsTaxCollector reports whether the GSTIN belongs to a TCS collector (Sec 52, e-commerce operators).
+func IsTaxCollector(gstin string) bool { g := Normalize(gstin); return len(g) == 15 && g[13] == 'C' }
+
+// States maps GST state codes to names. 25 (Daman and Diu) merged into 26 on
+// 26 Jan 2020 but GSTINs issued under it are still in circulation.
 var States = map[string]string{
 	"01": "Jammu and Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
 	"05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
 	"10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
 	"15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
 	"20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
-	"26": "Dadra and Nagar Haveli and Daman and Diu", "27": "Maharashtra", "29": "Karnataka",
+	"25": "Daman and Diu (merged into 26)", "26": "Dadra and Nagar Haveli and Daman and Diu",
+	"27": "Maharashtra", "29": "Karnataka",
 	"30": "Goa", "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu", "34": "Puducherry",
 	"35": "Andaman and Nicobar Islands", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
-	"97": "Other Territory", "96": "Other Country",
+	"96": "Other Country", "97": "Other Territory", "99": "Centre Jurisdiction",
 }
 
 // ValidState reports whether code is a known GST state code.

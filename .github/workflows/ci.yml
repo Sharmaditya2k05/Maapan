@@ -1,0 +1,75 @@
+# Monorepo CI: every Go service is built, vetted and tested on its own
+# (GOWORK=off, exactly as Cloud Build and the Dockerfiles see it), plus the
+# dukaan frontend. A Postgres 16 service is available to tests that opt in
+# through TEST_DATABASE_URL; tests must skip when it is unset.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go / ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          [mool, dwaar, pehchaan, bahi, kar, aadesh, lenden, soochna, aayaat, bhandar, nirmaan, buddhi]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: taraju
+          POSTGRES_PASSWORD: taraju
+          POSTGRES_DB: taraju_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taraju"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOWORK: off
+      GOFLAGS: -mod=mod
+      TEST_DATABASE_URL: postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: ${{ matrix.service }}/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: build
+        run: go build ./...
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race -count=1 ./...
+
+  dukaan:
+    name: dukaan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dukaan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dukaan/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test

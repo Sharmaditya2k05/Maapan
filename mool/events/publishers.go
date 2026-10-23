@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,27 +73,43 @@ func (p *PubSub) Publish(ctx context.Context, e Envelope) error {
 
 // Direct POSTs the envelope to each subscriber's /events (local development).
 // Subscriber base URLs come from <SERVICE>_URL env vars, e.g. BAHI_URL.
+// Subscribers are tracked one by one, so when one of them is down the others
+// are not re-sent the same event on retry.
 type Direct struct {
 	Secret string
 	Log    *slog.Logger
 	http   *http.Client
+	// URLs overrides the <SERVICE>_URL lookup (tests).
+	URLs map[string]string
 }
 
+// Publish delivers to every subscriber of e.Type.
 func (d *Direct) Publish(ctx context.Context, e Envelope) error {
+	_, err := d.PublishExcept(ctx, e, nil)
+	return err
+}
+
+// PublishExcept delivers to the subscribers of e.Type that are not in done.
+func (d *Direct) PublishExcept(ctx context.Context, e Envelope, done []string) ([]string, error) {
 	body, err := json.Marshal(e)
 	if err != nil {
-		return err
+		return done, err
 	}
+	delivered := slices.Clone(done)
 	var errs []string
 	for _, sub := range Subscriptions[e.Type] {
-		base := os.Getenv(strings.ToUpper(sub) + "_URL")
+		if slices.Contains(delivered, sub) {
+			continue
+		}
+		base := d.url(sub)
 		if base == "" {
 			d.Log.Debug("event subscriber url not set, skipping", "type", e.Type, "subscriber", sub)
+			delivered = append(delivered, sub)
 			continue
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/events", bytes.NewReader(body))
 		if err != nil {
-			return err
+			return delivered, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(auth.HeaderServiceSecret, d.Secret)
@@ -104,12 +121,21 @@ func (d *Direct) Publish(ctx context.Context, e Envelope) error {
 		res.Body.Close()
 		if res.StatusCode >= 300 {
 			errs = append(errs, fmt.Sprintf("%s: status %d", sub, res.StatusCode))
+			continue
 		}
+		delivered = append(delivered, sub)
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("direct publish %s: %s", e.Type, strings.Join(errs, "; "))
+		return delivered, fmt.Errorf("direct publish %s: %s", e.Type, strings.Join(errs, "; "))
 	}
-	return nil
+	return delivered, nil
+}
+
+func (d *Direct) url(sub string) string {
+	if d.URLs != nil {
+		return d.URLs[sub]
+	}
+	return os.Getenv(strings.ToUpper(sub) + "_URL")
 }
 
 // LogOnly logs events instead of sending them (tests, isolated runs).

@@ -15,6 +15,7 @@ SUBS=(
   "lenden.payment.refunded|bahi aadesh"
   "bhandar.stock.low|soochna buddhi"
   "bhandar.batch.expiring|soochna"
+  "bhandar.stock.moved|bahi buddhi"
   "nirmaan.production.completed|bhandar bahi"
   "aayaat.import.completed|soochna"
   "pehchaan.tenant.created|bahi bhandar kar"

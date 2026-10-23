@@ -8,6 +8,7 @@ architecture contract and the deployment plan.
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Service catalogue, ports, events, internal APIs, RBAC, money rules — **the contract** |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **What is deployed to Cloud Run and in which sprint week** |
+| [docs/MATURITY-PLAN.md](docs/MATURITY-PLAN.md) | Per-service audit (Oct 2026), decisions, fixes and additions, and the phase order |
 | `docker-compose.yml` | Postgres 16 + Redis 7 (and every service under the `apps` profile) |
 | `local/init-databases.sql` | Creates one database per service |
 | `scripts/run-local.sh` | Run Go services on your machine with `go run`, logs in `logs/` |
