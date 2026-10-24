@@ -1,0 +1,342 @@
+{
+  "gstin": "27AAPFU0939F1ZV",
+  "ret_period": "102026",
+  "sup_details": {
+    "osup_det": {
+      "txval": 144460.00,
+      "iamt": 25992.00,
+      "camt": 1.50,
+      "samt": 1.50,
+      "csamt": 0.00
+    },
+    "osup_zero": {
+      "txval": 11000.00,
+      "iamt": 150.00,
+      "camt": 0.00,
+      "samt": 0.00,
+      "csamt": 0.00
+    },
+    "osup_nil_exmp": {
+      "txval": 620.00,
+      "iamt": 0.00,
+      "camt": 0.00,
+      "samt": 0.00,
+      "csamt": 0.00
+    },
+    "isup_rev": {
+      "txval": 2000.00,
+      "iamt": 0.00,
+      "camt": 50.00,
+      "samt": 50.00,
+      "csamt": 0.00
+    },
+    "osup_nongst": {
+      "txval": 300.00,
+      "iamt": 0.00,
+      "camt": 0.00,
+      "samt": 0.00,
+      "csamt": 0.00
+    }
+  },
+  "inter_sup": {
+    "unreg_details": [
+      {
+        "pos": "07",
+        "txval": 140400.00,
+        "iamt": 25272.00
+      }
+    ],
+    "comp_details": [],
+    "uin_details": []
+  },
+  "itc_elg": {
+    "itc_avl": [
+      {
+        "ty": "IMPG",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "IMPS",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "ISRC",
+        "iamt": 0.00,
+        "camt": 50.00,
+        "samt": 50.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "ISD",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "OTH",
+        "iamt": 1620.00,
+        "camt": 70.00,
+        "samt": 70.00,
+        "csamt": 0.00
+      }
+    ],
+    "itc_rev": [
+      {
+        "ty": "RUL",
+        "iamt": 0.00,
+        "camt": 45.00,
+        "samt": 45.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "OTH",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      }
+    ],
+    "itc_net": {
+      "iamt": 1620.00,
+      "camt": 75.00,
+      "samt": 75.00,
+      "csamt": 0.00
+    },
+    "itc_inelg": [
+      {
+        "ty": "RUL",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      },
+      {
+        "ty": "OTH",
+        "iamt": 0.00,
+        "camt": 0.00,
+        "samt": 0.00,
+        "csamt": 0.00
+      }
+    ]
+  },
+  "inward_sup": {
+    "isup_details": [
+      {
+        "ty": "GST",
+        "inter": 20.00,
+        "intra": 60.00
+      },
+      {
+        "ty": "NONGST",
+        "inter": 30.00,
+        "intra": 0.00
+      }
+    ]
+  },
+  "computation": {
+    "liability": {
+      "igst": 26142.00,
+      "cgst": 1.50,
+      "sgst": 1.50,
+      "cess": 0.00
+    },
+    "itc_available": {
+      "igst": 1620.00,
+      "cgst": 75.00,
+      "sgst": 75.00,
+      "cess": 0.00
+    },
+    "itc_utilised": {
+      "igst": 1620.00,
+      "cgst": 75.00,
+      "sgst": 75.00,
+      "cess": 0.00
+    },
+    "cash_payable": {
+      "igst": 24375.00,
+      "cgst": 0.00,
+      "sgst": 0.00,
+      "cess": 0.00
+    },
+    "itc_carry_forward": {
+      "igst": 0.00,
+      "cgst": 0.00,
+      "sgst": 0.00,
+      "cess": 0.00
+    },
+    "utilisation": [
+      {
+        "from": "igst",
+        "to": "igst",
+        "amount": 1620.00
+      },
+      {
+        "from": "cgst",
+        "to": "cgst",
+        "amount": 1.50
+      },
+      {
+        "from": "cgst",
+        "to": "igst",
+        "amount": 73.50
+      },
+      {
+        "from": "sgst",
+        "to": "sgst",
+        "amount": 1.50
+      },
+      {
+        "from": "sgst",
+        "to": "igst",
+        "amount": 73.50
+      }
+    ],
+    "payable": [
+      {
+        "head": "igst",
+        "liability": 26142.00,
+        "paid_igst": 1620.00,
+        "paid_cgst": 73.50,
+        "paid_sgst": 73.50,
+        "paid_cess": 0.00,
+        "cash": 24375.00
+      },
+      {
+        "head": "cgst",
+        "liability": 1.50,
+        "paid_igst": 0.00,
+        "paid_cgst": 1.50,
+        "paid_sgst": 0.00,
+        "paid_cess": 0.00,
+        "cash": 0.00
+      },
+      {
+        "head": "sgst",
+        "liability": 1.50,
+        "paid_igst": 0.00,
+        "paid_cgst": 0.00,
+        "paid_sgst": 1.50,
+        "paid_cess": 0.00,
+        "cash": 0.00
+      },
+      {
+        "head": "cess",
+        "liability": 0.00,
+        "paid_igst": 0.00,
+        "paid_cgst": 0.00,
+        "paid_sgst": 0.00,
+        "paid_cess": 0.00,
+        "cash": 0.00
+      }
+    ],
+    "opening_itc": {
+      "igst": 0.00,
+      "cgst": 0.00,
+      "sgst": 0.00,
+      "cess": 0.00
+    },
+    "current_itc": {
+      "igst": 1620.00,
+      "cgst": 75.00,
+      "sgst": 75.00,
+      "cess": 0.00
+    },
+    "reverse_charge_cash": {
+      "igst": 0.00,
+      "cgst": 50.00,
+      "sgst": 50.00,
+      "cess": 0.00
+    },
+    "total_cash": {
+      "igst": 24375.00,
+      "cgst": 50.00,
+      "sgst": 50.00,
+      "cess": 0.00
+    }
+  },
+  "itc_books": {
+    "eligible": {
+      "iamt": 1620.00,
+      "camt": 75.00,
+      "samt": 75.00,
+      "csamt": 0.00
+    },
+    "ineligible_17_5": {
+      "iamt": 0.00,
+      "camt": 45.00,
+      "samt": 45.00,
+      "csamt": 0.00
+    },
+    "ineligible_other": {
+      "iamt": 0.00,
+      "camt": 0.00,
+      "samt": 0.00,
+      "csamt": 0.00
+    },
+    "reverse_charge": {
+      "iamt": 0.00,
+      "camt": 50.00,
+      "samt": 50.00,
+      "csamt": 0.00
+    },
+    "no_supplier_gstin": {
+      "iamt": 0.00,
+      "camt": 0.00,
+      "samt": 0.00,
+      "csamt": 0.00
+    },
+    "no_supplier_gstin_bills": 0,
+    "net_claimed": {
+      "iamt": 1620.00,
+      "camt": 75.00,
+      "samt": 75.00,
+      "csamt": 0.00
+    },
+    "purchase_bills": 3,
+    "purchase_returns": 1
+  },
+  "itc_2b": {
+    "books": {
+      "igst": 1620.00,
+      "cgst": 75.00,
+      "sgst": 75.00,
+      "cess": 0.00
+    },
+    "gstr2b": {
+      "igst": 0.00,
+      "cgst": 0.00,
+      "sgst": 0.00,
+      "cess": 0.00
+    },
+    "difference": {
+      "igst": 0.00,
+      "cgst": 0.00,
+      "sgst": 0.00,
+      "cess": 0.00
+    },
+    "imported": false,
+    "note": "no GSTR-2B imported for this period; import it to compare the books' ITC with the portal"
+  },
+  "summary": {
+    "documents": 19,
+    "excluded": 1,
+    "outward_reverse_charge": {
+      "txval": 2000.00,
+      "iamt": 0.00,
+      "camt": 50.00,
+      "samt": 50.00,
+      "csamt": 0.00
+    }
+  },
+  "warnings": [
+    "outward supplies under reverse charge (taxable 2000.00) are reported in GSTR-1 with rchrg=Y; the recipient pays that tax, so it is not in Table 3.1 or the set-off",
+    "ITC on purchase lines marked ineligible is shown in 4(A) and reversed in 4(B)(1), so it is never claimed (4(C) excludes it)"
+  ]
+}

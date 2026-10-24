@@ -36,6 +36,9 @@ type Store struct {
 	Address   *string `json:"address,omitempty"`
 	Phone     *string `json:"phone,omitempty"`
 	Active    bool    `json:"active"`
+	// RegistrationID is the GST registration the store bills under. An empty
+	// GSTIN/state/address on the store means "the registration's".
+	RegistrationID string `json:"registration_id"`
 }
 
 // User is a person, identified by phone.
@@ -126,6 +129,8 @@ type OnboardingInput struct {
 	StoreName    string `json:"store_name"`
 	OwnerName    string `json:"owner_name"`
 	Address      string `json:"address,omitempty"`
+	City         string `json:"city,omitempty"` // the IRP rejects e-invoices without city and PIN
+	PIN          string `json:"pin,omitempty"`
 }
 
 // Validate normalises and checks the onboarding form.
@@ -139,6 +144,13 @@ func (in *OnboardingInput) Validate() error {
 	}
 	if in.StoreName == "" {
 		in.StoreName = "Main Store"
+	}
+	in.Address, in.City, in.PIN = strings.TrimSpace(in.Address), strings.TrimSpace(in.City), strings.TrimSpace(in.PIN)
+	if err := validPIN(in.PIN); err != nil {
+		return err
+	}
+	if len(in.City) > 50 {
+		return httpx.Validation("city must be at most 50 characters")
 	}
 	if in.GSTIN != "" {
 		if err := gst.ValidateGSTIN(in.GSTIN); err != nil {
@@ -166,9 +178,14 @@ type StoreInput struct {
 	Address   string `json:"address,omitempty"`
 	Phone     string `json:"phone,omitempty"`
 	Active    *bool  `json:"active,omitempty"`
+	// RegistrationID moves the store to another of the tenant's registrations. On
+	// create it defaults to the registration of the store's GSTIN, else the primary;
+	// on update an empty value keeps the current one.
+	RegistrationID string `json:"registration_id,omitempty"`
 }
 
-// Validate checks a store.
+// Validate checks a store. state_code may be empty: it then comes from the
+// store's registration (the service fills it in).
 func (in *StoreInput) Validate() error {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Code = strings.ToUpper(strings.TrimSpace(in.Code))
@@ -187,9 +204,10 @@ func (in *StoreInput) Validate() error {
 			return httpx.Validation("state_code does not match GSTIN state")
 		}
 	}
-	if !gst.ValidState(in.StateCode) {
+	if in.StateCode != "" && !gst.ValidState(in.StateCode) {
 		return httpx.Validation("state_code must be a valid GST state code")
 	}
+	in.RegistrationID = strings.TrimSpace(in.RegistrationID)
 	return nil
 }
 
@@ -216,6 +234,9 @@ func (in *TenantInput) Validate() error {
 		}
 		if in.StateCode == "" {
 			in.StateCode = gst.StateCode(in.GSTIN)
+		}
+		if in.StateCode != gst.StateCode(in.GSTIN) {
+			return httpx.Validation("state_code does not match GSTIN state")
 		}
 	}
 	if !gst.ValidState(in.StateCode) {

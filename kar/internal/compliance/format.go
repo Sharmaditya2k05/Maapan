@@ -1,6 +1,9 @@
-// Package compliance builds statutory JSON payloads from Taraju invoices:
-// NIC e-Way Bill (bulk JSON v1.0.0621) and IRP e-Invoice (INV-01 schema v1.1).
-// Everything here is pure — no I/O — so it is unit tested directly.
+// Package compliance builds statutory JSON payloads from Taraju invoices —
+// NIC e-Way Bill (v1.0.0621) and IRP e-Invoice (INV-01 schema v1.1) — and runs
+// their lifecycle against a gsp.Client (Engine: generate, cancel, Part-B,
+// extend, events and outbox). The builders and rule tables (format.go,
+// einvoice.go, eway.go, rules.go) are pure and unit tested directly; engine*.go
+// does the I/O.
 package compliance
 
 import (
@@ -9,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/taraju/mool/gst"
 )
 
 // Party is one side of a movement of goods (seller/buyer, consignor/consignee).
@@ -90,19 +96,99 @@ func stateInt(code string) int { n, _ := strconv.Atoi(code); return n }
 
 func hsnInt(code string) int { n, _ := strconv.Atoi(strings.TrimSpace(code)); return n }
 
-// splitAddress breaks an address into two lines of at most 120 characters (NIC limit).
+// AddrLimit is the IRP / NIC limit for one address line.
+const AddrLimit = 100
+
+// Truncate cuts s to at most n characters (runes, not bytes), so Devanagari
+// and other multi-byte text is never split mid-character.
+func Truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return strings.TrimSpace(string(r[:n]))
+}
+
+func truncate(s string, n int) string { return Truncate(s, n) }
+
+// splitAddress breaks an address into two lines of at most AddrLimit
+// characters, preferring a comma near the limit; anything beyond two lines
+// is cut. Lengths are counted in characters.
 func splitAddress(a string) (string, string) {
-	a = strings.TrimSpace(a)
-	if len(a) <= 120 {
+	a = strings.Join(strings.Fields(a), " ")
+	r := []rune(a)
+	if len(r) <= AddrLimit {
 		return a, ""
 	}
-	cut := strings.LastIndex(a[:120], ",")
-	if cut < 40 {
-		cut = 120
+	cut := -1
+	for i := AddrLimit; i > AddrLimit*2/5; i-- {
+		if r[i] == ',' {
+			cut = i
+			break
+		}
 	}
-	rest := strings.TrimSpace(strings.TrimPrefix(a[cut:], ","))
-	if len(rest) > 120 {
-		rest = rest[:120]
+	if cut < 0 {
+		for i := AddrLimit; i > AddrLimit*2/5; i-- {
+			if r[i] == ' ' {
+				cut = i
+				break
+			}
+		}
 	}
-	return strings.TrimSpace(a[:cut]), rest
+	if cut < 0 {
+		cut = AddrLimit
+	}
+	first := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(string(r[:cut])), ","))
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(r[cut:])), ","))
+	return Truncate(first, AddrLimit), Truncate(rest, AddrLimit)
+}
+
+var nonDigit = regexp.MustCompile(`[^0-9]`)
+
+// Phone returns the digits of a phone number in the IRP's 6-12 digit form:
+// "+91 98765-43210" → "9876543210". Anything that cannot be made 6-12 digits
+// is dropped (the field is optional) rather than rejected by the IRP.
+func Phone(p string) string {
+	d := nonDigit.ReplaceAllString(p, "")
+	switch {
+	case len(d) == 12 && strings.HasPrefix(d, "91"):
+		d = d[2:]
+	case len(d) == 11 && strings.HasPrefix(d, "0"):
+		d = d[1:]
+	case len(d) == 13 && strings.HasPrefix(d, "091"):
+		d = d[3:]
+	}
+	if len(d) < 6 || len(d) > 12 {
+		return ""
+	}
+	return d
+}
+
+var trailingPin = regexp.MustCompile(`[\s-]*[1-9][0-9]{5}$`)
+
+// PlaceFromAddress guesses the city: the last comma-separated part that is
+// not a PIN code or a state name, with a trailing PIN code removed. Other
+// numbers stay ("Sector 15" is a place, not "Sector").
+func PlaceFromAddress(addr string) string {
+	parts := strings.Split(addr, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := strings.TrimSpace(parts[i])
+		if p == "" || pinOnly.MatchString(p) || isStateName(p) {
+			continue
+		}
+		return strings.TrimSpace(trailingPin.ReplaceAllString(p, ""))
+	}
+	return ""
+}
+
+var pinOnly = regexp.MustCompile(`^(PIN|Pin|pin)?[\s:-]*[1-9][0-9]{5}$`)
+
+func isStateName(s string) bool {
+	for _, n := range gst.States {
+		if strings.EqualFold(n, s) {
+			return true
+		}
+	}
+	return false
 }

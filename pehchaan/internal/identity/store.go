@@ -69,21 +69,16 @@ func getMembership(ctx context.Context, q db.Querier, tenantID, userID string) (
 		WHERE m.tenant_id=$1 AND m.user_id=$2`, tenantID, userID))
 }
 
-const storeCols = `id, tenant_id, name, code, state_code, gstin, address, phone, active`
+const storeCols = `id, tenant_id, name, code, state_code, gstin, address, phone, active, registration_id`
 
 func scanStore(row interface{ Scan(...any) error }) (Store, error) {
 	var s Store
-	err := row.Scan(&s.ID, &s.TenantID, &s.Name, &s.Code, &s.StateCode, &s.GSTIN, &s.Address, &s.Phone, &s.Active)
+	err := row.Scan(&s.ID, &s.TenantID, &s.Name, &s.Code, &s.StateCode, &s.GSTIN, &s.Address, &s.Phone, &s.Active, &s.RegistrationID)
 	return s, err
 }
 
 func getStore(ctx context.Context, q db.Querier, tenantID, id string) (Store, error) {
 	return scanStore(q.QueryRow(ctx, `SELECT `+storeCols+` FROM stores WHERE tenant_id=$1 AND id=$2`, tenantID, id))
-}
-
-// getStoreAnyTenant is for internal calls that only know the store id.
-func getStoreAnyTenant(ctx context.Context, q db.Querier, id string) (Store, error) {
-	return scanStore(q.QueryRow(ctx, `SELECT `+storeCols+` FROM stores WHERE id=$1`, id))
 }
 
 func listStores(ctx context.Context, q db.Querier, tenantID string) ([]Store, error) {
@@ -109,10 +104,11 @@ func firstActiveStore(ctx context.Context, q db.Querier, tenantID string) (strin
 	return id, err
 }
 
+// insertStore adds a store; in.RegistrationID must already be resolved.
 func insertStore(ctx context.Context, q db.Querier, tenantID string, in StoreInput) (Store, error) {
-	return scanStore(q.QueryRow(ctx, `INSERT INTO stores (tenant_id, name, code, state_code, gstin, address, phone)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING `+storeCols,
-		tenantID, in.Name, in.Code, in.StateCode, nilIfEmpty(in.GSTIN), nilIfEmpty(in.Address), nilIfEmpty(in.Phone)))
+	return scanStore(q.QueryRow(ctx, `INSERT INTO stores (tenant_id, name, code, state_code, gstin, address, phone, registration_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING `+storeCols,
+		tenantID, in.Name, in.Code, in.StateCode, nilIfEmpty(in.GSTIN), nilIfEmpty(in.Address), nilIfEmpty(in.Phone), in.RegistrationID))
 }
 
 func updateStore(ctx context.Context, q db.Querier, tenantID, id string, in StoreInput) (Store, error) {
@@ -121,8 +117,9 @@ func updateStore(ctx context.Context, q db.Querier, tenantID, id string, in Stor
 		active = *in.Active
 	}
 	return scanStore(q.QueryRow(ctx, `UPDATE stores SET name=$3, code=$4, state_code=$5, gstin=$6, address=$7, phone=$8,
-		active=$9, updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING `+storeCols,
-		tenantID, id, in.Name, in.Code, in.StateCode, nilIfEmpty(in.GSTIN), nilIfEmpty(in.Address), nilIfEmpty(in.Phone), active))
+		active=$9, registration_id=$10, updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING `+storeCols,
+		tenantID, id, in.Name, in.Code, in.StateCode, nilIfEmpty(in.GSTIN), nilIfEmpty(in.Address), nilIfEmpty(in.Phone), active,
+		in.RegistrationID))
 }
 
 const tenantCols = `id, business_name, gstin, pan, state_code, address, email, phone, status, created_at`

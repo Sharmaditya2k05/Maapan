@@ -25,19 +25,26 @@ import (
 	"github.com/taraju/mool/svc"
 )
 
-// fakes stands in for pehchaan, bahi, bhandar and lenden.
+// fakes stands in for pehchaan, bahi, bhandar and lenden. A store missing
+// from stores is served in the pre-registration shape (no registration_id),
+// as an older pehchaan would.
 type fakes struct {
 	srv      *httptest.Server
 	items    map[string]clients.Item
 	parties  map[string]clients.Party
+	stores   map[string]clients.Store
 	requests int
 }
 
 func newFakes(t *testing.T) *fakes {
 	t.Helper()
-	f := &fakes{items: map[string]clients.Item{}, parties: map[string]clients.Party{}}
+	f := &fakes{items: map[string]clients.Item{}, parties: map[string]clients.Party{}, stores: map[string]clients.Store{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /internal/v1/stores/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if st, ok := f.stores[r.PathValue("id")]; ok {
+			_ = json.NewEncoder(w).Encode(st)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(clients.Store{ID: r.PathValue("id"), Name: "Store", Code: "ST", StateCode: "27", GSTIN: "27AAPFU0939F1ZV"})
 	})
 	mux.HandleFunc("GET /internal/v1/parties/{id}", func(w http.ResponseWriter, r *http.Request) {

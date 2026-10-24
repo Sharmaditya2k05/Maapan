@@ -31,8 +31,10 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /internal/v1/invoices", v.Internal(httpx.H(s.list)))
 
 	mux.Handle("POST /events", events.Handler(v, trustIAM, events.Router{
-		events.PaymentCaptured: func(ctx context.Context, e events.Envelope) error { return s.ApplyPayment(ctx, e, false) },
-		events.PaymentRefunded: func(ctx context.Context, e events.Envelope) error { return s.ApplyPayment(ctx, e, true) },
+		events.PaymentCaptured:   func(ctx context.Context, e events.Envelope) error { return s.ApplyPayment(ctx, e, false) },
+		events.PaymentRefunded:   func(ctx context.Context, e events.Envelope) error { return s.ApplyPayment(ctx, e, true) },
+		events.EInvoiceGenerated: s.ApplyEInvoice,
+		events.EWayGenerated:     s.ApplyEWay,
 	}))
 }
 
@@ -107,8 +109,9 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
 	f := Filter{
 		DocType: httpx.Query(r, "doc_type"), StoreID: httpx.Query(r, "store_id"), PartyID: httpx.Query(r, "party_id"),
-		RefInvoiceID: httpx.Query(r, "ref_invoice_id"),
-		Status: httpx.Query(r, "status"), PaymentStatus: httpx.Query(r, "payment_status"),
+		RefInvoiceID: httpx.Query(r, "ref_invoice_id"), RegistrationID: httpx.Query(r, "registration_id"),
+		StoreGSTIN: httpx.Query(r, "store_gstin"),
+		Status:     httpx.Query(r, "status"), PaymentStatus: httpx.Query(r, "payment_status"),
 		From: httpx.Query(r, "from"), To: httpx.Query(r, "to"), Search: httpx.Query(r, "q"), Page: httpx.ParsePage(r),
 		IncludeLines: httpx.Query(r, "include") == "lines",
 	}

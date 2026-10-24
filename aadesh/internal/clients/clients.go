@@ -11,14 +11,27 @@ import (
 	"github.com/taraju/mool/svc"
 )
 
-// Store is the slice of pehchaan's store that billing needs.
+// Store is the slice of pehchaan's store that billing needs, with the GST
+// registration it bills under (PHASE3-CONTRACTS.md §1). gstin, state_code and
+// address are the registration's when the store has none of its own. An empty
+// RegistrationID means an older pehchaan: the store is then on the primary.
 type Store struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Code      string `json:"code"`
-	StateCode string `json:"state_code"`
-	GSTIN     string `json:"gstin"`
-	Address   string `json:"address"`
+	ID                  string `json:"id"`
+	TenantID            string `json:"tenant_id"`
+	Name                string `json:"name"`
+	Code                string `json:"code"`
+	StateCode           string `json:"state_code"`
+	GSTIN               string `json:"gstin"`
+	Address             string `json:"address"`
+	Phone               string `json:"phone"`
+	RegistrationID      string `json:"registration_id"`
+	LegalName           string `json:"legal_name"`
+	TradeName           string `json:"trade_name"`
+	City                string `json:"city"`
+	PIN                 string `json:"pin"`
+	Composition         bool   `json:"composition"`
+	EInvoiceApplicable  bool   `json:"einvoice_applicable"`
+	RegistrationPrimary bool   `json:"registration_primary"`
 }
 
 // Party is the slice of bahi's party that billing needs.

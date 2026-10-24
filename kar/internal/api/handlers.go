@@ -1,11 +1,14 @@
-// Package api is kar's HTTP surface: GSTIN, HSN, tax maths, e-Way bill and
-// e-Invoice JSON, GSTR-1/3B, tax settings and the event subscriber.
+// Package api is kar's HTTP surface: GSTIN, HSN master, tax maths, e-Invoice
+// (IRN) and e-Way bill lifecycle, tax settings, GSP credentials and the event
+// subscriber. GSTR-1 / GSTR-3B / 2B routes are registered by
+// kar/internal/returns (returns.Register), not here.
 package api
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,10 +17,10 @@ import (
 
 	"github.com/taraju/kar/internal/clients"
 	"github.com/taraju/kar/internal/compliance"
+	"github.com/taraju/kar/internal/creds"
 	"github.com/taraju/kar/internal/gstin"
-	"github.com/taraju/kar/internal/returns"
+	"github.com/taraju/kar/internal/hsn"
 	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
 	"github.com/taraju/mool/events"
 	"github.com/taraju/mool/gst"
 	"github.com/taraju/mool/httpx"
@@ -25,10 +28,16 @@ import (
 
 // Service holds kar's dependencies.
 type Service struct {
-	DB    *pgxpool.Pool
-	Dir   *clients.Directory
-	GSTIN *gstin.Service
-	Log   *slog.Logger
+	DB     *pgxpool.Pool
+	Dir    *clients.Directory
+	GSTIN  *gstin.Service
+	Log    *slog.Logger
+	Engine *compliance.Engine
+	HSN    *hsn.Store
+	Creds  *creds.Store
+	// HSNImportAllowed decides whether a tenant's admin may import into the
+	// shared HSN master via /v1/hsn/import (nil = nobody; ops use /internal).
+	HSNImportAllowed func(tenantID string) bool
 }
 
 // Routes registers every route.
@@ -43,24 +52,46 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 
 	mux.Handle("GET /v1/hsn", user(s.searchHSN))
 	mux.Handle("GET /v1/hsn/{code}", user(s.getHSN))
+	mux.Handle("POST /v1/hsn/import", user(s.importHSN, auth.PermSettingsManage))
+	mux.Handle("GET /internal/v1/hsn/{code}", internal(s.getHSN))
+	mux.Handle("POST /internal/v1/hsn/import", internal(s.importHSN))
 
 	mux.Handle("POST /v1/tax/compute", user(s.computeTax))
 	mux.Handle("POST /internal/v1/tax/compute", internal(s.computeTax))
 
 	mux.Handle("GET /v1/settings", user(s.getSettings, auth.PermReportRead))
 	mux.Handle("PUT /v1/settings", user(s.putSettings, auth.PermSettingsManage))
+	mux.Handle("GET /v1/settings/gsp-credentials", user(s.listGSPCredentials, auth.PermSettingsManage))
+	mux.Handle("GET /v1/settings/gsp-credentials/{gstin}", user(s.getGSPCredentials, auth.PermSettingsManage))
+	mux.Handle("PUT /v1/settings/gsp-credentials/{gstin}", user(s.putGSPCredentials, auth.PermSettingsManage))
+	mux.Handle("DELETE /v1/settings/gsp-credentials/{gstin}", user(s.deleteGSPCredentials, auth.PermSettingsManage))
 
-	mux.Handle("POST /v1/eway-bills/{invoice_id}/json", user(s.ewayJSON, auth.PermInvoiceRead))
-	mux.Handle("GET /v1/eway-bills/{invoice_id}", user(s.getStored("eway_bills"), auth.PermInvoiceRead))
+	mux.Handle("GET /v1/einvoices", user(s.listEInvoices, auth.PermReportRead))
+	mux.Handle("POST /v1/einvoices/{invoice_id}", user(s.generateEInvoice, auth.PermGSTFile))
+	mux.Handle("POST /v1/einvoices/{invoice_id}/cancel", user(s.cancelEInvoice, auth.PermGSTFile))
 	mux.Handle("POST /v1/einvoices/{invoice_id}/json", user(s.einvoiceJSON, auth.PermGSTFile))
-	mux.Handle("GET /v1/einvoices/{invoice_id}", user(s.getStored("einvoices"), auth.PermGSTFile))
+	mux.Handle("GET /v1/einvoices/{invoice_id}", user(s.getEInvoice, auth.PermInvoiceRead))
+	mux.Handle("GET /internal/v1/einvoices/{invoice_id}", internal(s.getEInvoice))
 
-	mux.Handle("GET /v1/returns/gstr1", user(s.gstr1, auth.PermReportRead))
-	mux.Handle("GET /v1/returns/gstr3b", user(s.gstr3b, auth.PermReportRead))
+	mux.Handle("GET /v1/eway-bills", user(s.listEWays, auth.PermReportRead))
+	mux.Handle("POST /v1/eway-bills/{invoice_id}", user(s.generateEWay, auth.PermInvoiceRead))
+	mux.Handle("PUT /v1/eway-bills/{invoice_id}/part-b", user(s.partBEWay, auth.PermInvoiceRead))
+	mux.Handle("POST /v1/eway-bills/{invoice_id}/extend", user(s.extendEWay, auth.PermInvoiceRead))
+	mux.Handle("POST /v1/eway-bills/{invoice_id}/cancel", user(s.cancelEWay, auth.PermInvoiceCancel))
+	mux.Handle("POST /v1/eway-bills/{invoice_id}/json", user(s.ewayJSON, auth.PermInvoiceRead))
+	mux.Handle("GET /v1/eway-bills/{invoice_id}", user(s.getEWay, auth.PermInvoiceRead))
 
 	mux.Handle("POST /events", events.Handler(v, trustIAM, events.Router{
-		events.TenantCreated: s.onTenantCreated,
+		events.TenantCreated:  s.onTenantCreated,
+		events.InvoiceCreated: s.Engine.OnInvoiceEvent,
+		events.NoteCreated:    s.Engine.OnInvoiceEvent,
 	}))
+}
+
+// CanAccessStore reports whether the caller may see documents of storeID
+// (store-scoped roles see only their stores; internal callers see all).
+func CanAccessStore(p *auth.Principal, storeID string) bool {
+	return p == nil || p.Claims == nil || storeID == "" || p.Claims.CanAccessStore(storeID)
 }
 
 // ---------- GSTIN ----------
@@ -86,53 +117,69 @@ func (s *Service) verifyGSTIN(w http.ResponseWriter, r *http.Request) error {
 
 // ---------- HSN ----------
 
-// HSN is one HSN/SAC master row.
-type HSN struct {
-	Code          string `json:"code"`
-	Description   string `json:"description"`
-	Kind          string `json:"kind"`
-	DefaultRateBP int    `json:"default_rate_bp"`
-	CessRateBP    int    `json:"cess_rate_bp"`
-}
-
 func (s *Service) searchHSN(w http.ResponseWriter, r *http.Request) error {
-	q := httpx.Query(r, "q")
-	limit := 20
-	if n, err := strconv.Atoi(httpx.Query(r, "limit")); err == nil && n > 0 && n <= 100 {
-		limit = n
+	on, err := s.HSN.ParseOn(httpx.Query(r, "on"))
+	if err != nil {
+		return httpx.Validation("%s", err.Error())
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT code, description, kind, default_rate_bp, cess_rate_bp FROM hsn_codes
-		WHERE $1 = '' OR code LIKE $1 || '%' OR description ILIKE '%' || $1 || '%'
-		ORDER BY (code LIKE $1 || '%') DESC, code LIMIT $2`, q, limit)
+	limit, _ := strconv.Atoi(httpx.Query(r, "limit"))
+	items, err := s.HSN.Search(r.Context(), httpx.Query(r, "q"), on, limit)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	out := []HSN{}
-	for rows.Next() {
-		var h HSN
-		if err := rows.Scan(&h.Code, &h.Description, &h.Kind, &h.DefaultRateBP, &h.CessRateBP); err != nil {
-			return err
-		}
-		out = append(out, h)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	return httpx.OK(w, map[string]any{"items": out})
+	return httpx.OK(w, map[string]any{"items": items, "on": on.Format("2006-01-02")})
 }
 
 func (s *Service) getHSN(w http.ResponseWriter, r *http.Request) error {
-	var h HSN
-	err := s.DB.QueryRow(r.Context(), `SELECT code, description, kind, default_rate_bp, cess_rate_bp FROM hsn_codes WHERE code=$1`,
-		r.PathValue("code")).Scan(&h.Code, &h.Description, &h.Kind, &h.DefaultRateBP, &h.CessRateBP)
-	if db.IsNotFound(err) {
-		return httpx.NotFound("HSN/SAC code not in master")
+	on, err := s.HSN.ParseOn(httpx.Query(r, "on"))
+	if err != nil {
+		return httpx.Validation("%s", err.Error())
 	}
+	c, ok, err := s.HSN.Get(r.Context(), r.PathValue("code"), on)
 	if err != nil {
 		return err
 	}
-	return httpx.OK(w, h)
+	if !ok {
+		return httpx.NotFound("HSN/SAC code not in master on %s", on.Format("2006-01-02"))
+	}
+	return httpx.OK(w, c)
+}
+
+// importHSN accepts the CSV as the raw body (text/csv) or as the "file" part
+// of a multipart form. ?source= labels the rows (default "import").
+func (s *Service) importHSN(w http.ResponseWriter, r *http.Request) error {
+	p := auth.FromContext(r.Context())
+	if !p.Internal && (s.HSNImportAllowed == nil || !s.HSNImportAllowed(p.TenantID)) {
+		return httpx.Forbidden("the HSN master is shared by every business; imports are limited to the platform operator (HSN_IMPORT_TENANTS)")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	var src io.Reader = r.Body
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			return httpx.Validation("multipart upload needs a \"file\" part with the CSV")
+		}
+		defer f.Close()
+		src = f
+	}
+	source := httpx.Query(r, "source")
+	if source == "" {
+		source = "import:" + p.UserID()
+	}
+	rep, err := s.HSN.Import(r.Context(), src, source)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			return httpx.Validation("CSV exceeds 20 MB")
+		}
+		if httpx.AsError(err).Status == 500 && !strings.HasPrefix(err.Error(), "line ") {
+			return httpx.Validation("%s", err.Error())
+		}
+		return err
+	}
+	s.Log.Info("hsn import", "by", p.UserID(), "tenant_id", p.TenantID, "rows", rep.Rows, "inserted", rep.Inserted,
+		"updated", rep.Updated, "closed", rep.Closed, "rejected", rep.Rejected)
+	return httpx.OK(w, rep)
 }
 
 // ---------- tax maths ----------
@@ -174,6 +221,9 @@ func (s *Service) putSettings(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if err := in.Validate(); err != nil {
+		return err
+	}
 	st, err := s.updateSettings(r.Context(), auth.FromContext(r.Context()).TenantID, in)
 	if err != nil {
 		return err
@@ -181,253 +231,266 @@ func (s *Service) putSettings(w http.ResponseWriter, r *http.Request) error {
 	return httpx.OK(w, st)
 }
 
-// ---------- e-Way bill / e-Invoice ----------
+// ---------- e-Invoice ----------
 
 // loadInvoice fetches the invoice and enforces store scoping.
-func (s *Service) loadInvoice(ctx context.Context, p *auth.Principal, id string) (clients.Invoice, error) {
-	inv, err := s.Dir.Invoice(ctx, id)
+func (s *Service) loadInvoice(r *http.Request) (clients.Invoice, error) {
+	p := auth.FromContext(r.Context())
+	inv, err := s.Dir.Invoice(r.Context(), r.PathValue("invoice_id"))
 	if err != nil {
 		return inv, err
 	}
-	if p.Claims != nil && !p.Claims.CanAccessStore(inv.StoreID) {
+	if !CanAccessStore(p, inv.StoreID) {
 		return inv, httpx.NotFound("invoice not found")
 	}
 	return inv, nil
 }
 
-// ourParty describes the store (seller/consignor) from pehchaan + tax settings.
-func (s *Service) ourParty(ctx context.Context, p *auth.Principal, storeID string, st *Settings) (compliance.Party, error) {
-	store, err := s.Dir.Store(ctx, storeID)
-	if err != nil {
-		return compliance.Party{}, err
-	}
-	legal := store.Name
-	if t, err := s.Dir.Tenant(ctx, p.TenantID); err == nil && t.BusinessName != "" {
-		legal = t.BusinessName
-	}
-	g := gst.Normalize(store.GSTIN)
-	if g == "" {
-		g = st.GSTIN
-	}
-	state := store.StateCode
-	if state == "" {
-		state = st.StateCode
-	}
-	return compliance.Party{GSTIN: g, LegalName: legal, TradeName: store.Name, Address1: store.Address,
-		Place: placeFromAddress(store.Address), Pincode: compliance.PincodeFromAddress(store.Address),
-		StateCode: state, Phone: store.Phone}, nil
+type einvoiceInput struct {
+	Export *compliance.EInvExport `json:"export,omitempty"` // shipping bill / port / country for exports
 }
 
-// counterparty describes the invoice's party, enriched from bahi when possible.
-func (s *Service) counterparty(ctx context.Context, inv clients.Invoice) compliance.Party {
-	cp := compliance.Party{GSTIN: gst.Normalize(inv.PartyGSTIN), LegalName: inv.PartyName, StateCode: inv.PartyState, Phone: inv.PartyPhone}
-	if cp.StateCode == "" {
-		cp.StateCode = inv.PlaceOfSupply
+func decodeOptional(r *http.Request, dst any) error {
+	if r.ContentLength == 0 {
+		return nil
 	}
-	if inv.PartyID != "" {
-		if party, err := s.Dir.Party(ctx, inv.PartyID); err == nil {
-			cp.Address1 = party.Address
-			cp.Place = placeFromAddress(party.Address)
-			cp.Pincode = compliance.PincodeFromAddress(party.Address)
-			if party.StateCode != "" {
-				cp.StateCode = party.StateCode
+	return httpx.Decode(r, dst)
+}
+
+func (s *Service) generateEInvoice(w http.ResponseWriter, r *http.Request) error {
+	var in einvoiceInput
+	if err := decodeOptional(r, &in); err != nil {
+		return err
+	}
+	inv, err := s.loadInvoice(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	rec, err := s.Engine.GenerateEInvoice(r.Context(), compliance.GenerateRequest{TenantID: p.TenantID, Invoice: inv,
+		By: p.UserID(), Trigger: "manual", Export: in.Export})
+	var na *compliance.NotApplicableError
+	if errors.As(err, &na) {
+		return httpx.Validation("%s", na.Reason)
+	}
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+type cancelInput struct {
+	ReasonCode int    `json:"reason_code"`
+	Remark     string `json:"remark"`
+}
+
+func (s *Service) cancelEInvoice(w http.ResponseWriter, r *http.Request) error {
+	var in cancelInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	cur, ok, err := s.Engine.EInvoice(r.Context(), p.TenantID, r.PathValue("invoice_id"))
+	if err != nil {
+		return err
+	}
+	if !ok || !CanAccessStore(p, cur.StoreID) {
+		return httpx.NotFound("no e-invoice for this invoice")
+	}
+	rec, err := s.Engine.CancelEInvoice(r.Context(), p.TenantID, cur.InvoiceID, in.ReasonCode, in.Remark, p.UserID())
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+func (s *Service) getEInvoice(w http.ResponseWriter, r *http.Request) error {
+	p := auth.FromContext(r.Context())
+	rec, ok, err := s.Engine.EInvoice(r.Context(), p.TenantID, r.PathValue("invoice_id"))
+	if err != nil {
+		return err
+	}
+	if !ok || !CanAccessStore(p, rec.StoreID) {
+		return httpx.NotFound("no e-invoice for this invoice yet")
+	}
+	return httpx.OK(w, rec)
+}
+
+func listFilter(r *http.Request) compliance.EInvoiceFilter {
+	pg := httpx.ParsePage(r)
+	f := compliance.EInvoiceFilter{Status: httpx.Query(r, "status"), From: httpx.Query(r, "from"), To: httpx.Query(r, "to"),
+		GSTIN: httpx.Query(r, "gstin"), Limit: pg.Limit, Offset: pg.Offset}
+	if p := auth.FromContext(r.Context()); p != nil && p.Claims != nil && auth.StoreScoped(p.Claims.Role) {
+		f.StoreIDs = append([]string{}, p.Claims.Stores...)
+	}
+	return f
+}
+
+func validListDates(f compliance.EInvoiceFilter) error {
+	for _, d := range []string{f.From, f.To} {
+		if d != "" {
+			if _, err := compliance.NICDate(d); err != nil {
+				return httpx.Validation("from / to must be YYYY-MM-DD")
 			}
-		} else {
-			s.Log.Warn("party lookup failed; using invoice snapshot", "party_id", inv.PartyID, "error", err.Error())
 		}
 	}
-	return cp
+	return nil
 }
 
+func (s *Service) listEInvoices(w http.ResponseWriter, r *http.Request) error {
+	f := listFilter(r)
+	if err := validListDates(f); err != nil {
+		return err
+	}
+	items, total, err := s.Engine.ListEInvoices(r.Context(), auth.FromContext(r.Context()).TenantID, f)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, httpx.List[compliance.EInvoiceRecord]{Items: items, Total: total, Limit: f.Limit, Offset: f.Offset})
+}
+
+// einvoiceJSON returns the IRP payload for download without registering it.
+func (s *Service) einvoiceJSON(w http.ResponseWriter, r *http.Request) error {
+	var in einvoiceInput
+	if err := decodeOptional(r, &in); err != nil {
+		return err
+	}
+	inv, err := s.loadInvoice(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	payload, seller, err := s.Engine.BuildFor(r.Context(), p.TenantID, inv, in.Export)
+	if err != nil {
+		return err
+	}
+	resp := map[string]any{"invoice_id": inv.ID, "payload": payload, "warnings": []string{}}
+	if ok, reason := compliance.EInvoiceApplicable(seller.Applicable, inv); !ok {
+		resp["warnings"] = []string{reason}
+	}
+	return httpx.OK(w, resp)
+}
+
+// ---------- e-Way bill ----------
+
+func (s *Service) generateEWay(w http.ResponseWriter, r *http.Request) error {
+	var t compliance.Transport
+	if err := httpx.Decode(r, &t); err != nil {
+		return err
+	}
+	inv, err := s.loadInvoice(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	rec, err := s.Engine.GenerateEWay(r.Context(), p.TenantID, inv, t, p.UserID())
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+// ewayForCaller loads the stored bill and enforces store scoping.
+func (s *Service) ewayForCaller(r *http.Request) (compliance.EWayRecord, error) {
+	p := auth.FromContext(r.Context())
+	rec, ok, err := s.Engine.EWay(r.Context(), p.TenantID, r.PathValue("invoice_id"))
+	if err != nil {
+		return rec, err
+	}
+	if !ok || !CanAccessStore(p, rec.StoreID) {
+		return rec, httpx.NotFound("no e-way bill for this invoice yet")
+	}
+	return rec, nil
+}
+
+func (s *Service) partBEWay(w http.ResponseWriter, r *http.Request) error {
+	var in compliance.PartBInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	cur, err := s.ewayForCaller(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	rec, err := s.Engine.UpdatePartB(r.Context(), p.TenantID, cur.InvoiceID, in, p.UserID())
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+func (s *Service) extendEWay(w http.ResponseWriter, r *http.Request) error {
+	var in compliance.ExtendInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	cur, err := s.ewayForCaller(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	rec, err := s.Engine.ExtendEWay(r.Context(), p.TenantID, cur.InvoiceID, in, p.UserID())
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+func (s *Service) cancelEWay(w http.ResponseWriter, r *http.Request) error {
+	var in cancelInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	cur, err := s.ewayForCaller(r)
+	if err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	rec, err := s.Engine.CancelEWay(r.Context(), p.TenantID, cur.InvoiceID, in.ReasonCode, in.Remark, p.UserID())
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+func (s *Service) getEWay(w http.ResponseWriter, r *http.Request) error {
+	rec, err := s.ewayForCaller(r)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, rec)
+}
+
+func (s *Service) listEWays(w http.ResponseWriter, r *http.Request) error {
+	f := listFilter(r)
+	if err := validListDates(f); err != nil {
+		return err
+	}
+	items, total, err := s.Engine.ListEWays(r.Context(), auth.FromContext(r.Context()).TenantID, f)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, httpx.List[compliance.EWayRecord]{Items: items, Total: total, Limit: f.Limit, Offset: f.Offset})
+}
+
+// ewayJSON returns the NIC bulk JSON for download (offline upload) without generating.
 func (s *Service) ewayJSON(w http.ResponseWriter, r *http.Request) error {
 	var t compliance.Transport
 	if err := httpx.Decode(r, &t); err != nil {
 		return err
 	}
-	ctx, p := r.Context(), auth.FromContext(r.Context())
-	inv, err := s.loadInvoice(ctx, p, r.PathValue("invoice_id"))
+	inv, err := s.loadInvoice(r)
 	if err != nil {
 		return err
 	}
-	st, err := s.settings(ctx, p.TenantID)
+	p := auth.FromContext(r.Context())
+	file, warnings, below, _, err := s.Engine.BuildEWayFor(r.Context(), p.TenantID, inv, t)
 	if err != nil {
 		return err
 	}
-	our, err := s.ourParty(ctx, p, inv.StoreID, st)
-	if err != nil {
-		return err
-	}
-	file, warnings, below, err := compliance.BuildEWay(inv, our, s.counterparty(ctx, inv), t, st.EWayThresholdPaise)
-	if err != nil {
-		return httpx.Validation("%s", err.Error())
-	}
-	if warnings == nil {
-		warnings = []string{}
-	}
-	payload, _ := json.Marshal(file)
-	warn, _ := json.Marshal(warnings)
-	if _, err := s.DB.Exec(ctx, `INSERT INTO eway_bills (tenant_id, invoice_id, invoice_number, payload, below_threshold, warnings, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (tenant_id, invoice_id) DO UPDATE SET payload=EXCLUDED.payload, below_threshold=EXCLUDED.below_threshold,
-			warnings=EXCLUDED.warnings, created_by=EXCLUDED.created_by, created_at=now()`,
-		p.TenantID, inv.ID, inv.Number, payload, below, warn, p.UserID()); err != nil {
-		return err
+	if err := compliance.CheckDocAge(inv.InvoiceDate, s.Engine.Clock()); err != nil {
+		warnings = append(warnings, err.Error())
 	}
 	return httpx.OK(w, map[string]any{"invoice_id": inv.ID, "below_threshold": below, "warnings": warnings, "payload": file})
-}
-
-type einvoiceInput struct {
-	SellerPincode int `json:"seller_pincode,omitempty"`
-	BuyerPincode  int `json:"buyer_pincode,omitempty"`
-}
-
-func (s *Service) einvoiceJSON(w http.ResponseWriter, r *http.Request) error {
-	var in einvoiceInput
-	if r.ContentLength != 0 {
-		if err := httpx.Decode(r, &in); err != nil {
-			return err
-		}
-	}
-	ctx, p := r.Context(), auth.FromContext(r.Context())
-	inv, err := s.loadInvoice(ctx, p, r.PathValue("invoice_id"))
-	if err != nil {
-		return err
-	}
-	st, err := s.settings(ctx, p.TenantID)
-	if err != nil {
-		return err
-	}
-	seller, err := s.ourParty(ctx, p, inv.StoreID, st)
-	if err != nil {
-		return err
-	}
-	buyer := s.counterparty(ctx, inv)
-	if in.SellerPincode != 0 {
-		seller.Pincode = in.SellerPincode
-	}
-	if in.BuyerPincode != 0 {
-		buyer.Pincode = in.BuyerPincode
-	}
-	var orig *clients.Invoice
-	if inv.RefInvoiceID != "" {
-		if o, err := s.Dir.Invoice(ctx, inv.RefInvoiceID); err == nil {
-			orig = &o
-		}
-	}
-	e, err := compliance.BuildEInvoice(inv, seller, buyer, orig)
-	if err != nil {
-		return httpx.Validation("%s", err.Error())
-	}
-	payload, _ := json.Marshal(e)
-	if _, err := s.DB.Exec(ctx, `INSERT INTO einvoices (tenant_id, invoice_id, invoice_number, payload, created_by)
-		VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (tenant_id, invoice_id) DO UPDATE SET payload=EXCLUDED.payload, created_by=EXCLUDED.created_by, created_at=now()`,
-		p.TenantID, inv.ID, inv.Number, payload, p.UserID()); err != nil {
-		return err
-	}
-	resp := map[string]any{"invoice_id": inv.ID, "payload": e}
-	if !st.EInvoiceEnabled {
-		resp["warnings"] = []string{"e-invoicing is not enabled in tax settings; generate only if your turnover requires it"}
-	}
-	return httpx.OK(w, resp)
-}
-
-// getStored returns the last generated payload from eway_bills or einvoices.
-func (s *Service) getStored(table string) httpx.HandlerFunc {
-	q := `SELECT invoice_number, payload, created_by, created_at FROM ` + table + ` WHERE tenant_id=$1 AND invoice_id=$2`
-	return func(w http.ResponseWriter, r *http.Request) error {
-		p := auth.FromContext(r.Context())
-		var number, by string
-		var payload json.RawMessage
-		var at any
-		err := s.DB.QueryRow(r.Context(), q, p.TenantID, r.PathValue("invoice_id")).Scan(&number, &payload, &by, &at)
-		if db.IsNotFound(err) {
-			return httpx.NotFound("nothing generated for this invoice yet")
-		}
-		if err != nil {
-			return err
-		}
-		return httpx.OK(w, map[string]any{"invoice_number": number, "payload": payload, "created_by": by, "created_at": at})
-	}
-}
-
-// ---------- returns ----------
-
-func (s *Service) periodData(r *http.Request) (string, *Settings, []clients.Invoice, error) {
-	period := httpx.Query(r, "period")
-	from, to, err := returns.Period(period)
-	if err != nil {
-		return "", nil, nil, httpx.Validation("%s", err.Error())
-	}
-	ctx, p := r.Context(), auth.FromContext(r.Context())
-	st, err := s.settings(ctx, p.TenantID)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	invs, err := s.Dir.InvoicesBetween(ctx, from, to)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	// One GSTIN = one return: a multi-state business files per registration.
-	if g := gst.Normalize(httpx.Query(r, "gstin")); g != "" {
-		st.GSTIN, st.StateCode = g, gst.StateCode(g)
-	}
-	filtered := invs[:0]
-	for _, inv := range invs {
-		if inv.StoreState == "" || inv.StoreState == st.StateCode {
-			filtered = append(filtered, inv)
-		}
-	}
-	return period, st, filtered, nil
-}
-
-func (s *Service) gstr1(w http.ResponseWriter, r *http.Request) error {
-	period, st, invs, err := s.periodData(r)
-	if err != nil {
-		return err
-	}
-	g := returns.BuildGSTR1(st.GSTIN, period, st.StateCode, st.B2CLThresholdPaise, invs)
-	if httpx.Query(r, "format") == "csv" {
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="GSTR1_`+period+`.csv"`)
-		return returns.WriteGSTR1CSV(w, g)
-	}
-	return httpx.OK(w, g)
-}
-
-func (s *Service) gstr3b(w http.ResponseWriter, r *http.Request) error {
-	period, st, invs, err := s.periodData(r)
-	if err != nil {
-		return err
-	}
-	g := returns.BuildGSTR3B(st.GSTIN, period, st.StateCode, invs)
-	if httpx.Query(r, "format") == "csv" {
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="GSTR3B_`+period+`.csv"`)
-		return returns.WriteGSTR3BCSV(w, g)
-	}
-	return httpx.OK(w, g)
-}
-
-// placeFromAddress guesses the city: the last comma-separated part that is not
-// a PIN code or a state name.
-func placeFromAddress(addr string) string {
-	parts := strings.Split(addr, ",")
-	for i := len(parts) - 1; i >= 0; i-- {
-		p := strings.TrimSpace(parts[i])
-		if p == "" || compliance.PincodeFromAddress(p) != 0 && len(p) <= 8 || isStateName(p) {
-			continue
-		}
-		return strings.TrimSpace(strings.TrimRight(p, "0123456789- "))
-	}
-	return ""
-}
-
-func isStateName(s string) bool {
-	for _, n := range gst.States {
-		if strings.EqualFold(n, s) {
-			return true
-		}
-	}
-	return false
 }

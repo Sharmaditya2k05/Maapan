@@ -34,6 +34,12 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
 	mux.Handle("POST /v1/stores", user(s.createStore, auth.PermSettingsManage))
 	mux.Handle("PUT /v1/stores/{id}", user(s.updateStore, auth.PermSettingsManage))
 
+	mux.Handle("GET /v1/registrations", user(s.listRegistrations))
+	mux.Handle("GET /v1/registrations/{id}", user(s.getRegistration))
+	mux.Handle("POST /v1/registrations", user(s.createRegistration, auth.PermSettingsManage))
+	mux.Handle("PUT /v1/registrations/{id}", user(s.updateRegistration, auth.PermSettingsManage))
+	mux.Handle("DELETE /v1/registrations/{id}", user(s.deleteRegistration, auth.PermSettingsManage))
+
 	mux.Handle("GET /v1/users", user(s.listUsers, auth.PermUserManage))
 	mux.Handle("POST /v1/users", user(s.inviteUser, auth.PermUserManage))
 	mux.Handle("PATCH /v1/users/{id}", user(s.updateUser, auth.PermUserManage))
@@ -41,6 +47,8 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
 
 	mux.Handle("GET /internal/v1/stores/{id}", v.Internal(httpx.H(s.internalStore)))
 	mux.Handle("GET /internal/v1/tenants/{id}", v.Internal(httpx.H(s.internalTenant)))
+	mux.Handle("GET /internal/v1/registrations", v.Internal(httpx.H(s.internalRegistrations)))
+	mux.Handle("GET /internal/v1/registrations/{id}", v.Internal(httpx.H(s.internalRegistration)))
 }
 
 func (s *Service) otpRequest(w http.ResponseWriter, r *http.Request) error {
@@ -135,20 +143,10 @@ func (s *Service) putTenant(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	p := auth.FromContext(r.Context())
-	var pan *string
-	if in.GSTIN != "" {
-		x := in.GSTIN[2:12]
-		pan = &x
-	}
-	t, err := scanTenant(s.DB.QueryRow(r.Context(), `UPDATE tenants SET business_name=$2, gstin=$3, pan=COALESCE($4, pan),
-		state_code=$5, address=$6, email=$7, phone=$8, updated_at=now() WHERE id=$1 RETURNING `+tenantCols,
-		p.TenantID, in.BusinessName, nilIfEmpty(in.GSTIN), pan, in.StateCode, nilIfEmpty(in.Address),
-		nilIfEmpty(in.Email), nilIfEmpty(in.Phone)))
+	t, err := s.UpdateTenant(r.Context(), auth.FromContext(r.Context()), in)
 	if err != nil {
-		return notFound(err, "tenant")
+		return err
 	}
-	audit(r.Context(), s.DB, &p.TenantID, p.UserID(), "tenant.update", p.TenantID, httpx.ClientIP(r), nil)
 	return httpx.OK(w, t)
 }
 
@@ -185,15 +183,10 @@ func (s *Service) createStore(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	p := auth.FromContext(r.Context())
-	st, err := insertStore(r.Context(), s.DB, p.TenantID, in)
-	if db.IsUniqueViolation(err) {
-		return httpx.Conflict("store code %s already exists", in.Code)
-	}
+	st, err := s.CreateStore(r.Context(), auth.FromContext(r.Context()), in)
 	if err != nil {
 		return err
 	}
-	audit(r.Context(), s.DB, &p.TenantID, p.UserID(), "store.create", st.ID, httpx.ClientIP(r), map[string]any{"code": st.Code})
 	return httpx.Created(w, st)
 }
 
@@ -202,15 +195,10 @@ func (s *Service) updateStore(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	p := auth.FromContext(r.Context())
-	st, err := updateStore(r.Context(), s.DB, p.TenantID, r.PathValue("id"), in)
-	if db.IsUniqueViolation(err) {
-		return httpx.Conflict("store code %s already exists", in.Code)
-	}
+	st, err := s.UpdateStore(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), in)
 	if err != nil {
-		return notFound(err, "store")
+		return err
 	}
-	audit(r.Context(), s.DB, &p.TenantID, p.UserID(), "store.update", st.ID, httpx.ClientIP(r), nil)
 	return httpx.OK(w, st)
 }
 
@@ -254,20 +242,18 @@ func (s *Service) removeUser(w http.ResponseWriter, r *http.Request) error {
 	return httpx.NoContent(w)
 }
 
-// internalStore serves GET /internal/v1/stores/{id} (ARCHITECTURE.md §6).
+// internalStore serves GET /internal/v1/stores/{id} (ARCHITECTURE.md §6,
+// PHASE3-CONTRACTS.md §1): the store plus its registration.
 func (s *Service) internalStore(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
-	st, err := getStoreAnyTenant(r.Context(), s.DB, r.PathValue("id"))
+	st, err := s.InternalStore(r.Context(), r.PathValue("id"))
 	if err != nil {
-		return notFound(err, "store")
+		return err
 	}
 	if p.TenantID != "" && !strings.EqualFold(p.TenantID, st.TenantID) {
 		return httpx.NotFound("store not found")
 	}
-	return httpx.OK(w, map[string]any{
-		"id": st.ID, "tenant_id": st.TenantID, "name": st.Name, "code": st.Code, "state_code": st.StateCode,
-		"gstin": deref(st.GSTIN), "address": deref(st.Address), "phone": deref(st.Phone),
-	})
+	return httpx.OK(w, st)
 }
 
 func (s *Service) internalTenant(w http.ResponseWriter, r *http.Request) error {

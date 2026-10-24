@@ -13,6 +13,7 @@ substitutions:
   _VPC_NETWORK: taraju-vpc
   _VPC_SUBNET: taraju-run-subnet
   _GSP_BASE_URL: https://api.your-gsp.example   # set on the trigger once the GSP contract is signed
+  _GSP_PROVIDER: simulator                     # http on staging/prod triggers (prod refuses the simulator); verify paths in the GSP sandbox
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -67,8 +68,8 @@ steps:
       - --concurrency=80
       - --min-instances=0           # not on the billing hot path (aadesh runs GST maths in-process)
       - --max-instances=5
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,AADESH_URL=https://aadesh-$PROJECT_NUMBER.${_REGION}.run.app,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,GSTIN_PROVIDER=gsp,GSP_BASE_URL=${_GSP_BASE_URL}
-      - --update-secrets=DATABASE_URL=kar-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,GSP_CLIENT_ID=gsp-client-id:latest,GSP_CLIENT_SECRET=gsp-client-secret:latest,REDIS_URL=redis-url:latest
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,AADESH_URL=https://aadesh-$PROJECT_NUMBER.${_REGION}.run.app,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,GSTIN_PROVIDER=gsp,GSP_PROVIDER=${_GSP_PROVIDER},GSP_BASE_URL=${_GSP_BASE_URL}
+      - --update-secrets=DATABASE_URL=kar-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,GSP_CLIENT_ID=gsp-client-id:latest,GSP_CLIENT_SECRET=gsp-client-secret:latest,CREDENTIALS_KEY=kar-credentials-key:latest,REDIS_URL=redis-url:latest
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

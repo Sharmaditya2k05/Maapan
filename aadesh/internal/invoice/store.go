@@ -17,7 +17,9 @@ const invoiceCols = `id, store_id, doc_type, number, fy, invoice_date, due_date,
 	ref_invoice_id, party_id, party_name, party_phone, party_gstin, party_state, store_state, store_gstin, place_of_supply,
 	inter_state, supply_category, reverse_charge, status, payment_status, taxable_paise, discount_paise, invoice_discount_paise,
 	cgst_paise, sgst_paise, igst_paise, cess_paise, tcs_paise, round_off_paise, grand_total_paise, paid_paise, change_paise,
-	credited_paise, irn, notes, client_uuid, created_by, created_at, cancelled_at, cancel_reason`
+	credited_paise, irn, notes, client_uuid, created_by, created_at, cancelled_at, cancel_reason, registration_id,
+	ack_no, ack_date, signed_qr, einvoice_status, einvoice_error, einvoice_error_code, irn_cancelled_at,
+	ewb_no, ewb_date, ewb_valid_upto, ewb_status, ewb_error, ewb_vehicle_no, ewb_distance_km`
 
 func scanInvoice(row pgx.Row) (*Invoice, error) {
 	var inv Invoice
@@ -28,7 +30,10 @@ func scanInvoice(row pgx.Row) (*Invoice, error) {
 		&inv.StoreGSTIN, &inv.PlaceOfSupply, &inv.InterState, &inv.SupplyCategory, &inv.ReverseCharge, &inv.Status,
 		&inv.PaymentStatus, &inv.TaxablePaise, &inv.DiscountPaise, &inv.InvoiceDiscountPaise, &inv.CGSTPaise, &inv.SGSTPaise,
 		&inv.IGSTPaise, &inv.CessPaise, &inv.TCSPaise, &inv.RoundOffPaise, &inv.GrandTotalPaise, &inv.PaidPaise, &inv.ChangePaise,
-		&inv.CreditedPaise, &inv.IRN, &inv.Notes, &inv.ClientUUID, &inv.CreatedBy, &inv.CreatedAt, &inv.CancelledAt, &inv.CancelReason)
+		&inv.CreditedPaise, &inv.IRN, &inv.Notes, &inv.ClientUUID, &inv.CreatedBy, &inv.CreatedAt, &inv.CancelledAt, &inv.CancelReason,
+		&inv.RegistrationID, &inv.AckNo, &inv.AckDate, &inv.SignedQR, &inv.EInvoiceStatus, &inv.EInvoiceError, &inv.EInvoiceErrorCode,
+		&inv.IRNCancelledAt, &inv.EWBNo, &inv.EWBDate, &inv.EWBValidUpto, &inv.EWBStatus, &inv.EWBError, &inv.EWBVehicleNo,
+		&inv.EWBDistanceKM)
 	if err != nil {
 		return nil, err
 	}
@@ -65,15 +70,15 @@ func dateOrNil(s string) *time.Time {
 	return &t
 }
 
-func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID string, seq int64, in CreateInput, inv *Invoice) error {
+func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID string, seq int64, regKey string, in CreateInput, inv *Invoice) error {
 	err := tx.QueryRow(ctx, `INSERT INTO invoices (
 		tenant_id, store_id, doc_type, number, seq_no, fy, invoice_date, due_date, supplier_invoice_no, supplier_invoice_date,
 		ref_invoice_id, party_id, party_name, party_phone, party_gstin, party_state, store_state, store_gstin, place_of_supply,
 		inter_state, supply_category, reverse_charge, payment_status, taxable_paise, discount_paise, invoice_discount_paise,
 		cgst_paise, sgst_paise, igst_paise, cess_paise, tcs_paise, round_off_paise, grand_total_paise, paid_paise, change_paise,
-		notes, client_uuid, device_id, created_by, client_created_at)
+		notes, client_uuid, device_id, created_by, client_created_at, registration_id, registration_key)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-		        $31,$32,$33,$34,$35,$36,$37,$38,$39,$40)
+		        $31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
 		RETURNING id, created_at`,
 		tenantID, inv.StoreID, inv.DocType, inv.Number, seq, inv.FY, inv.InvoiceDate, dateOrNil(deref(inv.DueDate)),
 		inv.SupplierInvoiceNo, dateOrNil(deref(inv.SupplierInvoiceDate)), inv.RefInvoiceID, inv.PartyID, inv.PartyName,
@@ -81,6 +86,7 @@ func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID string, seq int64, i
 		inv.SupplyCategory, inv.ReverseCharge, inv.PaymentStatus, inv.TaxablePaise, inv.DiscountPaise, inv.InvoiceDiscountPaise,
 		inv.CGSTPaise, inv.SGSTPaise, inv.IGSTPaise, inv.CessPaise, inv.TCSPaise, inv.RoundOffPaise, inv.GrandTotalPaise,
 		inv.PaidPaise, inv.ChangePaise, inv.Notes, inv.ClientUUID, nilIfEmpty(in.DeviceID), inv.CreatedBy, in.ClientCreatedAt,
+		inv.RegistrationID, regKey,
 	).Scan(&inv.ID, &inv.CreatedAt)
 	if err != nil {
 		return err
@@ -89,11 +95,11 @@ func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID string, seq int64, i
 	for _, l := range inv.Lines {
 		batch.Queue(`INSERT INTO invoice_lines (invoice_id, line_no, item_id, name, hsn, unit, batch_no, qty,
 			unit_price_paise, discount_paise, discount_bp, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, tax_category,
-			price_includes_tax, taxable_paise, cgst_paise, sgst_paise, igst_paise, cess_paise, total_paise)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+			price_includes_tax, taxable_paise, cgst_paise, sgst_paise, igst_paise, cess_paise, total_paise, itc_eligibility)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
 			inv.ID, l.LineNo, l.ItemID, l.Name, l.HSN, l.Unit, l.BatchNo, l.Qty, l.UnitPricePaise, l.DiscountPaise, l.DiscountBP,
 			l.TaxRateBP, l.CessRateBP, l.CessPerUnitPaise, l.TaxCategory, l.PriceIncludesTax, l.TaxablePaise, l.CGSTPaise,
-			l.SGSTPaise, l.IGSTPaise, l.CessPaise, l.TotalPaise)
+			l.SGSTPaise, l.IGSTPaise, l.CessPaise, l.TotalPaise, l.ITCEligibility)
 	}
 	for _, t := range inv.Tenders {
 		batch.Queue(`INSERT INTO invoice_tenders (invoice_id, mode, amount_paise, reference, payment_request_id) VALUES ($1,$2,$3,$4,$5)`,
@@ -104,13 +110,15 @@ func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID string, seq int64, i
 
 const lineCols = `line_no, item_id, name, hsn, unit, batch_no, qty::float8, unit_price_paise, discount_paise, discount_bp,
 	tax_rate_bp, cess_rate_bp, cess_per_unit_paise, tax_category, price_includes_tax, taxable_paise, cgst_paise, sgst_paise,
-	igst_paise, cess_paise, total_paise`
+	igst_paise, cess_paise, total_paise, itc_eligibility`
 
-func scanLine(rows pgx.Rows, l *Line) error {
-	return rows.Scan(&l.LineNo, &l.ItemID, &l.Name, &l.HSN, &l.Unit, &l.BatchNo, &l.Qty, &l.UnitPricePaise, &l.DiscountPaise,
+func lineDest(l *Line) []any {
+	return []any{&l.LineNo, &l.ItemID, &l.Name, &l.HSN, &l.Unit, &l.BatchNo, &l.Qty, &l.UnitPricePaise, &l.DiscountPaise,
 		&l.DiscountBP, &l.TaxRateBP, &l.CessRateBP, &l.CessPerUnitPaise, &l.TaxCategory, &l.PriceIncludesTax, &l.TaxablePaise,
-		&l.CGSTPaise, &l.SGSTPaise, &l.IGSTPaise, &l.CessPaise, &l.TotalPaise)
+		&l.CGSTPaise, &l.SGSTPaise, &l.IGSTPaise, &l.CessPaise, &l.TotalPaise, &l.ITCEligibility}
 }
+
+func scanLine(rows pgx.Rows, l *Line) error { return rows.Scan(lineDest(l)...) }
 
 func getInvoice(ctx context.Context, q db.Querier, tenantID, id string) (*Invoice, error) {
 	inv, err := scanInvoice(q.QueryRow(ctx, `SELECT `+invoiceCols+` FROM invoices WHERE tenant_id=$1 AND id=$2`, tenantID, id))
@@ -166,6 +174,12 @@ func List(ctx context.Context, pool *pgxpool.Pool, tenantID string, f Filter) ([
 	}
 	if f.RefInvoiceID != "" {
 		add("ref_invoice_id = $%d", f.RefInvoiceID)
+	}
+	if f.RegistrationID != "" {
+		add("registration_id = $%d", f.RegistrationID)
+	}
+	if f.StoreGSTIN != "" {
+		add("store_gstin = $%d", gst.Normalize(f.StoreGSTIN))
 	}
 	if f.Status != "" {
 		add("status = $%d", f.Status)
@@ -232,9 +246,7 @@ func attachLines(ctx context.Context, q db.Querier, invs []Invoice) error {
 	for rows.Next() {
 		var id string
 		var l Line
-		if err := rows.Scan(&id, &l.LineNo, &l.ItemID, &l.Name, &l.HSN, &l.Unit, &l.BatchNo, &l.Qty, &l.UnitPricePaise, &l.DiscountPaise,
-			&l.DiscountBP, &l.TaxRateBP, &l.CessRateBP, &l.CessPerUnitPaise, &l.TaxCategory, &l.PriceIncludesTax, &l.TaxablePaise,
-			&l.CGSTPaise, &l.SGSTPaise, &l.IGSTPaise, &l.CessPaise, &l.TotalPaise); err != nil {
+		if err := rows.Scan(append([]any{&id}, lineDest(&l)...)...); err != nil {
 			return err
 		}
 		invs[pos[id]].Lines = append(invs[pos[id]].Lines, l)

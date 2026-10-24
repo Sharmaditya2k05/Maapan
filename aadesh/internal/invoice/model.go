@@ -23,6 +23,20 @@ const (
 // NilUUID keys the tenant-wide (shared) number series.
 const NilUUID = "00000000-0000-0000-0000-000000000000"
 
+// ITC eligibility of a purchase line (GSTR-3B Table 4).
+const (
+	ITCEligible        = "eligible"
+	ITCIneligible175   = "ineligible_17_5"  // blocked credit, Sec 17(5)
+	ITCIneligibleOther = "ineligible_other" // personal use, exempt supplies, ...
+)
+
+var validITC = map[string]bool{ITCEligible: true, ITCIneligible175: true, ITCIneligibleOther: true}
+
+// IsPurchaseDoc reports whether the doc type is a purchase bill or debit note.
+func IsPurchaseDoc(docType string) bool {
+	return docType == DocPurchase || docType == DocPurchaseReturn
+}
+
 // MaxNumberLen is the GST limit on an invoice serial number (Rule 46).
 const MaxNumberLen = 16
 
@@ -45,11 +59,15 @@ type PartyInput struct {
 
 // LineInput is one line as sent by the POS.
 type LineInput struct {
-	ItemID   string `json:"item_id,omitempty"`
-	Name     string `json:"name"`
-	Unit     string `json:"unit,omitempty"`
-	BatchNo  string `json:"batch_no,omitempty"`
-	gst.Line        // hsn, qty, unit_price_paise, discount_paise, discount_bp, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, price_includes_tax, tax_category
+	ItemID  string `json:"item_id,omitempty"`
+	Name    string `json:"name"`
+	Unit    string `json:"unit,omitempty"`
+	BatchNo string `json:"batch_no,omitempty"`
+	// ITCEligibility applies to purchase bills and debit notes only: eligible
+	// (default) | ineligible_17_5 | ineligible_other. A debit note inherits it
+	// from the purchase line when omitted.
+	ITCEligibility string `json:"itc_eligibility,omitempty"`
+	gst.Line              // hsn, qty, unit_price_paise, discount_paise, discount_bp, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, price_includes_tax, tax_category
 }
 
 // Tender is how part of the bill was paid at the counter.
@@ -103,6 +121,14 @@ func (in *CreateInput) Validate() error {
 	for i, l := range in.Lines {
 		if strings.TrimSpace(l.Name) == "" {
 			return httpx.Validation("line %d: name is required", i+1)
+		}
+		if l.ITCEligibility != "" {
+			if !validITC[l.ITCEligibility] {
+				return httpx.Validation("line %d: itc_eligibility must be eligible, ineligible_17_5 or ineligible_other", i+1)
+			}
+			if !IsPurchaseDoc(in.DocType) {
+				return httpx.Validation("line %d: itc_eligibility applies to purchase bills and debit notes only", i+1)
+			}
 		}
 	}
 	if in.DocType == DocPurchase && in.PartyID == "" {
@@ -180,6 +206,7 @@ type Invoice struct {
 	PartyState           *string    `json:"party_state,omitempty"`
 	StoreState           string     `json:"store_state"`
 	StoreGSTIN           *string    `json:"store_gstin,omitempty"`
+	RegistrationID       *string    `json:"registration_id,omitempty"` // GST registration (pehchaan) the document was issued under
 	PlaceOfSupply        string     `json:"place_of_supply"`
 	InterState           bool       `json:"inter_state"`
 	SupplyCategory       string     `json:"supply_category,omitempty"`
@@ -202,6 +229,20 @@ type Invoice struct {
 	BalancePaise         int64      `json:"balance_paise"`            // grand total − credited − paid (never below 0)
 	AmountInWords        string     `json:"amount_in_words"`
 	IRN                  *string    `json:"irn,omitempty"`
+	AckNo                *string    `json:"ack_no,omitempty"`
+	AckDate              *time.Time `json:"ack_date,omitempty"`
+	SignedQR             *string    `json:"signed_qr,omitempty"`
+	EInvoiceStatus       *string    `json:"einvoice_status,omitempty"` // generated | cancelled | failed
+	EInvoiceError        *string    `json:"einvoice_error,omitempty"`
+	EInvoiceErrorCode    *string    `json:"einvoice_error_code,omitempty"`
+	IRNCancelledAt       *time.Time `json:"irn_cancelled_at,omitempty"`
+	EWBNo                *string    `json:"ewb_no,omitempty"`
+	EWBDate              *time.Time `json:"ewb_date,omitempty"`
+	EWBValidUpto         *time.Time `json:"ewb_valid_upto,omitempty"`
+	EWBStatus            *string    `json:"ewb_status,omitempty"` // generated | updated | extended | cancelled | failed
+	EWBError             *string    `json:"ewb_error,omitempty"`
+	EWBVehicleNo         *string    `json:"ewb_vehicle_no,omitempty"`
+	EWBDistanceKM        *int       `json:"ewb_distance_km,omitempty"`
 	Notes                *string    `json:"notes,omitempty"`
 	ClientUUID           *string    `json:"client_uuid,omitempty"`
 	CreatedBy            string     `json:"created_by"`
@@ -228,6 +269,7 @@ type Line struct {
 	CessRateBP       int     `json:"cess_rate_bp"`
 	CessPerUnitPaise int64   `json:"cess_per_unit_paise,omitempty"`
 	TaxCategory      string  `json:"tax_category"`
+	ITCEligibility   string  `json:"itc_eligibility,omitempty"` // purchase documents only
 	PriceIncludesTax bool    `json:"price_includes_tax"`
 	TaxablePaise     int64   `json:"taxable_paise"`
 	CGSTPaise        int64   `json:"cgst_paise"`
@@ -239,15 +281,17 @@ type Line struct {
 
 // Filter narrows GET /v1/invoices.
 type Filter struct {
-	DocType       string
-	StoreID       string
-	PartyID       string
-	RefInvoiceID  string // notes against one original (returns screen)
-	Status        string
-	PaymentStatus string
-	From, To      string
-	Search        string
-	IncludeLines  bool // ?include=lines: attach lines and tenders (kar returns, buddhi)
+	DocType        string
+	StoreID        string
+	PartyID        string
+	RefInvoiceID   string // notes against one original (returns screen)
+	RegistrationID string // documents issued under one GST registration
+	StoreGSTIN     string // ... or under one GSTIN (kar returns are per GSTIN)
+	Status         string
+	PaymentStatus  string
+	From, To       string
+	Search         string
+	IncludeLines   bool // ?include=lines: attach lines and tenders (kar returns, buddhi)
 	httpx.Page
 }
 

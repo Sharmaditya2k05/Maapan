@@ -123,7 +123,8 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 	inv = &Invoice{
 		StoreID: storeID, DocType: in.DocType, InvoiceDate: date.Format(time.DateOnly), DueDate: nilIfEmpty(due),
 		PartyName: party.Name, StoreState: store.StateCode, StoreGSTIN: nilIfEmpty(store.GSTIN), PlaceOfSupply: pos,
-		InterState: sum.InterState, SupplyCategory: in.SupplyCategory, ReverseCharge: in.ReverseCharge,
+		RegistrationID: nilIfEmpty(store.RegistrationID),
+		InterState:     sum.InterState, SupplyCategory: in.SupplyCategory, ReverseCharge: in.ReverseCharge,
 		Status: "posted", PaymentStatus: paymentStatus(paid, sum.GrandPaise, 0),
 		TaxablePaise: sum.TaxablePaise, DiscountPaise: sum.DiscountPaise, InvoiceDiscountPaise: sum.InvoiceDiscountPaise,
 		CGSTPaise: sum.CGSTPaise, SGSTPaise: sum.SGSTPaise, IGSTPaise: sum.IGSTPaise, CessPaise: sum.CessPaise, TCSPaise: sum.TCSPaise,
@@ -141,11 +142,18 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		if unit == "" {
 			unit = "PCS"
 		}
+		itc := ""
+		if IsPurchaseDoc(in.DocType) {
+			itc = l.ITCEligibility
+			if itc == "" {
+				itc = ITCEligible
+			}
+		}
 		inv.Lines = append(inv.Lines, Line{
 			LineNo: i + 1, ItemID: nilIfEmpty(l.ItemID), Name: strings.TrimSpace(l.Name), HSN: nilIfEmpty(l.HSN),
 			Unit: unit, BatchNo: nilIfEmpty(l.BatchNo), Qty: l.Qty, UnitPricePaise: l.UnitPricePaise,
 			DiscountPaise: l.DiscountPaise, DiscountBP: l.DiscountBP, TaxRateBP: lt.RateBP, CessRateBP: l.CessRateBP,
-			CessPerUnitPaise: l.CessPerUnitPaise, TaxCategory: lt.TaxCategory, PriceIncludesTax: l.PriceIncludesTax,
+			CessPerUnitPaise: l.CessPerUnitPaise, TaxCategory: lt.TaxCategory, ITCEligibility: itc, PriceIncludesTax: l.PriceIncludesTax,
 			TaxablePaise: lt.TaxablePaise, CGSTPaise: lt.CGSTPaise, SGSTPaise: lt.SGSTPaise, IGSTPaise: lt.IGSTPaise,
 			CessPaise: lt.CessPaise, TotalPaise: lt.TotalPaise,
 		})
@@ -157,7 +165,7 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 				return err
 			}
 		}
-		seq, prefix, fy, err := s.allocateNumber(ctx, tx, p.TenantID, storeID, in, FinancialYear(date))
+		seq, prefix, fy, regKey, err := s.allocateNumber(ctx, tx, p.TenantID, store, storeID, in, FinancialYear(date))
 		if err != nil {
 			return err
 		}
@@ -166,7 +174,7 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		if len(inv.Number) > MaxNumberLen {
 			return httpx.Conflict("invoice number %s exceeds GST's 16-character limit; shorten the series prefix", inv.Number)
 		}
-		if err := insertInvoice(ctx, tx, p.TenantID, seq, in, inv); err != nil {
+		if err := insertInvoice(ctx, tx, p.TenantID, seq, regKey, in, inv); err != nil {
 			return err
 		}
 		if orig != nil {
@@ -380,6 +388,9 @@ func (s *Service) loadOriginal(ctx context.Context, tenantID, storeID string, in
 		}
 		l.TaxRateBP, l.CessRateBP, l.CessPerUnitPaise = ol.TaxRateBP, ol.CessRateBP, ol.CessPerUnitPaise
 		l.TaxCategory, l.PriceIncludesTax = ol.TaxCategory, ol.PriceIncludesTax
+		if l.ITCEligibility == "" && in.DocType == DocPurchaseReturn {
+			l.ITCEligibility = ol.ITCEligibility
+		}
 		if l.HSN == "" {
 			l.HSN = deref(ol.HSN)
 		}
@@ -448,50 +459,137 @@ func creditOriginal(ctx context.Context, tx pgx.Tx, tenantID, refID string, delt
 	return err
 }
 
-// series resolves which number series a store's document belongs to: the
-// store's own when it has a custom prefix, else the tenant-wide one.
-func series(ctx context.Context, q db.Querier, tenantID, storeID, docType string) (seriesStore, prefix string, err error) {
-	err = q.QueryRow(ctx, `SELECT prefix FROM numbering_settings WHERE tenant_id=$1 AND store_id=$2 AND doc_type=$3`, tenantID, storeID, docType).Scan(&prefix)
-	if db.IsNotFound(err) {
-		return NilUUID, defaultPrefix[docType], nil
+// registrationKey is the series owner of a store's registration: the nil UUID
+// for the registration that owns the tenant-wide series (the primary — every
+// document numbered before registrations existed is in it), else the
+// registration id. The first primary registration to number a document claims
+// the tenant-wide series, so a later change of primary never moves a GSTIN
+// onto another GSTIN's series. A store from an older pehchaan (no
+// registration_id) is on the tenant-wide series.
+func registrationKey(ctx context.Context, tx pgx.Tx, tenantID string, store clients.Store) (string, error) {
+	if store.RegistrationID == "" {
+		return NilUUID, nil
 	}
-	if err != nil {
-		return "", "", err
+	if store.RegistrationPrimary {
+		if _, err := tx.Exec(ctx, `INSERT INTO registration_series (tenant_id, registration_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+			tenantID, store.RegistrationID); err != nil {
+			return "", err
+		}
 	}
-	return storeID, prefix, nil
+	var owner string
+	err := tx.QueryRow(ctx, `SELECT registration_id FROM registration_series WHERE tenant_id=$1`, tenantID).Scan(&owner)
+	if err != nil && !db.IsNotFound(err) {
+		return "", err
+	}
+	if strings.EqualFold(owner, store.RegistrationID) {
+		return NilUUID, nil
+	}
+	return store.RegistrationID, nil
 }
 
-// allocateNumber returns the sequence number, prefix and financial year of the
-// invoice. Online bills take the next number of their series; offline bills
-// bring a number from a block reserved for their device and inherit the
-// block's series and year, so a block reserved in March still syncs in April.
-func (s *Service) allocateNumber(ctx context.Context, tx pgx.Tx, tenantID, storeID string, in CreateInput, fy string) (int64, string, string, error) {
+// numberSeries is where a document's number comes from.
+type numberSeries struct {
+	Key    string // number_series.store_id: the nil UUID, a registration id, or a store id (custom prefix)
+	RegKey string // invoices.registration_key: numbers are unique per registration key
+	Prefix string
+	seed   func(ctx context.Context, tx pgx.Tx, fy string) (int64, error) // first number of a new series
+}
+
+// seriesFor resolves a store's series for a document type: the store's own when
+// it has a custom prefix (numbering_settings), else its registration's.
+func seriesFor(ctx context.Context, tx pgx.Tx, tenantID string, store clients.Store, storeID, docType string) (numberSeries, error) {
+	regKey, err := registrationKey(ctx, tx, tenantID, store)
+	if err != nil {
+		return numberSeries{}, err
+	}
+	ns := numberSeries{Key: regKey, RegKey: regKey, Prefix: defaultPrefix[docType]}
+	err = tx.QueryRow(ctx, `SELECT prefix FROM numbering_settings WHERE tenant_id=$1 AND store_id=$2 AND doc_type=$3`, tenantID, storeID, docType).Scan(&ns.Prefix)
+	switch {
+	case err == nil:
+		ns.Key = storeID
+	case !db.IsNotFound(err):
+		return numberSeries{}, err
+	case regKey != NilUUID && store.GSTIN != "":
+		// A registration's own series starts after any number its GSTIN already
+		// issued from the tenant-wide series (stores with their own GSTIN shared
+		// it before registrations existed), so a GSTIN never repeats a number.
+		gstin, prefix := store.GSTIN, ns.Prefix
+		ns.seed = func(ctx context.Context, tx pgx.Tx, fy string) (int64, error) {
+			var next int64
+			err := tx.QueryRow(ctx, `SELECT COALESCE(max(seq_no), 0) + 1 FROM invoices
+				WHERE tenant_id=$1 AND registration_key=$2 AND doc_type=$3 AND fy=$4 AND store_gstin=$5 AND number LIKE $6`,
+				tenantID, NilUUID, docType, fy, gstin, prefix+"/%").Scan(&next)
+			return next, err
+		}
+	}
+	return ns, nil
+}
+
+// take reserves n consecutive numbers of the series in financial year fy and
+// returns the first and the series prefix.
+func (ns numberSeries) take(ctx context.Context, tx pgx.Tx, tenantID, docType, fy string, n int64) (int64, string, error) {
+	start := int64(1)
+	if ns.seed != nil {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM number_series WHERE tenant_id=$1 AND store_id=$2 AND doc_type=$3 AND fy=$4)`,
+			tenantID, ns.Key, docType, fy).Scan(&exists); err != nil {
+			return 0, "", err
+		}
+		if !exists {
+			var err error
+			if start, err = ns.seed(ctx, tx, fy); err != nil {
+				return 0, "", err
+			}
+		}
+	}
+	var first int64
+	prefix := ns.Prefix
+	err := tx.QueryRow(ctx, `
+		INSERT INTO number_series (tenant_id, store_id, doc_type, fy, prefix, next_no)
+		VALUES ($1,$2,$3,$4,$5,$6::bigint+$7::bigint)
+		ON CONFLICT (tenant_id, store_id, doc_type, fy) DO UPDATE SET next_no = number_series.next_no + $7::bigint
+		RETURNING next_no - $7::bigint, prefix`,
+		tenantID, ns.Key, docType, fy, prefix, start, n).Scan(&first, &prefix)
+	return first, prefix, err
+}
+
+// allocateNumber returns the sequence number, prefix, financial year and
+// registration key of the invoice. Online bills take the next number of their
+// series; offline bills bring a number from a block reserved for their device
+// and inherit the block's series and year, so a block reserved in March still
+// syncs in April.
+func (s *Service) allocateNumber(ctx context.Context, tx pgx.Tx, tenantID string, store clients.Store, storeID string, in CreateInput, fy string) (int64, string, string, string, error) {
 	if in.Number > 0 {
-		var prefix, blockFY string
+		var prefix, blockFY, blockSeries string
 		err := tx.QueryRow(ctx, `
-			SELECT ns.prefix, b.fy FROM number_blocks b
+			SELECT ns.prefix, b.fy, b.series_store_id FROM number_blocks b
 			JOIN number_series ns ON ns.tenant_id=b.tenant_id AND ns.store_id=b.series_store_id AND ns.doc_type=b.doc_type AND ns.fy=b.fy
 			WHERE b.tenant_id=$1 AND b.store_id=$2 AND b.doc_type=$3 AND b.device_id=$4
 			  AND $5 BETWEEN b.start_no AND b.end_no AND (b.released_at IS NULL OR $5 <= COALESCE(b.last_used_no, 0))
 			ORDER BY b.created_at DESC LIMIT 1`,
-			tenantID, storeID, in.DocType, in.DeviceID, in.Number).Scan(&prefix, &blockFY)
+			tenantID, storeID, in.DocType, in.DeviceID, in.Number).Scan(&prefix, &blockFY, &blockSeries)
 		if db.IsNotFound(err) {
-			return 0, "", "", httpx.Validation("number %d is not in a block reserved for device %s", in.Number, in.DeviceID)
+			return 0, "", "", "", httpx.Validation("number %d is not in a block reserved for device %s", in.Number, in.DeviceID)
 		}
-		return in.Number, prefix, blockFY, err
+		if err != nil {
+			return 0, "", "", "", err
+		}
+		// The number belongs to the series the block was cut from.
+		switch {
+		case blockSeries == NilUUID:
+			return in.Number, prefix, blockFY, NilUUID, nil
+		case strings.EqualFold(blockSeries, store.RegistrationID):
+			return in.Number, prefix, blockFY, store.RegistrationID, nil
+		}
+		regKey, err := registrationKey(ctx, tx, tenantID, store) // a store-prefix series
+		return in.Number, prefix, blockFY, regKey, err
 	}
-	seriesStore, prefix, err := series(ctx, tx, tenantID, storeID, in.DocType)
+	ns, err := seriesFor(ctx, tx, tenantID, store, storeID, in.DocType)
 	if err != nil {
-		return 0, "", "", err
+		return 0, "", "", "", err
 	}
-	var next int64
-	err = tx.QueryRow(ctx, `
-		INSERT INTO number_series (tenant_id, store_id, doc_type, fy, prefix, next_no)
-		VALUES ($1,$2,$3,$4,$5,2)
-		ON CONFLICT (tenant_id, store_id, doc_type, fy) DO UPDATE SET next_no = number_series.next_no + 1
-		RETURNING next_no - 1, prefix`,
-		tenantID, seriesStore, in.DocType, fy, prefix).Scan(&next, &prefix)
-	return next, prefix, fy, err
+	next, prefix, err := ns.take(ctx, tx, tenantID, in.DocType, fy, 1)
+	return next, prefix, fy, ns.RegKey, err
 }
 
 // ReserveBlock hands a device `size` consecutive numbers for offline billing.
@@ -519,27 +617,28 @@ func (s *Service) ReserveBlock(ctx context.Context, p *auth.Principal, storeID, 
 	if size > limit {
 		return nil, httpx.Validation("a block for your role may hold at most %d numbers", limit)
 	}
+	store, err := s.Dir.Store(ctx, p.TenantID, storeID)
+	if err != nil {
+		return nil, err
+	}
 	fy := FinancialYear(s.Now().In(IST))
 	b := &Block{DocType: docType, FY: fy, DeviceID: deviceID}
-	err := db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
-		seriesStore, prefix, err := series(ctx, tx, p.TenantID, storeID, docType)
+	err = db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
+		ns, err := seriesFor(ctx, tx, p.TenantID, store, storeID, docType)
 		if err != nil {
 			return err
 		}
-		err = tx.QueryRow(ctx, `
-			INSERT INTO number_series (tenant_id, store_id, doc_type, fy, prefix, next_no)
-			VALUES ($1,$2,$3,$4,$5,$6+1)
-			ON CONFLICT (tenant_id, store_id, doc_type, fy) DO UPDATE SET next_no = number_series.next_no + $6
-			RETURNING next_no - $6, prefix`,
-			p.TenantID, seriesStore, docType, fy, prefix, size).Scan(&b.StartNo, &b.Prefix)
-		if err != nil {
+		if b.StartNo, b.Prefix, err = ns.take(ctx, tx, p.TenantID, docType, fy, size); err != nil {
 			return err
 		}
 		b.EndNo = b.StartNo + size - 1
 		return tx.QueryRow(ctx, `INSERT INTO number_blocks (tenant_id, store_id, series_store_id, doc_type, fy, device_id, start_no, end_no)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, p.TenantID, storeID, seriesStore, docType, fy, deviceID, b.StartNo, b.EndNo).Scan(&b.ID)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, p.TenantID, storeID, ns.Key, docType, fy, deviceID, b.StartNo, b.EndNo).Scan(&b.ID)
 	})
-	return b, err
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // ReleaseBlock records how far a device used its block and hands the rest
@@ -547,10 +646,10 @@ func (s *Service) ReserveBlock(ctx context.Context, p *auth.Principal, storeID, 
 // Table 13); they are never reused.
 func (s *Service) ReleaseBlock(ctx context.Context, p *auth.Principal, id string, lastUsed int64) (*Block, error) {
 	var b Block
-	var storeID string
+	var storeID, seriesKey string
 	err := db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `SELECT id, store_id, doc_type, fy, device_id, start_no, end_no FROM number_blocks
-			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, p.TenantID, id).Scan(&b.ID, &storeID, &b.DocType, &b.FY, &b.DeviceID, &b.StartNo, &b.EndNo)
+		err := tx.QueryRow(ctx, `SELECT id, store_id, series_store_id, doc_type, fy, device_id, start_no, end_no FROM number_blocks
+			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, p.TenantID, id).Scan(&b.ID, &storeID, &seriesKey, &b.DocType, &b.FY, &b.DeviceID, &b.StartNo, &b.EndNo)
 		if db.IsNotFound(err) {
 			return httpx.NotFound("block not found")
 		}
@@ -569,7 +668,12 @@ func (s *Service) ReleaseBlock(ctx context.Context, p *auth.Principal, id string
 			return err
 		}
 		b.LastUsedNo, b.ReleasedAt = &lastUsed, released
-		_, b.Prefix, err = series(ctx, tx, p.TenantID, storeID, b.DocType)
+		// The block's own series (the one it was cut from), whatever the store uses now.
+		err = tx.QueryRow(ctx, `SELECT prefix FROM number_series WHERE tenant_id=$1 AND store_id=$2 AND doc_type=$3 AND fy=$4`,
+			p.TenantID, seriesKey, b.DocType, b.FY).Scan(&b.Prefix)
+		if db.IsNotFound(err) {
+			b.Prefix, err = defaultPrefix[b.DocType], nil
+		}
 		return err
 	})
 	if err != nil {
@@ -637,6 +741,11 @@ func (s *Service) Cancel(ctx context.Context, p *auth.Principal, id, reason stri
 		}
 		if inv.Status != "posted" {
 			return httpx.Conflict("invoice is already cancelled")
+		}
+		if deref(inv.EInvoiceStatus) == EInvoiceGenerated {
+			return httpx.Conflict("this invoice has an active e-invoice (IRN %s); cancel the IRN in kar first "+
+				"(POST /api/kar/v1/einvoices/%s/cancel, within 24 hours of generation), then cancel the invoice", deref(inv.IRN), inv.ID).
+				WithDetails(map[string]any{"irn": deref(inv.IRN), "kar_cancel": "/api/kar/v1/einvoices/" + inv.ID + "/cancel"})
 		}
 		var notes int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM invoices WHERE tenant_id=$1 AND ref_invoice_id=$2 AND status='posted'`, p.TenantID, id).Scan(&notes); err != nil {
@@ -834,7 +943,7 @@ func toPayload(inv *Invoice) events.InvoicePayload {
 			BatchNo: deref(l.BatchNo), Qty: l.Qty, UnitPricePaise: l.UnitPricePaise, DiscountPaise: l.DiscountPaise,
 			PriceInclTax: l.PriceIncludesTax, TaxRateBP: l.TaxRateBP, CessRateBP: l.CessRateBP, CessPerUnitPaise: l.CessPerUnitPaise,
 			TaxCategory: l.TaxCategory, TaxablePaise: l.TaxablePaise, CGSTPaise: l.CGSTPaise, SGSTPaise: l.SGSTPaise,
-			IGSTPaise: l.IGSTPaise, CessPaise: l.CessPaise, TotalPaise: l.TotalPaise,
+			IGSTPaise: l.IGSTPaise, CessPaise: l.CessPaise, TotalPaise: l.TotalPaise, ITCEligibility: l.ITCEligibility,
 		})
 	}
 	for _, t := range inv.Tenders {

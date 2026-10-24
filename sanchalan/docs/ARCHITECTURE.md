@@ -154,6 +154,8 @@ Envelope (JSON, same for Pub/Sub and local direct delivery):
 | `nirmaan.production.completed` | nirmaan | bhandar, bahi | consume raw material, add finished goods, WIP costing |
 | `aayaat.import.completed` | aayaat | soochna | tell the owner the migration finished |
 | `pehchaan.tenant.created` | pehchaan | bahi, bhandar, kar | seed chart of accounts, default store/units, tax slabs |
+| `kar.einvoice.generated` | kar | aadesh, soochna | IRN, ack no/date and signed QR stored on the invoice (or the IRP's error) |
+| `kar.eway.generated` | kar | aadesh | e-way bill number and validity stored on the invoice |
 
 The subscription matrix is also coded in `mool/events/events.go` (`Subscriptions`) (used by the local
 direct driver) and in `sanchalan/scripts/pubsub-setup.sh`. Keep the three in sync.

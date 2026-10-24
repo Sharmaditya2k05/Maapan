@@ -312,7 +312,14 @@ func (s *Service) Onboard(ctx context.Context, bearer string, in OnboardingInput
 			in.BusinessName, nilIfEmpty(in.GSTIN), pan, in.StateCode, nilIfEmpty(in.Address), user.Phone).Scan(&tenantID); err != nil {
 			return err
 		}
-		st, err := insertStore(ctx, tx, tenantID, StoreInput{Name: in.StoreName, Code: "MAIN", StateCode: in.StateCode, GSTIN: in.GSTIN, Address: in.Address})
+		regID, err := insertRegistration(ctx, tx, tenantID, RegistrationInput{GSTIN: in.GSTIN, LegalName: in.BusinessName,
+			TradeName: in.BusinessName, StateCode: in.StateCode, Address: in.Address, City: in.City, PIN: in.PIN, Phone: user.Phone},
+			true, "active")
+		if err != nil {
+			return err
+		}
+		st, err := insertStore(ctx, tx, tenantID, StoreInput{Name: in.StoreName, Code: "MAIN", StateCode: in.StateCode, GSTIN: in.GSTIN,
+			Address: in.Address, RegistrationID: regID})
 		if err != nil {
 			return err
 		}

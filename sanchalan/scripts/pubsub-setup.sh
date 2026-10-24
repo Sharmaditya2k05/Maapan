@@ -8,9 +8,9 @@ ok() { "$@" 2>/dev/null || true; }
 
 # topic|subscribers   (plain list so it runs on macOS bash 3.2 too)
 SUBS=(
-  "aadesh.invoice.created|bahi bhandar soochna buddhi"
+  "aadesh.invoice.created|bahi bhandar soochna buddhi kar"
   "aadesh.invoice.cancelled|bahi bhandar buddhi"
-  "aadesh.note.created|bahi bhandar buddhi"
+  "aadesh.note.created|bahi bhandar buddhi kar"
   "lenden.payment.captured|bahi aadesh soochna buddhi"
   "lenden.payment.refunded|bahi aadesh"
   "lenden.settlement.processed|bahi"
@@ -20,6 +20,8 @@ SUBS=(
   "nirmaan.production.completed|bhandar bahi"
   "aayaat.import.completed|soochna"
   "pehchaan.tenant.created|bahi bhandar kar"
+  "kar.einvoice.generated|aadesh soochna"
+  "kar.eway.generated|aadesh"
 )
 PUSHER="pubsub-pusher@${PROJECT_ID}.iam.gserviceaccount.com"
 

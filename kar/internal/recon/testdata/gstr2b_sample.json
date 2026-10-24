@@ -1,0 +1,167 @@
+{
+  "chksum": "ADFADRGA4GADFADGERER",
+  "data": {
+    "gstin": "27AAPFU0939F1ZV",
+    "rtnprd": "102026",
+    "version": "1.0",
+    "gendt": "14-11-2026",
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "27AAPFU1111A1Z1",
+          "trdnm": "Sharma Traders",
+          "supfildt": "11-11-2026",
+          "supprd": "102026",
+          "inv": [
+            {
+              "inum": "ST/0042",
+              "typ": "R",
+              "dt": "05-10-2026",
+              "val": 1640.00,
+              "pos": "27",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "srctyp": "",
+              "irn": "",
+              "irngendate": "",
+              "txval": 1500.00,
+              "igst": 0,
+              "cgst": 70.00,
+              "sgst": 70.00,
+              "cess": 0
+            }
+          ]
+        },
+        {
+          "ctin": "27AABCG2222B1Z2",
+          "trdnm": "Fast Roadways",
+          "supfildt": "10-11-2026",
+          "supprd": "102026",
+          "inv": [
+            {
+              "inum": "GTA-118",
+              "typ": "R",
+              "dt": "07-10-2026",
+              "val": 2000,
+              "pos": "27",
+              "rev": "Y",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 2000,
+              "igst": 0,
+              "cgst": 50,
+              "sgst": 50,
+              "cess": 0
+            }
+          ]
+        },
+        {
+          "ctin": "29AAACB1234C1Z5",
+          "trdnm": "Bengaluru Electronics",
+          "supfildt": "11-11-2026",
+          "supprd": "102026",
+          "inv": [
+            {
+              "inum": "BE/26-27/0901",
+              "typ": "R",
+              "dt": "09-10-2026",
+              "val": 11850,
+              "pos": "27",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "srctyp": "e-Invoice",
+              "irn": "a5c12dca80e743321740b0d1a0a6c4d5c1b7b0c2f6ae2e5ab15b2a3d1e0f9a8b",
+              "irngendate": "09-10-2026",
+              "txval": 10000,
+              "igst": 1850,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0
+            }
+          ]
+        },
+        {
+          "ctin": "24AAACX9999X1Z9",
+          "trdnm": "Unknown Supplier",
+          "supfildt": "11-11-2026",
+          "supprd": "102026",
+          "inv": [
+            {
+              "inum": "X-1",
+              "typ": "R",
+              "dt": "15-10-2026",
+              "val": 1180,
+              "pos": "24",
+              "rev": "N",
+              "itcavl": "N",
+              "rsn": "P",
+              "diffprcnt": 1,
+              "txval": 1000,
+              "igst": 180,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0
+            }
+          ]
+        }
+      ],
+      "cdnr": [
+        {
+          "ctin": "29AAACB1234C1Z5",
+          "trdnm": "Bengaluru Electronics",
+          "supfildt": "11-11-2026",
+          "supprd": "102026",
+          "nt": [
+            {
+              "ntnum": "BE-CN-17",
+              "typ": "C",
+              "suptyp": "R",
+              "dt": "20-10-2026",
+              "val": 1180,
+              "pos": "27",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "srctyp": "",
+              "irn": "",
+              "irngendate": "",
+              "txval": 1000,
+              "igst": 180,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0
+            }
+          ]
+        }
+      ],
+      "impg": [
+        {
+          "refdt": "12-10-2026",
+          "portcode": "INNSA1",
+          "boenum": "2345678",
+          "boedt": "10-10-2026",
+          "isamd": "N",
+          "txval": 50000,
+          "igst": 9000,
+          "cess": 0
+        }
+      ]
+    },
+    "itcsumm": {
+      "itcavl": {
+        "nonrevsup": {
+          "igst": 1850,
+          "cgst": 70,
+          "sgst": 70,
+          "cess": 0
+        }
+      }
+    }
+  }
+}

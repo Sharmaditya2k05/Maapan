@@ -25,6 +25,8 @@ const (
 	ProductionCompleted = "nirmaan.production.completed"
 	ImportCompleted     = "aayaat.import.completed"
 	TenantCreated       = "pehchaan.tenant.created"
+	EInvoiceGenerated   = "kar.einvoice.generated"
+	EWayGenerated       = "kar.eway.generated"
 )
 
 // Envelope is the message format on every topic.
@@ -61,9 +63,9 @@ type Publisher interface {
 // Subscriptions is the subscriber matrix (topic → services). Mirrors
 // ARCHITECTURE.md §5 and sanchalan/scripts/pubsub-setup.sh.
 var Subscriptions = map[string][]string{
-	InvoiceCreated:      {"bahi", "bhandar", "soochna", "buddhi"},
+	InvoiceCreated:      {"bahi", "bhandar", "soochna", "buddhi", "kar"},
 	InvoiceCancelled:    {"bahi", "bhandar", "buddhi"},
-	NoteCreated:         {"bahi", "bhandar", "buddhi"},
+	NoteCreated:         {"bahi", "bhandar", "buddhi", "kar"},
 	PaymentCaptured:     {"bahi", "aadesh", "soochna", "buddhi"},
 	PaymentRefunded:     {"bahi", "aadesh"},
 	SettlementProcessed: {"bahi"},
@@ -73,4 +75,6 @@ var Subscriptions = map[string][]string{
 	ProductionCompleted: {"bhandar", "bahi"},
 	ImportCompleted:     {"soochna"},
 	TenantCreated:       {"bahi", "bhandar", "kar"},
+	EInvoiceGenerated:   {"aadesh", "soochna"},
+	EWayGenerated:       {"aadesh"},
 }

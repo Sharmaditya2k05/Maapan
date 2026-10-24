@@ -26,6 +26,7 @@ type InvoiceLine struct {
 	IGSTPaise        int64   `json:"igst_paise"`
 	CessPaise        int64   `json:"cess_paise"`
 	TotalPaise       int64   `json:"total_paise"`
+	ITCEligibility   string  `json:"itc_eligibility,omitempty"` // purchase lines: eligible | ineligible_17_5 | ineligible_other
 }
 
 // Tender is a counter payment recorded on the invoice.
@@ -184,6 +185,38 @@ type ImportCompletedPayload struct {
 	Failed      int    `json:"failed"`
 	RequestedBy string `json:"requested_by"`
 	NotifyPhone string `json:"notify_phone,omitempty"`
+}
+
+// EInvoicePayload is the data of kar.einvoice.generated: the IRP registered (or
+// cancelled) an invoice. aadesh stores the IRN, acknowledgement and signed QR on
+// the invoice so it prints them; Status tells which.
+type EInvoicePayload struct {
+	InvoiceID    string `json:"invoice_id"`
+	Number       string `json:"number"`
+	GSTIN        string `json:"gstin"`         // supplier registration that filed it
+	Status       string `json:"status"`        // generated | cancelled | failed
+	IRN          string `json:"irn,omitempty"` // 64-char hash
+	AckNo        string `json:"ack_no,omitempty"`
+	AckDate      string `json:"ack_date,omitempty"`  // RFC3339
+	SignedQR     string `json:"signed_qr,omitempty"` // JWS the IRP signed; printed as a QR code
+	CancelledAt  string `json:"cancelled_at,omitempty"`
+	Error        string `json:"error,omitempty"` // when Status=failed: the IRP's message
+	ErrorCode    string `json:"error_code,omitempty"`
+	GeneratedVia string `json:"generated_via,omitempty"` // gsp provider name (simulator in dev)
+}
+
+// EWayPayload is the data of kar.eway.generated: an e-way bill was generated,
+// updated (Part-B / extension) or cancelled for an invoice.
+type EWayPayload struct {
+	InvoiceID  string `json:"invoice_id"`
+	Number     string `json:"number"`
+	Status     string `json:"status"` // generated | updated | extended | cancelled | failed
+	EWBNo      string `json:"ewb_no,omitempty"`
+	EWBDate    string `json:"ewb_date,omitempty"`   // RFC3339
+	ValidUpto  string `json:"valid_upto,omitempty"` // RFC3339
+	VehicleNo  string `json:"vehicle_no,omitempty"`
+	DistanceKM int    `json:"distance_km,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // TenantCreatedPayload is the data of pehchaan.tenant.created.

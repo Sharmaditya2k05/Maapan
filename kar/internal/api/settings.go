@@ -2,10 +2,14 @@ package api
 
 import (
 	"context"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/taraju/kar/internal/creds"
+	"github.com/taraju/mool/auth"
 	"github.com/taraju/mool/db"
 	"github.com/taraju/mool/events"
 	"github.com/taraju/mool/gst"
@@ -114,4 +118,103 @@ func (s *Service) onTenantCreated(ctx context.Context, e events.Envelope) error 
 			ON CONFLICT (tenant_id) DO NOTHING`, p.TenantID, p.StateCode, gst.Normalize(p.GSTIN))
 		return err
 	})
+}
+
+// ---------- per-GSTIN portal API users ----------
+
+// ownsGSTIN checks that g is one of the tenant's registrations (pehchaan), or
+// the tenant's tax-settings GSTIN when pehchaan has no registrations API yet.
+func (s *Service) ownsGSTIN(ctx context.Context, tenantID, g string) (bool, error) {
+	regs, err := s.Dir.Registrations(ctx, tenantID)
+	if err == nil {
+		for _, r := range regs {
+			if gst.Normalize(r.GSTIN) == g {
+				return true, nil
+			}
+		}
+		if len(regs) > 0 {
+			return false, nil
+		}
+	} else {
+		s.Log.Warn("registrations lookup failed; checking tax settings GSTIN", "error", err.Error())
+	}
+	st, err := s.settings(ctx, tenantID)
+	if err != nil {
+		return false, err
+	}
+	return st.GSTIN == g, nil
+}
+
+func (s *Service) gstinParam(r *http.Request) (string, error) {
+	g := gst.Normalize(r.PathValue("gstin"))
+	if err := gst.ValidateGSTIN(g); err != nil {
+		return "", httpx.Validation("gstin: %s", err.Error())
+	}
+	return g, nil
+}
+
+func (s *Service) listGSPCredentials(w http.ResponseWriter, r *http.Request) error {
+	items, err := s.Creds.List(r.Context(), auth.FromContext(r.Context()).TenantID)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, map[string]any{"items": items})
+}
+
+func (s *Service) getGSPCredentials(w http.ResponseWriter, r *http.Request) error {
+	g, err := s.gstinParam(r)
+	if err != nil {
+		return err
+	}
+	sm, ok, err := s.Creds.Summary(r.Context(), auth.FromContext(r.Context()).TenantID, g)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return httpx.NotFound("no GST portal API users saved for %s", g)
+	}
+	return httpx.OK(w, sm)
+}
+
+func (s *Service) putGSPCredentials(w http.ResponseWriter, r *http.Request) error {
+	g, err := s.gstinParam(r)
+	if err != nil {
+		return err
+	}
+	var in creds.Input
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	p := auth.FromContext(r.Context())
+	owns, err := s.ownsGSTIN(r.Context(), p.TenantID, g)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return httpx.Validation("%s is not one of this business's registrations", g)
+	}
+	sm, err := s.Creds.Put(r.Context(), p.TenantID, g, in, p.UserID())
+	if err != nil {
+		if httpx.AsError(err).Status == 500 && !strings.Contains(err.Error(), "SQLSTATE") {
+			return httpx.Validation("%s", err.Error())
+		}
+		return err
+	}
+	s.Log.Info("gsp credentials saved", "gstin", g, "by", p.UserID()) // never log the values
+	return httpx.OK(w, sm)
+}
+
+func (s *Service) deleteGSPCredentials(w http.ResponseWriter, r *http.Request) error {
+	g, err := s.gstinParam(r)
+	if err != nil {
+		return err
+	}
+	ok, err := s.Creds.Delete(r.Context(), auth.FromContext(r.Context()).TenantID, g)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return httpx.NotFound("no GST portal API users saved for %s", g)
+	}
+	return httpx.NoContent(w)
 }
