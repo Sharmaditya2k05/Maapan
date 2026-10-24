@@ -14,8 +14,11 @@ function makeClient() {
         refetchOnWindowFocus: false,
         retry: (count, err) => {
           if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 404 || err.status === 422)) return false
+          // Unreachable gateway: one quick retry, then show the error instead of a long skeleton.
+          if (err instanceof ApiError && err.isNetwork) return count < 1
           return count < 2
         },
+        retryDelay: (attempt) => Math.min(800 * 2 ** attempt, 5000),
       },
       mutations: { retry: 0 },
     },

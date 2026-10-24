@@ -13,7 +13,7 @@ import { PERMS } from '@/lib/rbac'
 import { usePrefs } from '@/lib/prefs'
 import { ApiError, get, post } from '@/lib/api'
 import { deviceId } from '@/lib/session'
-import { blockStatus, enqueueBill, ensureBlock, loadCatalog, takeOfflineNumber } from '@/lib/offline'
+import { blockStatus, enqueueBill, ensureBlock, loadCatalog, returnOfflineNumber, takeOfflineNumber } from '@/lib/offline'
 import type { Party, Tender } from '@/lib/types'
 import type { CartLine, CatalogItemFull, CodeLookup, CreditLimitDetails, HeldBill, InvoiceFull, LastBill, PosCreateInvoiceInput, ScaleRead } from '@/lib/types.pos'
 import { addLine, cartTotals, emptySummary, findByCode, lineFromItem, removeLine, scaleQty, setQty, settle, toInvoiceLine, updateLine, type ItemLike } from '@/lib/pos/cart'
@@ -194,6 +194,12 @@ export default function PosPage() {
       override_credit_limit: opts.override,
     })
     const stl = settle(totals.s.grand_total_paise, tenders)
+    // Every counter bill takes its number from this device's reserved block, online or
+    // offline, so the series stays consecutive (INV/26-27/00001, 00002 …) instead of
+    // online bills jumping past the block. With no block left, the server numbers it.
+    let n: { number: number; display: string } | null = null
+    try { n = await takeOfflineNumber(storeId) } catch { n = null }
+    if (n) input.number = n.number
     let inv: InvoiceFull
     let queued = false
     try {
@@ -202,6 +208,7 @@ export default function PosPage() {
     } catch (e) {
       if (!(e instanceof ApiError) || !e.isNetwork) {
         const err = e as ApiError
+        if (n) await returnOfflineNumber(storeId, n.number) // rejected: the number was never issued
         setSaveErr(err.message)
         const d = err.details as Partial<CreditLimitDetails> | undefined
         if (err.status === 422 && d && typeof d.credit_limit_paise === 'number') setCreditDetails(d as CreditLimitDetails)
@@ -209,7 +216,7 @@ export default function PosPage() {
         return
       }
       try {
-        const n = await takeOfflineNumber(storeId)
+        if (!n) n = await takeOfflineNumber(storeId) // throws the "no numbers left" message
         input.number = n.number
         inv = buildLocalInvoice(input, totals.s, stl, {
           number: n.display, store, createdAt: now, partyName: party?.name ?? 'Walk-in', partyPhone: party?.phone || opts.phone,
@@ -313,7 +320,7 @@ export default function PosPage() {
         </section>
 
         {/* scan / search */}
-        <aside className="order-first flex flex-col gap-4 border-b border-slate-200 bg-slate-50 p-3 md:order-none md:w-[340px] md:shrink-0 md:overflow-y-auto md:border-b-0 md:border-l lg:w-[380px] xl:w-[420px] sm:p-4">
+        <aside className="order-first flex flex-col gap-4 border-b border-slate-200 bg-slate-50 p-3 md:order-none md:w-[320px] md:shrink-0 md:overflow-y-auto md:border-b-0 md:border-l lg:w-[340px] xl:w-[400px] sm:p-4">
           <ScanBox inputRef={scanRef} catalog={catalog} flash={flash} onScan={onScan} onAdd={(it) => addItem(it)} onFreeText={() => { setFreePreset(''); setDlg('free') }} />
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
             <span><Kbd>F2</Kbd> tenders</span><span><Kbd>F4</Kbd> hold</span><span><Kbd>Alt+N</Kbd> new</span><span><Kbd>Esc</Kbd> close</span>

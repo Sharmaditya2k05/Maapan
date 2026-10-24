@@ -1,7 +1,8 @@
 'use client'
 
 /** Debounced item-master search (GET /bhandar/v1/items?q=) for the billing editors. */
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Search } from 'lucide-react'
 import { Money, Spinner } from '@/components/ui'
 import { useDebounced, useList } from '@/lib/hooks'
@@ -22,16 +23,36 @@ export function ItemPicker({ onPick, onFreeText, placeholder = 'Search item by n
   const [open, setOpen] = useState(false)
   const [hi, setHi] = useState(0)
   const box = useRef<HTMLDivElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
   const listId = useId()
   const list = useList<ItemFull>(open && dq.trim() ? '/bhandar/v1/items' : null, { q: dq.trim(), limit: 10 })
   const items = list.data?.items ?? []
 
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (!box.current?.contains(t) && !pop.current?.contains(t)) setOpen(false)
+    }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
   useEffect(() => setHi(0), [dq])
+
+  // The results popup is portalled to <body> at the input's screen position, so it is
+  // never clipped by a scrolling table (line grids) or a modal's overflow.
+  const showList = open && q.trim() !== ''
+  useLayoutEffect(() => {
+    if (!showList) return
+    const place = () => {
+      const r = box.current?.getBoundingClientRect()
+      if (r) setRect({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - Math.max(r.width, 288) - 8), width: Math.max(r.width, 288) })
+    }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
+  }, [showList])
 
   const pick = (it: ItemFull) => { onPick(it); setQ(''); setOpen(false) }
   const free = () => { if (onFreeText && q.trim()) { onFreeText(q.trim()); setQ(''); setOpen(false) } }
@@ -58,8 +79,9 @@ export function ItemPicker({ onPick, onFreeText, placeholder = 'Search item by n
         aria-label="Search items"
         aria-expanded={open}
       />
-      {open && q.trim() && (
-        <div className="absolute z-30 mt-1.5 max-h-72 w-full min-w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl" role="listbox" id={listId}>
+      {showList && rect && typeof document !== 'undefined' && createPortal(
+        <div ref={pop} style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width }}
+          className="z-[60] max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl" role="listbox" id={listId}>
           {list.isLoading && <div className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500"><Spinner className="h-4 w-4" /> Searching…</div>}
           {list.error && <div className="px-3 py-2 text-sm text-rose-600">{(list.error as Error).message}</div>}
           {items.map((it, i) => (
@@ -75,7 +97,8 @@ export function ItemPicker({ onPick, onFreeText, placeholder = 'Search item by n
               <Plus size={14} /> Add “{q.trim()}” as a free-text line
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

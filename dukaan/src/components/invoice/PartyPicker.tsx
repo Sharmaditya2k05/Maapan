@@ -9,8 +9,9 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Plus, Search, UserPlus, X } from 'lucide-react'
 import { Avatar, Badge, Button, Field, Input, Modal, Money, MoneyInput, Select, Spinner } from '@/components/ui'
 import { useDebounced, useList, usePerm, useSave } from '@/lib/hooks'
+import { ApiError, get } from '@/lib/api'
 import { PERMS } from '@/lib/rbac'
-import { STATES, validateGSTIN } from '@/lib/gst'
+import { STATES, STATE_LIST, validateGSTIN } from '@/lib/gst'
 import type { Party } from '@/lib/types'
 import type { PartyInput } from '@/lib/types.pos'
 import { stateName } from '@/lib/pos/invoice'
@@ -130,6 +131,8 @@ export function QuickAddPartyModal({ open, onClose, type, presetName, onCreated 
 }) {
   const [f, setF] = useState<PartyInput>({ name: '', phone: '', gstin: '', state_code: '', credit_limit_paise: 0, credit_days: 0 })
   const [err, setErr] = useState<string | null>(null)
+  const [existingId, setExistingId] = useState<string | null>(null)
+  useEffect(() => { if (open) setExistingId(null) }, [open])
   useEffect(() => { if (open) { setF({ name: presetName ?? '', phone: '', gstin: '', state_code: '', credit_limit_paise: 0, credit_days: 0 }); setErr(null) } }, [open, presetName])
   const save = useSave<Party, PartyInput>('/bahi/v1/parties', { invalidate: ['/bahi/v1/parties'], silent: true })
   const gstin = (f.gstin ?? '').trim().toUpperCase()
@@ -148,34 +151,46 @@ export function QuickAddPartyModal({ open, onClose, type, presetName, onCreated 
       onCreated(await save.mutateAsync(body))
     } catch (e) {
       setErr((e as Error).message)
+      // bahi keeps ledger names unique and tells us which party already has this one.
+      const existing = e instanceof ApiError && e.status === 409 ? (e.details as { existing_id?: string } | undefined)?.existing_id : undefined
+      setExistingId(existing ?? null)
     }
+  }
+  const useExisting = async () => {
+    if (!existingId) return
+    try { onCreated(await get<Party>(`/bahi/v1/parties/${existingId}`)) } catch (e) { setErr((e as Error).message) }
   }
 
   return (
     <Modal open={open} onClose={onClose} title={`New ${type}`}
       footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit} loading={save.isPending}>Save {type}</Button></>}>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Name" className="sm:col-span-2"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && submit()} /></Field>
-        <Field label="Mobile" hint="10 digits; used for WhatsApp receipts and UPI requests"><Input inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="98765 43210" /></Field>
+        <Field label="Name" className="sm:col-span-2"><Input autoFocus value={f.name} onChange={(e) => setF((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && submit()} /></Field>
+        <Field label="Mobile" hint="10 digits; used for WhatsApp receipts and UPI requests"><Input inputMode="tel" value={f.phone} onChange={(e) => setF((p) => ({ ...p, phone: e.target.value }))} placeholder="98765 43210" /></Field>
         <Field label="GSTIN (optional)" error={gstErr ?? undefined} hint={gstin && !gstErr ? `Registered in ${stateName(gstin.slice(0, 2))}` : undefined}>
-          <Input className="font-mono uppercase" value={f.gstin} onChange={(e) => setF({ ...f, gstin: e.target.value.toUpperCase() })} maxLength={15} />
+          <Input className="font-mono uppercase" value={f.gstin} onChange={(e) => setF((p) => ({ ...p, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
         </Field>
         {!gstin && (
           <Field label="State (optional)" hint="Needed for IGST on inter-state customers">
-            <Select value={f.state_code} onChange={(e) => setF({ ...f, state_code: e.target.value })}>
+            <Select value={f.state_code} onChange={(e) => setF((p) => ({ ...p, state_code: e.target.value }))}>
               <option value="">Same as store</option>
-              {Object.entries(STATES).map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}
+              {STATE_LIST.map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}
             </Select>
           </Field>
         )}
         {type === 'customer' && (
           <>
-            <Field label="Credit limit (optional)"><MoneyInput value={f.credit_limit_paise ?? 0} onChange={(v) => setF({ ...f, credit_limit_paise: v })} /></Field>
-            <Field label="Credit days"><Input type="number" inputMode="numeric" min={0} value={f.credit_days ?? 0} onChange={(e) => setF({ ...f, credit_days: Math.max(0, Number(e.target.value) || 0) })} /></Field>
+            <Field label="Credit limit (optional)"><MoneyInput value={f.credit_limit_paise ?? 0} onChange={(v) => setF((p) => ({ ...p, credit_limit_paise: v }))} /></Field>
+            <Field label="Credit days"><Input type="number" inputMode="numeric" min={0} value={f.credit_days ?? 0} onChange={(e) => setF((p) => ({ ...p, credit_days: Math.max(0, Number(e.target.value) || 0) }))} /></Field>
           </>
         )}
       </div>
-      {err && <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+      {err && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <span>{err}</span>
+          {existingId && <Button size="sm" variant="secondary" onClick={useExisting}>Use existing {type}</Button>}
+        </div>
+      )}
       <div className="mt-3"><Badge tone="gray">{type}</Badge></div>
     </Modal>
   )

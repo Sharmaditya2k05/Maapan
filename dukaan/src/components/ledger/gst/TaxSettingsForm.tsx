@@ -7,7 +7,7 @@ import { Button, Card, Field, Input, MoneyInput, QueryState, Select, Toggle } fr
 import { api, post } from '@/lib/api'
 import { fmtDate, useGet, usePerm } from '@/lib/hooks'
 import { PERMS } from '@/lib/rbac'
-import { STATES, validateGSTIN } from '@/lib/gst'
+import { STATE_LIST, validateGSTIN } from '@/lib/gst'
 import type { GstinResult, TaxSettings, TaxSettingsUpdate } from '@/lib/types.ledger'
 import { GstinCard } from '../GstinCard'
 import { NoPermission } from '../bits'
@@ -62,7 +62,7 @@ function Form({ settings: s, readOnly }: { settings: TaxSettings; readOnly: bool
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Registered state" hint="Decides CGST+SGST vs IGST on every bill">
-              <Select value={d.state_code} disabled={readOnly} onChange={(e) => set('state_code', e.target.value)}>{Object.entries(STATES).map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}</Select>
+              <Select value={d.state_code} disabled={readOnly} onChange={(e) => set('state_code', e.target.value)}>{STATE_LIST.map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}</Select>
             </Field>
             <Field label="GSTIN" error={gstin && gstinErr ? gstinErr : undefined} hint={!gstin ? 'Blank = unregistered business (no GST on bills)' : undefined}>
               <div className="flex gap-2">

@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { Archive, ArchiveRestore, ArrowDownLeft, ArrowUpRight, ChevronLeft, FileText, Mail, MapPin, MessageCircle, Pencil, Phone, Printer, Download, Wallet } from 'lucide-react'
-import { Avatar, Badge, Button, Card, Confirm, Empty, Money, Pagination, QueryState, Skeleton, statusTone, Table, Tabs } from '@/components/ui'
+import { Avatar, Badge, Button, Card, Confirm, Empty, Money, PageHeader, Pagination, QueryState, Skeleton, statusTone, Table, Tabs } from '@/components/ui'
 import { api } from '@/lib/api'
 import { downloadFile, fmtDate, todayIST, useGet, useList, usePerm, useStore } from '@/lib/hooks'
 import { PERMS } from '@/lib/rbac'
@@ -59,6 +59,8 @@ function PartyDetailInner() {
 
   return (
     <>
+      {/* While the party loads (or fails), keep a title and a way back on screen. */}
+      {!p && <PageHeader title="Party" subtitle={party.isLoading ? 'Loading ledger…' : undefined} back={() => router.push('/app/parties')} />}
       <QueryState isLoading={party.isLoading} error={party.error} data={p} retry={() => party.refetch()}>
         {(pt) => {
           const bal = balanceLabel(pt.balance_paise)

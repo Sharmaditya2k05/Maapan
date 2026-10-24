@@ -737,6 +737,37 @@ func TestInternalPartyCarriesCreditTerms(t *testing.T) {
 	}
 }
 
+// TestCreatePartyRejectsDuplicateName: ledger names are unique per business
+// (case and spacing ignored); concurrent double-submits create one party.
+func TestCreatePartyRejectsDuplicateName(t *testing.T) {
+	s, _ := newTestService(t)
+	tenant, store := uuid.NewString(), uuid.NewString()
+	a := newAPI(t, s, tenant, store)
+	st, first := a.do("POST", "/v1/parties", map[string]any{"name": "Britannia Depot Pune", "type": "supplier", "phone": "9822001100"}, nil)
+	if st != 201 {
+		t.Fatalf("first create: %d %v", st, first)
+	}
+	st, dup := a.do("POST", "/v1/parties", map[string]any{"name": "  britannia   depot pune ", "type": "supplier"}, nil)
+	errBody, _ := dup["error"].(map[string]any)
+	details, _ := errBody["details"].(map[string]any)
+	if st != 409 || details["existing_id"] != first["id"] {
+		t.Fatalf("duplicate must be 409 with existing_id: %d %v", st, dup)
+	}
+	// Two simultaneous creates of a new name: exactly one succeeds.
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			st, _ := a.do("POST", "/v1/parties", map[string]any{"name": "Race Traders", "type": "customer"}, nil)
+			codes <- st
+		}()
+	}
+	got := map[int]int{<-codes: 1}
+	got[<-codes]++
+	if got[201] != 1 || got[409] != 1 {
+		t.Fatalf("double-submit: %v", got)
+	}
+}
+
 // TestMigrationUpgradesExistingTenant applies 0001 only, builds a tenant the way
 // the old seed did (5500/5200 postable, no clearing/COGS accounts, a reversal
 // pair marked the old way), then applies the rest and checks the repairs.

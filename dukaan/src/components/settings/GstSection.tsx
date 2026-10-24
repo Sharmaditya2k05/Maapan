@@ -37,14 +37,14 @@ function GstForm({ s }: { s: TaxSettings }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit() }} noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="GSTIN used for returns" error={gstinErr} hint="Usually the business GSTIN; branches file under their own"><Input value={d.gstin} onChange={(e) => setD({ ...d, gstin: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15) })} className="font-mono uppercase" disabled={!canEdit} /></Field>
-        <Field label="State"><StateSelect value={d.state_code} onChange={(v) => setD({ ...d, state_code: v })} disabled={!canEdit} /></Field>
+        <Field label="GSTIN used for returns" error={gstinErr} hint="Usually the business GSTIN; branches file under their own"><Input value={d.gstin} onChange={(e) => setD((p) => ({ ...p, gstin: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15) }))} className="font-mono uppercase" disabled={!canEdit} /></Field>
+        <Field label="State"><StateSelect value={d.state_code} onChange={(v) => setD((p) => ({ ...p, state_code: v }))} disabled={!canEdit} /></Field>
         <div className="space-y-3 sm:col-span-2">
-          <Toggle checked={d.composition} onChange={(v) => canEdit && setD({ ...d, composition: v })} label={<span>Composition scheme <span className="block text-xs text-slate-500">Bills of supply instead of tax invoices; no tax collected on sales, quarterly CMP-08</span></span>} />
-          <Toggle checked={d.einvoice_enabled} onChange={(v) => canEdit && setD({ ...d, einvoice_enabled: v })} label={<span>e-Invoicing (IRN) enabled <span className="block text-xs text-slate-500">Mandatory above ₹5 crore turnover; generates the IRP JSON for B2B invoices</span></span>} />
+          <Toggle checked={d.composition} onChange={(v) => canEdit && setD((p) => ({ ...p, composition: v }))} label={<span>Composition scheme <span className="block text-xs text-slate-500">Bills of supply instead of tax invoices; no tax collected on sales, quarterly CMP-08</span></span>} />
+          <Toggle checked={d.einvoice_enabled} onChange={(v) => canEdit && setD((p) => ({ ...p, einvoice_enabled: v }))} label={<span>e-Invoicing (IRN) enabled <span className="block text-xs text-slate-500">Mandatory above ₹5 crore turnover; generates the IRP JSON for B2B invoices</span></span>} />
         </div>
-        <Field label="e-Way bill threshold" hint="Consignment value above which an e-way bill is needed (₹50,000 by default)"><MoneyInput value={d.eway_threshold_paise} onChange={(v) => setD({ ...d, eway_threshold_paise: v })} disabled={!canEdit} /></Field>
-        <Field label="B2C large invoice threshold" hint="Inter-state B2C invoices above this are reported line-wise in GSTR-1 (₹1,00,000)"><MoneyInput value={d.b2cl_threshold_paise} onChange={(v) => setD({ ...d, b2cl_threshold_paise: v })} disabled={!canEdit} /></Field>
+        <Field label="e-Way bill threshold" hint="Consignment value above which an e-way bill is needed (₹50,000 by default)"><MoneyInput value={d.eway_threshold_paise} onChange={(v) => setD((p) => ({ ...p, eway_threshold_paise: v }))} disabled={!canEdit} /></Field>
+        <Field label="B2C large invoice threshold" hint="Inter-state B2C invoices above this are reported line-wise in GSTR-1 (₹1,00,000)"><MoneyInput value={d.b2cl_threshold_paise} onChange={(v) => setD((p) => ({ ...p, b2cl_threshold_paise: v }))} disabled={!canEdit} /></Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">Last updated {fmtDate(s.updated_at, true)}.{!canEdit && ' Only owners can change these.'}</p>
       {err && <div className="mt-4"><ErrorBox message={err} /></div>}

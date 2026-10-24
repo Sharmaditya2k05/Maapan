@@ -69,7 +69,8 @@ export async function loadCatalog(storeId: string): Promise<{ items: CatalogItem
 const blockKey = (storeId: string, doc = 'sale') => `${storeId}:${doc}`
 
 /** Reserve a new block when none is left or less than 20% remains. Safe to call often. */
-export async function ensureBlock(storeId: string, size = 200): Promise<LocalBlock | undefined> {
+// 50 stays under every role's server cap (cashier 100) and is refilled at 20 % left.
+export async function ensureBlock(storeId: string, size = 50): Promise<LocalBlock | undefined> {
   const d = await db()
   const cur = await d.get('blocks', blockKey(storeId))
   const remaining = cur ? cur.end_no - cur.next + 1 : 0
@@ -103,6 +104,17 @@ export async function takeOfflineNumber(storeId: string): Promise<{ number: numb
   const number = b.next
   await d.put('blocks', { ...b, next: number + 1 })
   return { number, display: `${b.prefix}/${b.fy}/${String(number).padStart(5, '0')}` }
+}
+
+/**
+ * Hand back a number taken with takeOfflineNumber when the bill was rejected
+ * (validation, credit limit) so the device's sequence has no gap. Only the most
+ * recent number can be returned.
+ */
+export async function returnOfflineNumber(storeId: string, number: number): Promise<void> {
+  const d = await db()
+  const b = await d.get('blocks', blockKey(storeId))
+  if (b && b.next === number + 1 && number >= b.start_no) await d.put('blocks', { ...b, next: number })
 }
 
 export async function blockStatus(storeId: string) {

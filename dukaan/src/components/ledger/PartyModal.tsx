@@ -6,7 +6,7 @@ import { ShieldCheck } from 'lucide-react'
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from '@/components/ui'
 import { api, post } from '@/lib/api'
 import { fyStartIST, todayIST, useSave } from '@/lib/hooks'
-import { STATES, validateGSTIN } from '@/lib/gst'
+import { STATE_LIST, validateGSTIN } from '@/lib/gst'
 import type { Party } from '@/lib/types'
 import type { GstinResult, PartyInput, PartyPatch } from '@/lib/types.ledger'
 import { GstinCard } from './GstinCard'
@@ -111,7 +111,7 @@ export function PartyModal({ open, onClose, party, defaultType = 'customer', def
           <Field label="State" hint="Place of supply for bills to this party">
             <Select value={d.state_code} onChange={(e) => set('state_code', e.target.value)}>
               <option value="">— Select —</option>
-              {Object.entries(STATES).map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
+              {STATE_LIST.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
             </Select>
           </Field>
           <Field label="Address"><Textarea rows={2} value={d.address} onChange={(e) => set('address', e.target.value)} placeholder="Shop 4, Market Road, Pune 411001" /></Field>

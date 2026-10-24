@@ -12,7 +12,7 @@ import { Button, Card, Field, Input, MoneyInput, Select, Textarea, Toggle } from
 import { todayIST, useGet, useInvalidate, useSessionUser, useStore } from '@/lib/hooks'
 import { ApiError, post } from '@/lib/api'
 import { deviceId } from '@/lib/session'
-import { STATES } from '@/lib/gst'
+import { STATES, STATE_LIST } from '@/lib/gst'
 import type { CreateInvoiceInput, DocType, Party, Tender, TenderMode } from '@/lib/types'
 import type { CartLine, CreditLimitDetails, InvoiceFull, PosCreateInvoiceInput, PreviewInput, PreviewResponse } from '@/lib/types.pos'
 import { cartTotals, emptySummary, toInvoiceLine } from '@/lib/pos/cart'
@@ -198,7 +198,7 @@ export function InvoiceEditor({ docType, draft, draftKey, refInvoice, afterSave 
             <Field label="Place of supply" hint={!pos && party?.state_code ? `From the ${purchase ? 'supplier' : 'customer'}'s state` : undefined}>
               <Select value={pos} onChange={(e) => setPos(e.target.value)}>
                 <option value="">{party?.state_code ? `${STATES[party.state_code] ?? party.state_code} (${purchase ? 'supplier' : 'customer'})` : `${STATES[store.state_code] ?? store.state_code} (store)`}</option>
-                {Object.entries(STATES).map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}
+                {STATE_LIST.map(([c, n]) => <option key={c} value={c}>{c} · {n}</option>)}
               </Select>
             </Field>
             {purchase && !debit && (

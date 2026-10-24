@@ -131,7 +131,7 @@ export function LineGrid({ lines, onChange, mode, storeState, placeOfSupply, dis
         <table className="w-full min-w-[900px]">
           <thead className="bg-slate-50/60">
             <tr>
-              <th className="th w-8">#</th><th className="th">Item</th><th className="th w-24">HSN</th><th className="th w-24">Qty</th><th className="th w-20">Unit</th>
+              <th className="th w-8">#</th><th className="th min-w-[260px]">Item</th><th className="th w-24">HSN</th><th className="th w-24">Qty</th><th className="th w-20">Unit</th>
               <th className="th w-28">{purchase ? 'Cost ₹' : 'Price ₹'}</th><th className="th w-32">Discount</th><th className="th w-24">GST</th>
               {showBatch && <th className="th w-28">Batch</th>}
               <th className="th text-right">Amount</th><th className="w-10" />

@@ -53,12 +53,12 @@ function InviteModal({ open, onClose, stores }: { open: boolean; onClose: () => 
   return (
     <Modal open={open} onClose={onClose} title="Invite a user" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit} loading={save.isPending}>Invite</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Mobile number" hint="No password: they sign in with an OTP"><Input value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} inputMode="tel" placeholder="98765 43210" autoFocus /></Field>
-        <Field label="Name"><Input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} /></Field>
+        <Field label="Mobile number" hint="No password: they sign in with an OTP"><Input value={d.phone} onChange={(e) => setD((p) => ({ ...p, phone: e.target.value }))} inputMode="tel" placeholder="98765 43210" autoFocus /></Field>
+        <Field label="Name"><Input value={d.name} onChange={(e) => setD((p) => ({ ...p, name: e.target.value }))} /></Field>
         <Field label="Role" className="sm:col-span-2" hint={ROLE_HINT[d.role]}>
-          <Select value={d.role} onChange={(e) => setD({ ...d, role: e.target.value as Role })}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select>
+          <Select value={d.role} onChange={(e) => setD((p) => ({ ...p, role: e.target.value as Role }))}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select>
         </Field>
-        {isStoreScoped(d.role) && <Field label="Stores" className="sm:col-span-2"><StoreChecks value={d.store_ids} onChange={(ids) => setD({ ...d, store_ids: ids })} stores={stores} /></Field>}
+        {isStoreScoped(d.role) && <Field label="Stores" className="sm:col-span-2"><StoreChecks value={d.store_ids} onChange={(ids) => setD((p) => ({ ...p, store_ids: ids }))} stores={stores} /></Field>}
       </div>
       {err && <div className="mt-4"><ErrorBox message={err} /></div>}
     </Modal>

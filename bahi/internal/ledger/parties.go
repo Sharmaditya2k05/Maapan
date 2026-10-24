@@ -202,7 +202,23 @@ func (s *Service) handleCreateParty(w http.ResponseWriter, r *http.Request) erro
 	}
 	var id string
 	err := s.WithTx(r.Context(), func(tx pgx.Tx) error {
-		var err error
+		// Ledger names are unique per business (as in Tally): a second "Britannia Depot"
+		// would split one supplier's balance across two ledgers. The lock makes a
+		// double-click or a retried request see the first insert.
+		key := strings.ToLower(strings.Join(strings.Fields(in.Name), " "))
+		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1 || ':party:' || $2))`, p.TenantID, key); err != nil {
+			return err
+		}
+		var existing string
+		err := tx.QueryRow(r.Context(), `SELECT id FROM parties WHERE tenant_id=$1 AND NOT archived
+			AND lower(regexp_replace(trim(name), '\s+', ' ', 'g')) = $2 LIMIT 1`, p.TenantID, key).Scan(&existing)
+		if err == nil {
+			return httpx.Conflict("a party named %q already exists", strings.TrimSpace(in.Name)).
+				WithDetails(map[string]any{"existing_id": existing})
+		}
+		if !db.IsNotFound(err) {
+			return err
+		}
 		id, err = s.createParty(r.Context(), tx, p.TenantID, p.UserID(), in, info)
 		return err
 	})

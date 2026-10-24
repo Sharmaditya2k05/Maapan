@@ -53,10 +53,12 @@ export function CartTable({ lines, totals, onQty, onEdit, onRemove, role, unlock
     return <span className={`text-xs ${bad ? 'font-semibold text-rose-600' : 'text-emerald-700'}`}>−<Money paise={d} />{l.discount_bp ? ` (${formatRate(l.discount_bp)})` : ''}{bad ? ' · needs manager' : ''}</span>
   }
 
+  // Layout follows the cart pane's own width (container query), not the window:
+  // beside the sidebar and item pane the cart can be narrow even on a laptop.
   return (
-    <>
-      {/* mobile */}
-      <ul className="divide-y divide-slate-100 md:hidden">
+    <div className="@container">
+      {/* narrow: stacked rows */}
+      <ul className="divide-y divide-slate-100 @xl:hidden">
         {lines.map((l, i) => (
           <li key={l.key} className="flex items-start gap-3 px-3 py-3">
             <div className="min-w-0 flex-1">
@@ -75,7 +77,7 @@ export function CartTable({ lines, totals, onQty, onEdit, onRemove, role, unlock
         ))}
       </ul>
       {/* desktop */}
-      <table className="hidden w-full md:table">
+      <table className="hidden w-full @xl:table">
         <thead className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur">
           <tr><th className="th w-8">#</th><th className="th">Item</th><th className="th w-40">Qty</th><th className="th w-16">Unit</th><th className="th w-28 text-right">Price</th><th className="th w-28 text-right">Discount</th><th className="th w-32 text-right">Total</th><th className="w-20" /></tr>
         </thead>
@@ -104,7 +106,7 @@ export function CartTable({ lines, totals, onQty, onEdit, onRemove, role, unlock
           ))}
         </tbody>
       </table>
-      <div className="px-4 py-2 text-xs text-slate-500 md:hidden">{lines.length} line{lines.length === 1 ? '' : 's'} · qty {fmtQty(lines.reduce((a, l) => a + l.qty, 0))}</div>
-    </>
+      <div className="px-4 py-2 text-xs text-slate-500 @xl:hidden">{lines.length} line{lines.length === 1 ? '' : 's'} · qty {fmtQty(lines.reduce((a, l) => a + l.qty, 0))}</div>
+    </div>
   )
 }

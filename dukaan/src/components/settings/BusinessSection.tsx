@@ -44,12 +44,12 @@ function BusinessForm({ tenant }: { tenant: Tenant }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit() }} noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Business name" className="sm:col-span-2"><Input value={d.business_name} onChange={(e) => setD({ ...d, business_name: e.target.value })} disabled={!canEdit} /></Field>
+        <Field label="Business name" className="sm:col-span-2"><Input value={d.business_name} onChange={(e) => setD((p) => ({ ...p, business_name: e.target.value }))} disabled={!canEdit} /></Field>
         <Field label="GSTIN" error={gstinErr} hint="Leave empty if not registered; the state is read from it"><Input value={d.gstin} onChange={(e) => setGstin(e.target.value)} className="font-mono uppercase" placeholder="27AAPFU0939F1ZV" disabled={!canEdit} /></Field>
-        <Field label="State of registration"><StateSelect value={d.state_code} onChange={(v) => setD({ ...d, state_code: v })} disabled={!canEdit || (!!d.gstin && !gstinErr)} /></Field>
-        <Field label="Phone"><Input value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} inputMode="tel" disabled={!canEdit} /></Field>
-        <Field label="Email"><Input type="email" value={d.email} onChange={(e) => setD({ ...d, email: e.target.value })} disabled={!canEdit} /></Field>
-        <Field label="Address" className="sm:col-span-2" hint="Printed on invoices"><Textarea rows={3} value={d.address} onChange={(e) => setD({ ...d, address: e.target.value })} disabled={!canEdit} /></Field>
+        <Field label="State of registration"><StateSelect value={d.state_code} onChange={(v) => setD((p) => ({ ...p, state_code: v }))} disabled={!canEdit || (!!d.gstin && !gstinErr)} /></Field>
+        <Field label="Phone"><Input value={d.phone} onChange={(e) => setD((p) => ({ ...p, phone: e.target.value }))} inputMode="tel" disabled={!canEdit} /></Field>
+        <Field label="Email"><Input type="email" value={d.email} onChange={(e) => setD((p) => ({ ...p, email: e.target.value }))} disabled={!canEdit} /></Field>
+        <Field label="Address" className="sm:col-span-2" hint="Printed on invoices"><Textarea rows={3} value={d.address} onChange={(e) => setD((p) => ({ ...p, address: e.target.value }))} disabled={!canEdit} /></Field>
       </div>
       {tenant.pan && <p className="mt-3 text-xs text-slate-500">PAN {tenant.pan} (derived from the GSTIN) · tenant {tenant.id.slice(0, 8)} · {tenant.status}</p>}
       {err && <div className="mt-4"><ErrorBox message={err} /></div>}

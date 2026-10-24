@@ -60,6 +60,9 @@ const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const GSTIN_RE = /^[0-9]{2}[A-Z0-9]{10}[0-9A-Z]Z[0-9A-Z]$/
 
 /** Returns null when valid, otherwise a human-readable error. */
+/** States as [code, name] sorted by code (01 … 38, 96, 97). Use this for dropdowns: object key order puts "10" before "01". */
+export const STATE_LIST: [string, string][] = Object.entries(STATES).sort((a, b) => a[0].localeCompare(b[0]))
+
 export function validateGSTIN(raw: string): string | null {
   const g = raw.trim().toUpperCase()
   if (g.length !== 15 || !GSTIN_RE.test(g)) return 'GSTIN must be 15 characters'

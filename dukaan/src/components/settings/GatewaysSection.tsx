@@ -57,10 +57,10 @@ function GatewayCard({ name, current, isDefault, onChanged }: { name: GatewayNam
 
       {open && canEdit && (
         <div className="grid gap-4 rounded-xl border border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
-          <Field label={g.keyLabel}><Input value={d.key_id} onChange={(e) => setD({ ...d, key_id: e.target.value })} className="font-mono" autoComplete="off" /></Field>
-          <Field label={g.secretLabel}><Input type="password" value={d.key_secret} onChange={(e) => setD({ ...d, key_secret: e.target.value })} className="font-mono" autoComplete="new-password" /></Field>
-          {g.webhook === 'required' && <Field label="Webhook secret" hint="Set it in the gateway dashboard when creating the webhook"><Input type="password" value={d.webhook_secret} onChange={(e) => setD({ ...d, webhook_secret: e.target.value })} className="font-mono" autoComplete="new-password" /></Field>}
-          <Field label="Environment" hint="Detected from the key when left on auto"><Select value={d.env} onChange={(e) => setD({ ...d, env: e.target.value })}><option value="">Auto</option>{g.envs.map((e) => <option key={e} value={e}>{e}</option>)}</Select></Field>
+          <Field label={g.keyLabel}><Input value={d.key_id} onChange={(e) => setD((p) => ({ ...p, key_id: e.target.value }))} className="font-mono" autoComplete="off" /></Field>
+          <Field label={g.secretLabel}><Input type="password" value={d.key_secret} onChange={(e) => setD((p) => ({ ...p, key_secret: e.target.value }))} className="font-mono" autoComplete="new-password" /></Field>
+          {g.webhook === 'required' && <Field label="Webhook secret" hint="Set it in the gateway dashboard when creating the webhook"><Input type="password" value={d.webhook_secret} onChange={(e) => setD((p) => ({ ...p, webhook_secret: e.target.value }))} className="font-mono" autoComplete="new-password" /></Field>}
+          <Field label="Environment" hint="Detected from the key when left on auto"><Select value={d.env} onChange={(e) => setD((p) => ({ ...p, env: e.target.value }))}><option value="">Auto</option>{g.envs.map((e) => <option key={e} value={e}>{e}</option>)}</Select></Field>
           {err && <div className="sm:col-span-2"><ErrorBox message={err} /></div>}
           <div className="flex justify-end gap-2 sm:col-span-2">{current && <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>}<Button onClick={save} loading={put.isPending}>Save keys</Button></div>
         </div>

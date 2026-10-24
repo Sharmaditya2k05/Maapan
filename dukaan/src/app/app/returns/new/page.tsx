@@ -109,7 +109,7 @@ function NewReturn() {
                     <div className="text-xs text-slate-500">Sold {fmtQty(l.qty)} · returned {fmtQty(returned[lineKey(l)] ?? 0)} · left {fmtQty(remaining(l))} {l.unit} · <Money paise={l.unit_price_paise} /></div>
                   </div>
                   <input type="number" inputMode="decimal" min={0} max={remaining(l)} step="any" className="input input-sm num w-24" value={qty[l.line_no] ?? ''} disabled={remaining(l) <= 0}
-                    onChange={(e) => setQty({ ...qty, [l.line_no]: e.target.value })} aria-label={`Return quantity for ${l.name}`} />
+                    onChange={(e) => setQty((p) => ({ ...p, [l.line_no]: e.target.value }))} aria-label={`Return quantity for ${l.name}`} />
                 </li>
               ))}
             </ul>
@@ -126,7 +126,7 @@ function NewReturn() {
                       <td className="td num text-right"><Money paise={l.unit_price_paise} /></td>
                       <td className="td text-xs text-slate-500">{formatRate(l.tax_rate_bp)}</td>
                       <td className="td"><input type="number" inputMode="decimal" min={0} max={remaining(l)} step="any" className="input input-sm num" value={qty[l.line_no] ?? ''} disabled={remaining(l) <= 0}
-                        onChange={(e) => setQty({ ...qty, [l.line_no]: e.target.value })} aria-label={`Return quantity for ${l.name}`} /></td>
+                        onChange={(e) => setQty((p) => ({ ...p, [l.line_no]: e.target.value }))} aria-label={`Return quantity for ${l.name}`} /></td>
                     </tr>
                   ))}
                 </tbody>

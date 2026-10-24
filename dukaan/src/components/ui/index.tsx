@@ -217,11 +217,28 @@ export function Skeleton({ rows = 5, className = '' }: { rows?: number; classNam
   )
 }
 
+/** Skeleton that admits, after a few seconds, that the server is slow or unreachable. */
+export function SlowSkeleton({ rows = 5, retry, after = 4000 }: { rows?: number; retry?: () => void; after?: number }) {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setSlow(true), after); return () => clearTimeout(t) }, [after])
+  return (
+    <div>
+      <Skeleton rows={rows} />
+      {slow && (
+        <div className="flex items-center gap-2 px-4 pb-4 text-sm text-slate-500" role="status">
+          <Spinner className="h-4 w-4" /> Still loading. The server is slow or unreachable.
+          {retry && <button type="button" onClick={retry} className="link cursor-pointer">Try again</button>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Loading / error / empty / content switch for any query. */
 export function QueryState<T>({ isLoading, error, data, empty, children, retry }: {
   isLoading: boolean; error: unknown; data: T | undefined; empty?: ReactNode; children: (data: T) => ReactNode; retry?: () => void
 }) {
-  if (isLoading) return <Skeleton />
+  if (isLoading) return <SlowSkeleton retry={retry} />
   if (error) return <div className="p-4"><ErrorBox message={(error as Error).message || 'Failed to load'} retry={retry} /></div>
   if (data === undefined || data === null) return <>{empty ?? null}</>
   if (Array.isArray(data) && data.length === 0 && empty) return <>{empty}</>
