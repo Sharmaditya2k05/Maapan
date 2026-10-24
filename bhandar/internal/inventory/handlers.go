@@ -51,6 +51,7 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /v1/items/{id}", read(s.getItem))
 	mux.Handle("PUT /v1/items/{id}", manage(s.updateItem))
 	mux.Handle("DELETE /v1/items/{id}", manage(s.deactivateItem))
+	mux.Handle("POST /v1/items/{id}/activate", manage(s.activateItem))
 	mux.Handle("PUT /v1/items/{id}/reorder", user(s.setReorder, auth.PermItemManage, auth.PermStockManage))
 	mux.Handle("GET /v1/items/{id}/barcode.svg", read(s.barcodeSVG))
 	mux.Handle("GET /v1/items/{id}/ledger", read(s.itemLedger))
@@ -190,6 +191,21 @@ func (s *Service) deactivateItem(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return httpx.NoContent(w)
+}
+
+func (s *Service) activateItem(w http.ResponseWriter, r *http.Request) error {
+	_, t, err := tenant(r)
+	if err != nil {
+		return err
+	}
+	if err := s.SetStatus(r.Context(), t, r.PathValue("id"), "active"); err != nil {
+		return err
+	}
+	it, err := s.GetItem(r.Context(), t, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, it)
 }
 
 func (s *Service) setReorder(w http.ResponseWriter, r *http.Request) error {

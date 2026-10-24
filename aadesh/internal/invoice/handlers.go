@@ -107,6 +107,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
 	f := Filter{
 		DocType: httpx.Query(r, "doc_type"), StoreID: httpx.Query(r, "store_id"), PartyID: httpx.Query(r, "party_id"),
+		RefInvoiceID: httpx.Query(r, "ref_invoice_id"),
 		Status: httpx.Query(r, "status"), PaymentStatus: httpx.Query(r, "payment_status"),
 		From: httpx.Query(r, "from"), To: httpx.Query(r, "to"), Search: httpx.Query(r, "q"), Page: httpx.ParsePage(r),
 		IncludeLines: httpx.Query(r, "include") == "lines",

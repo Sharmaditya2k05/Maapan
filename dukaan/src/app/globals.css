@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/* Brand tokens (from the Taraju master artwork): navy, growth green, gold accent. */
+@theme {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --font-logo: var(--font-outfit), var(--font-jakarta), ui-sans-serif, sans-serif;
+  --color-brand-50: #ebf9f3;
+  --color-brand-100: #cff1e3;
+  --color-brand-200: #a1e3c9;
+  --color-brand-300: #67cfa8;
+  --color-brand-400: #34bb8a;
+  --color-brand-500: #0ea673;
+  --color-brand-600: #0a8a60;
+  --color-brand-700: #0b3a78;
+  --color-brand-800: #062c60;
+  --color-brand-900: #05234d;
+  --color-brand-950: #03183a;
+  --color-ink: #071a36;
+  --color-gold-400: #fbbf24;
+  --color-gold-500: #f59e0b;
+}
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-slate-50 text-ink font-sans; }
+  h1, h2 { font-family: var(--font-logo); letter-spacing: -0.02em; }
+  input, select, textarea, button { font: inherit; }
+  ::selection { @apply bg-brand-200; }
+  /* Numeric inputs: no spinners, the POS types amounts fast. */
+  input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition
+      placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50 disabled:text-slate-400;
+  }
+  .input-sm { @apply px-2.5 py-1.5 text-sm rounded-lg; }
+  .label { @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .card { @apply rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]; }
+  .th { @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap; }
+  .td { @apply px-4 py-3 text-sm align-middle; }
+  .num { @apply font-mono tabular-nums; }
+  .kbd { @apply rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500; }
+  .link { @apply font-semibold text-brand-700 hover:underline; }
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+.animate-rise { animation: rise .35s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+.skeleton { @apply rounded-lg bg-slate-100; background-image: linear-gradient(90deg, transparent, rgba(255,255,255,.7), transparent); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.stagger > * { animation: rise .45s cubic-bezier(.2,.7,.2,1) both; }
+.stagger > *:nth-child(2) { animation-delay: .05s } .stagger > *:nth-child(3) { animation-delay: .1s }
+.stagger > *:nth-child(4) { animation-delay: .15s } .stagger > *:nth-child(5) { animation-delay: .2s }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise, .stagger > *, .skeleton { animation: none !important; }
+}
+
+/* ---------- Printing ----------
+   A4 tax invoice: .print-a4 wraps the page. Thermal receipt: .print-thermal is 80 mm wide
+   (58 mm with .thermal-58). Everything with .no-print disappears; the app shell is hidden
+   whenever a .print-root is on the page. */
+@page { margin: 12mm; }
+@media print {
+  html, body { background: white !important; color: black !important; }
+  .no-print, nav, header.app-topbar, aside.app-sidebar { display: none !important; }
+  body:has(.print-root) > *:not(:has(.print-root)) { display: none !important; }
+  .print-root { position: static !important; width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border: 0 !important; }
+  .print-a4 { width: 186mm; font-size: 10.5pt; }
+  .print-thermal { width: 72mm; font-size: 9pt; font-family: var(--font-mono); }
+  .print-thermal.thermal-58 { width: 48mm; font-size: 8pt; }
+  .page-break { break-after: page; }
+  a { text-decoration: none; color: inherit; }
+}
+.print-thermal { font-family: var(--font-mono); }

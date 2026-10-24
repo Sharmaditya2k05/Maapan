@@ -486,6 +486,7 @@ type CatalogItem struct {
 	TaxCategory      string    `json:"tax_category"`
 	PriceIncludesTax bool      `json:"price_includes_tax"`
 	TrackBatches     bool      `json:"track_batches"`
+	PLU              string    `json:"plu,omitempty"` // weighing-scale item code (offline scale scans)
 	OnHand           float64   `json:"on_hand"`
 	AltUnits         []AltUnit `json:"alt_units,omitempty"`
 }
@@ -505,7 +506,7 @@ func (s *Service) PosCatalog(ctx context.Context, tenantID, storeID string) ([]C
 	etag := `"` + hex.EncodeToString(h[:8]) + `"`
 
 	rows, err := s.DB.Query(ctx, `SELECT i.id, i.name, i.sku, i.barcode, i.hsn, i.unit, i.sale_price_paise, i.mrp_paise,
-		i.tax_rate_bp, i.cess_rate_bp, i.cess_per_unit_paise, i.tax_category, i.price_includes_tax, i.track_batches,
+		i.tax_rate_bp, i.cess_rate_bp, i.cess_per_unit_paise, i.tax_category, i.price_includes_tax, i.track_batches, i.plu,
 		COALESCE((SELECT sum(b.qty) FROM stock_balances b WHERE b.tenant_id=i.tenant_id AND b.item_id=i.id AND b.store_id=$2), 0)::float8
 		FROM items i WHERE i.tenant_id=$1 AND i.status='active' ORDER BY lower(i.name)`, tenantID, storeID)
 	if err != nil {
@@ -515,12 +516,12 @@ func (s *Service) PosCatalog(ctx context.Context, tenantID, storeID string) ([]C
 	out := []CatalogItem{}
 	for rows.Next() {
 		var c CatalogItem
-		var sku, bc, hsn *string
+		var sku, bc, hsn, plu *string
 		if err := rows.Scan(&c.ID, &c.Name, &sku, &bc, &hsn, &c.Unit, &c.SalePricePaise, &c.MRPPaise, &c.TaxRateBP,
-			&c.CessRateBP, &c.CessPerUnitPaise, &c.TaxCategory, &c.PriceIncludesTax, &c.TrackBatches, &c.OnHand); err != nil {
+			&c.CessRateBP, &c.CessPerUnitPaise, &c.TaxCategory, &c.PriceIncludesTax, &c.TrackBatches, &plu, &c.OnHand); err != nil {
 			return nil, "", err
 		}
-		c.SKU, c.Barcode, c.HSN = deref(sku), deref(bc), deref(hsn)
+		c.SKU, c.Barcode, c.HSN, c.PLU = deref(sku), deref(bc), deref(hsn), deref(plu)
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {

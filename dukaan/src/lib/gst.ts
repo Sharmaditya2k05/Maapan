@@ -42,7 +42,8 @@ export interface GstSummary {
   by_rate: RateTotal[]
 }
 
-export const GST_SLABS_BP = [0, 25, 300, 500, 1200, 1800, 2800, 4000]
+/** Slabs in force since 22 Sep 2025 (12 % was merged into 5 %; 28 % remains for tobacco and pan masala). The server validates by document date. */
+export const GST_SLABS_BP = [0, 25, 150, 300, 500, 1800, 2800, 4000]
 
 export const STATES: Record<string, string> = {
   '01': 'Jammu and Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh', '05': 'Uttarakhand',

@@ -242,6 +242,7 @@ type Filter struct {
 	DocType       string
 	StoreID       string
 	PartyID       string
+	RefInvoiceID  string // notes against one original (returns screen)
 	Status        string
 	PaymentStatus string
 	From, To      string

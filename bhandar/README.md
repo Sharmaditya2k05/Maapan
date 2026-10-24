@@ -83,6 +83,7 @@ curl -s localhost:7008/v1/items -H "Authorization: Bearer $TOKEN" -H 'Content-Ty
 | `GET /v1/items?q=&category=&status=` | read | Search by name / exact SKU / exact barcode |
 | `POST /v1/items` | `item:manage` | Create (barcode auto-generated unless `generate_barcode:false`) |
 | `GET /v1/items/{id}` · `PUT` · `DELETE` | read · `item:manage` | Get / replace / deactivate (soft) |
+| `POST /v1/items/{id}/activate` | `item:manage` | Reactivate a deactivated item |
 | `GET /v1/barcodes/{code}` | read | Scanner lookup (barcode, SKU, or a weighing-scale code whose PLU matches the item's `plu`/`sku`; the response then carries `scale: {kind: price\|weight, value}`) |
 | `GET /v1/items/pos-catalog?store_id=` | read | Compact catalog + on-hand; honours `If-None-Match` |
 | `PUT /v1/items/{id}/reorder` | `item:manage` or `stock:manage` | `{reorder_level, reorder_qty, preferred_supplier_id}` |

@@ -15,7 +15,13 @@ if [[ "${1:-}" == "stop" ]]; then
 fi
 targets=("$@"); [[ ${#targets[@]} -eq 0 ]] && targets=("${ALL[@]}")
 
-docker compose up -d postgres redis
+# Postgres + Redis from docker-compose when Docker is available; otherwise they must already be
+# running natively (PostgreSQL 16 service, Memurai/Redis) on the ports in each .env.
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  docker compose up -d postgres redis
+else
+  echo "docker not available: expecting Postgres on :5432 and Redis on :6379 to be running already"
+fi
 for svc in "${targets[@]}"; do
   [[ -d "$ROOT/$svc" ]] || { echo "skip $svc (not checked out)"; continue; }
   [[ -f "$ROOT/$svc/.env" ]] || cp "$ROOT/$svc/.env.example" "$ROOT/$svc/.env"

@@ -107,7 +107,9 @@ export interface StockBalance {
   value_paise: number
 }
 
-export interface Tender { mode: 'cash' | 'card' | 'upi' | 'bank' | 'credit' | 'other'; amount_paise: number; reference?: string }
+export type TenderMode = 'cash' | 'card' | 'upi' | 'bank' | 'credit' | 'other'
+/** A counter payment. payment_request_id links a UPI/card tender to the lenden request it was confirmed through. */
+export interface Tender { mode: TenderMode; amount_paise: number; reference?: string; payment_request_id?: string }
 
 export interface InvoiceLineInput extends GstLine {
   item_id?: string
@@ -125,11 +127,20 @@ export interface CreateInvoiceInput {
   party_id?: string
   party?: { name: string; phone?: string; gstin?: string; state_code?: string }
   place_of_supply?: string
+  supply_category?: '' | 'sez_with_payment' | 'sez_without_payment' | 'export_with_payment' | 'export_without_payment' | 'deemed_export'
+  reverse_charge?: boolean
   supplier_invoice_no?: string
+  supplier_invoice_date?: string
+  due_date?: string
   ref_invoice_id?: string
   lines: InvoiceLineInput[]
+  invoice_discount_paise?: number
+  invoice_discount_bp?: number
+  tcs_bp?: number
   tenders?: Tender[]
   notes?: string
+  round_off?: boolean
+  override_credit_limit?: boolean
   client_uuid?: string
   device_id?: string
   number?: number
@@ -145,6 +156,7 @@ export interface InvoiceLine extends InvoiceLineInput {
   igst_paise: number
   cess_paise: number
   total_paise: number
+  tax_category?: 'taxable' | 'exempt' | 'nil_rated' | 'non_gst'
 }
 
 export interface Invoice {
@@ -154,15 +166,20 @@ export interface Invoice {
   number: string
   fy: string
   invoice_date: string
+  due_date?: string
   supplier_invoice_no?: string
+  supplier_invoice_date?: string
   party_id?: string
   party_name: string
   party_phone?: string
   party_gstin?: string
   party_state?: string
   store_state: string
+  store_gstin?: string
   place_of_supply: string
   inter_state: boolean
+  supply_category?: string
+  reverse_charge?: boolean
   status: 'posted' | 'cancelled'
   payment_status: 'unpaid' | 'partial' | 'paid'
   taxable_paise: number
@@ -171,11 +188,22 @@ export interface Invoice {
   sgst_paise: number
   igst_paise: number
   cess_paise: number
+  invoice_discount_paise?: number
+  tcs_paise?: number
   round_off_paise: number
   grand_total_paise: number
   paid_paise: number
+  /** Cash handed back at the counter. */
+  change_paise?: number
+  /** Credit/debit notes posted against this document. */
+  credited_paise?: number
+  /** grand total − credited − paid, never below 0. */
+  balance_paise: number
   amount_in_words: string
+  irn?: string
   notes?: string
+  cancel_reason?: string
+  cancelled_at?: string
   created_at: string
   lines?: InvoiceLine[]
   tenders?: Tender[]
@@ -216,9 +244,9 @@ export interface Statement {
   lines: { date: string; voucher_id: string; voucher_number: string; voucher_type: string; narration: string; reference?: string; debit_paise: number; credit_paise: number; balance_paise: number }[]
 }
 
-export interface NumberBlock { doc_type: DocType; fy: string; prefix: string; device_id: string; start_no: number; end_no: number }
+export interface NumberBlock { id?: string; doc_type: DocType; fy: string; prefix: string; device_id: string; start_no: number; end_no: number; last_used_no?: number; released_at?: string }
 
-/** lenden Request. status: created | paid | expired | cancelled | failed */
+/** lenden Request. status: created | partial | paid | expired | cancelled | failed */
 export interface PaymentRequest {
   id: string
   invoice_id?: string
@@ -227,7 +255,7 @@ export interface PaymentRequest {
   purpose: 'invoice' | 'on_account'
   kind: 'upi_qr' | 'payment_link'
   gateway: string
-  status: 'created' | 'paid' | 'expired' | 'cancelled' | 'failed'
+  status: 'created' | 'partial' | 'paid' | 'expired' | 'cancelled' | 'failed'
   upi_qr_image_url?: string
   upi_intent?: string
   short_url?: string

@@ -2,7 +2,10 @@ import type { NextConfig } from 'next'
 
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'X-Frame-Options', value: 'DENY' },
+  // SAMEORIGIN, not DENY: the POS prints receipts by loading /print/... in a hidden same-origin iframe.
+  // Other sites still cannot frame the app (clickjacking protection stays).
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
   // camera: bill scanning; usb/serial: thermal printers & cash drawer

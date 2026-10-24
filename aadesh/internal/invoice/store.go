@@ -164,6 +164,9 @@ func List(ctx context.Context, pool *pgxpool.Pool, tenantID string, f Filter) ([
 	if f.PartyID != "" {
 		add("party_id = $%d", f.PartyID)
 	}
+	if f.RefInvoiceID != "" {
+		add("ref_invoice_id = $%d", f.RefInvoiceID)
+	}
 	if f.Status != "" {
 		add("status = $%d", f.Status)
 	}
