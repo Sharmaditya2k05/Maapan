@@ -3,6 +3,7 @@ package posting
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/taraju/mool/events"
 )
@@ -29,6 +30,8 @@ const (
 	SrcPayment    = "lenden.payment"
 	SrcRefund     = "lenden.refund"
 	SrcProduction = "nirmaan.production"
+	SrcStockMoved = "bhandar.stock.moved"
+	SrcSettlement = "lenden.settlement"
 	SrcOpening    = "opening"
 	SrcBank       = "bank"
 	SrcCheque     = "cheque"
@@ -145,6 +148,28 @@ func tenderAccount(mode string) string {
 	return Bank
 }
 
+// ReceiptAccount is the asset account an online/manual payment settles into.
+// Anything captured by a gateway (razorpay, cashfree, …) sits in Payment
+// Gateway Clearing until lenden.settlement.processed moves it to Bank. Manual
+// (gateway "manual" or empty) receipts go by method: cash → Cash-in-hand,
+// cheque → Cheques in Hand, everything else (bank, neft, rtgs, imps,
+// netbanking, upi, card, wallet) → Bank.
+func ReceiptAccount(gateway, method string) string {
+	switch gw := strings.ToLower(strings.TrimSpace(gateway)); gw {
+	case "", "manual":
+	default:
+		return GatewayClearing
+	}
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "cash":
+		return Cash
+	case "cheque":
+		return ChequesInHand
+	default:
+		return Bank
+	}
+}
+
 // saleShape builds entries shaped like a sale: revenue and output-side taxes on
 // the credit side, money/party on the debit side. Other document types are this
 // shape swapped and/or with different accounts.
@@ -161,6 +186,12 @@ func saleShape(p events.InvoicePayload, revenue string, taxes [4]string, fallbac
 	remaining := p.GrandTotalPaise
 	for _, t := range p.Tenders {
 		if t.Mode == "credit" || remaining <= 0 {
+			continue
+		}
+		// A tender backed by a lenden payment request (counter UPI QR / card link)
+		// is booked when lenden.payment.captured arrives — Dr Gateway Clearing,
+		// Cr party — so it must stay on the party here or it is counted twice.
+		if t.PaymentRequestID != "" {
 			continue
 		}
 		amt := min(t.AmountPaise, remaining) // excess cash is change returned
@@ -214,10 +245,12 @@ func Invoice(p events.InvoicePayload) (Voucher, error) {
 }
 
 // Payment turns lenden.payment.captured (or .refunded) into a receipt (or payment)
-// voucher: Dr Bank / Cr party. partyID is the resolved party ("" = walk-in).
+// voucher: Dr ReceiptAccount(gateway, method) / Cr party. partyID is the
+// resolved party ("" = walk-in). A refund is the same entries swapped, keyed on
+// the refund id so every partial refund of one payment gets its own voucher.
 func Payment(p events.PaymentPayload, partyID, storeID, date string, refund bool) (Voucher, error) {
 	x := &b{store: storeID}
-	x.dr(Bank, "", p.AmountPaise)
+	x.dr(ReceiptAccount(p.Gateway, p.Method), "", p.AmountPaise)
 	if partyID != "" {
 		x.cr("", partyID, p.AmountPaise)
 	} else {
@@ -228,8 +261,145 @@ func Payment(p events.PaymentPayload, partyID, storeID, date string, refund bool
 	if refund {
 		v.Type, v.Source, v.Entries = VPayment, SrcRefund, Swap(x.es)
 		v.Narration = "Refund of " + p.GatewayRef
+		if p.RefundID != "" {
+			v.SourceID = p.RefundID
+			v.Narration = fmt.Sprintf("Refund %s of %s", p.RefundID, p.GatewayRef)
+		}
 	}
 	return v, v.Validate()
+}
+
+// Stock movement reasons (bhandar) that bahi reclassifies.
+const (
+	reasonSale              = "sale"
+	reasonPurchase          = "purchase"
+	reasonSaleReturn        = "sale_return"
+	reasonPurchaseReturn    = "purchase_return"
+	reasonTransferIn        = "transfer_in"
+	reasonTransferOut       = "transfer_out"
+	reasonAdjustment        = "adjustment"
+	reasonOpening           = "opening"
+	reasonProductionConsume = "production_consume"
+	reasonProductionOutput  = "production_output"
+	reasonExpiryWriteoff    = "expiry_writeoff"
+)
+
+// StockMoved turns bhandar.stock.moved into a perpetual-inventory
+// reclassification. The invoice vouchers stay as they are (Purchases is debited
+// on a purchase bill, Sales credited on a sale); this voucher moves cost between
+// the P&L and Inventory using bhandar's weighted-average value:
+//
+//	purchase         Dr Inventory          Cr Purchases          (value, +)
+//	purchase_return  Dr Purchase Returns   Cr Inventory          (value, −)
+//	sale             Dr Cost of Goods Sold Cr Inventory          (value, −)
+//	sale_return      Dr Inventory          Cr Cost of Goods Sold (value, +)
+//	adjustment /     qty<0: Dr Stock Loss  Cr Inventory
+//	expiry_writeoff  qty>0: Dr Inventory   Cr Stock Gain
+//	opening          Dr Inventory          Cr Opening Balance Difference
+//
+// transfer_in/out move stock between stores of the same tenant — same Inventory
+// account, nothing to post. production_consume/output are already booked from
+// nirmaan.production.completed (Dr Stock-FG, Cr Stock-RM/WIP), so they are
+// skipped too. A reversal payload (invoice cancelled) is just the negative
+// movement and follows the same rules. ok=false means there is nothing to post.
+func StockMoved(p events.StockMovedPayload, date string) (v Voucher, ok bool, err error) {
+	value := p.ValuePaise
+	var loss, gain int64
+	for _, m := range p.Movements {
+		if p.ValuePaise == 0 {
+			value += m.ValuePaise
+		}
+		if m.ValuePaise < 0 {
+			loss -= m.ValuePaise
+		} else {
+			gain += m.ValuePaise
+		}
+	}
+	if len(p.Movements) == 0 {
+		if value < 0 {
+			loss = -value
+		} else {
+			gain = value
+		}
+	}
+	x := &b{store: p.StoreID}
+	switch p.Reason {
+	case reasonPurchase:
+		x.dr(Inventory, "", value)
+		x.cr(Purchases, "", value)
+	case reasonPurchaseReturn:
+		x.dr(Inventory, "", value) // value < 0 → credit Inventory, debit Purchase Returns
+		x.cr(PurchaseReturns, "", value)
+	case reasonSale, reasonSaleReturn:
+		x.dr(Inventory, "", value) // sale: value < 0 → credit Inventory, debit COGS
+		x.cr(COGS, "", value)
+	case reasonAdjustment, reasonExpiryWriteoff:
+		x.dr(StockLoss, "", loss)
+		x.cr(Inventory, "", loss)
+		x.dr(Inventory, "", gain)
+		x.cr(StockGain, "", gain)
+	case reasonOpening:
+		x.dr(Inventory, "", value)
+		x.cr(OpeningDiff, "", value)
+	case reasonTransferIn, reasonTransferOut, reasonProductionConsume, reasonProductionOutput:
+		return Voucher{}, false, nil
+	default:
+		return Voucher{}, false, fmt.Errorf("unknown stock movement reason %q", p.Reason)
+	}
+	if len(x.es) == 0 { // zero-value movement (e.g. free goods at nil cost)
+		return Voucher{}, false, nil
+	}
+	sourceID := p.Source + "/" + p.SourceID
+	what := "Stock " + p.Reason
+	if p.Reversal {
+		sourceID += "/rev"
+		what += " reversal"
+	}
+	v = Voucher{Type: VJournal, Date: date, Source: SrcStockMoved, SourceID: sourceID, SourceRef: p.SourceID,
+		Narration: fmt.Sprintf("%s — %s %s (%d items)", what, p.Source, p.SourceID, len(p.Movements)), Entries: x.es}
+	return v, true, v.Validate()
+}
+
+// Settlement turns lenden.settlement.processed into the payout voucher:
+//
+//	Dr Bank            net
+//	Dr Bank Charges    fee
+//	Dr Input CGST      ⌈fee tax / 2⌉   (odd paisa on CGST)
+//	Dr Input SGST      ⌊fee tax / 2⌋
+//	Cr Gateway Clearing gross − refunds
+//
+// The payload must satisfy gross − refunds = net + fee + fee tax, otherwise it
+// is rejected (the caller quarantines it). ok=false means a zero settlement.
+func Settlement(p events.SettlementPayload, storeID, date string) (v Voucher, ok bool, err error) {
+	if p.SettlementID == "" {
+		return Voucher{}, false, errors.New("settlement without settlement_id")
+	}
+	if p.GrossPaise-p.RefundsPaise != p.NetPaise+p.FeePaise+p.FeeTaxPaise {
+		return Voucher{}, false, fmt.Errorf("settlement does not balance: gross %d − refunds %d ≠ net %d + fee %d + fee tax %d",
+			p.GrossPaise, p.RefundsPaise, p.NetPaise, p.FeePaise, p.FeeTaxPaise)
+	}
+	cgst := p.FeeTaxPaise/2 + p.FeeTaxPaise%2
+	sgst := p.FeeTaxPaise - cgst
+	x := &b{store: storeID}
+	x.dr(Bank, "", p.NetPaise)
+	x.dr(BankCharges, "", p.FeePaise)
+	x.dr(InputCGST, "", cgst)
+	x.dr(InputSGST, "", sgst)
+	x.cr(GatewayClearing, "", p.GrossPaise-p.RefundsPaise)
+	if len(x.es) == 0 {
+		return Voucher{}, false, nil
+	}
+	ref := p.GatewayRef
+	if ref == "" {
+		ref = p.UTR
+	}
+	narr := fmt.Sprintf("%s settlement %s", p.Gateway, ref)
+	if p.UTR != "" && p.UTR != ref {
+		narr += " (UTR " + p.UTR + ")"
+	}
+	v = Voucher{Type: VReceipt, Date: date, Source: SrcSettlement, SourceID: p.SettlementID, SourceRef: ref,
+		Narration: narr, Entries: x.es}
+	return v, true, v.Validate()
 }
 
 // Production turns nirmaan.production.completed into a stock transfer:

@@ -58,6 +58,12 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /v1/reports/daybook", user(s.handleDayBook, auth.PermReportRead))
 	mux.Handle("GET /v1/reports/summary", user(s.handleSummary, auth.PermReportRead))
 
+	// Operations: events bahi could not post, and the period lock
+	mux.Handle("GET /v1/quarantine", user(s.handleListQuarantine, auth.PermLedgerRead))
+	mux.Handle("POST /v1/quarantine/{event_id}/retry", user(s.handleRetryQuarantine, auth.PermLedgerWrite))
+	mux.Handle("GET /v1/settings/period-lock", user(s.handleGetPeriodLock, auth.PermLedgerRead))
+	mux.Handle("PUT /v1/settings/period-lock", user(s.handlePutPeriodLock, auth.PermSettingsManage))
+
 	// Internal (service secret)
 	mux.Handle("GET /internal/v1/parties/{id}", internal(s.handleInternalParty))
 	mux.Handle("POST /internal/v1/bulk/parties", internal(s.handleBulkParties))

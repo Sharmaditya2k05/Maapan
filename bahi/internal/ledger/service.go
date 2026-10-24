@@ -39,6 +39,16 @@ func FinancialYear(d time.Time) string {
 
 func (s *Service) today() string { return s.Now().In(IST).Format(time.DateOnly) }
 
+// fyStart is 1 April (IST) of the current Indian financial year.
+func (s *Service) fyStart() string {
+	t := s.Now().In(IST)
+	y := t.Year()
+	if t.Month() < time.April {
+		y--
+	}
+	return fmt.Sprintf("%04d-04-01", y)
+}
+
 var voucherPrefix = map[string]string{
 	posting.VSales: "SV", posting.VPurchase: "PV", posting.VReceipt: "RV", posting.VPayment: "PY",
 	posting.VJournal: "JV", posting.VContra: "CV", posting.VCreditNote: "CN", posting.VDebitNote: "DN",
@@ -80,7 +90,10 @@ type Posted struct {
 
 // Post resolves account codes/parties, numbers and inserts a balanced voucher
 // inside tx. Vouchers with a SourceID are idempotent: re-posting returns the
-// existing voucher with Created=false.
+// existing voucher with Created=false, and concurrent deliveries of the same
+// source document are serialised on a transaction-scoped advisory lock so the
+// loser sees the winner's row instead of a unique violation. A voucher dated
+// inside the tenant's locked period is refused with 409 period_locked.
 func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Voucher) (Posted, error) {
 	if err := v.Validate(); err != nil {
 		return Posted{}, httpx.Validation("%s", err.Error())
@@ -89,6 +102,10 @@ func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Vou
 		return Posted{}, err
 	}
 	if v.SourceID != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text || ':' || $2::text || ':' || $3::text))`,
+			tenantID, v.Source, v.SourceID); err != nil {
+			return Posted{}, err
+		}
 		var p Posted
 		err := tx.QueryRow(ctx, `SELECT id, number FROM vouchers WHERE tenant_id=$1 AND source=$2 AND source_id=$3`,
 			tenantID, v.Source, v.SourceID).Scan(&p.ID, &p.Number)
@@ -102,6 +119,9 @@ func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Vou
 	date, err := time.ParseInLocation(time.DateOnly, v.Date, IST)
 	if err != nil {
 		return Posted{}, httpx.Validation("date must be YYYY-MM-DD")
+	}
+	if err := checkPeriodLock(ctx, tx, tenantID, v.Date); err != nil {
+		return Posted{}, err
 	}
 	prefix, ok := voucherPrefix[v.Type]
 	if !ok {
@@ -190,8 +210,10 @@ func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Vou
 	return p, nil
 }
 
-// Reverse marks voucherID reversed and posts a mirror voucher dated date.
-// Returns the reversal; reversing an already-reversed voucher is a conflict.
+// Reverse posts a mirror voucher dated date and marks the ORIGINAL reversed,
+// pointing it at the reversal (reversed_by); the reversal voucher itself stays
+// posted and points back (reversal_of). Returns the reversal; reversing an
+// already-reversed voucher is a conflict.
 func Reverse(ctx context.Context, tx pgx.Tx, tenantID, userID, voucherID, date, source, sourceID, reason string) (Posted, error) {
 	var vtype, number, status string
 	err := tx.QueryRow(ctx, `SELECT vtype, number, status FROM vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -223,9 +245,6 @@ func Reverse(ctx context.Context, tx pgx.Tx, tenantID, userID, voucherID, date, 
 	if err := rows.Err(); err != nil {
 		return Posted{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE vouchers SET status='reversed' WHERE id=$1`, voucherID); err != nil {
-		return Posted{}, err
-	}
 	narr := "Reversal of " + number
 	if reason != "" {
 		narr += ": " + reason
@@ -236,7 +255,10 @@ func Reverse(ctx context.Context, tx pgx.Tx, tenantID, userID, voucherID, date, 
 	if err != nil {
 		return Posted{}, err
 	}
-	_, err = tx.Exec(ctx, `UPDATE vouchers SET reversal_of=$2, status='reversed' WHERE id=$1`, p.ID, voucherID)
+	if _, err := tx.Exec(ctx, `UPDATE vouchers SET reversal_of=$2 WHERE tenant_id=$3 AND id=$1`, p.ID, voucherID, tenantID); err != nil {
+		return Posted{}, err
+	}
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET status='reversed', reversed_by=$2 WHERE tenant_id=$3 AND id=$1`, voucherID, p.ID, tenantID)
 	return p, err
 }
 

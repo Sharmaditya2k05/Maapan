@@ -105,8 +105,35 @@ type ProfitLoss struct {
 	Expenses         []PLLine `json:"expenses"`
 	TotalIncome      int64    `json:"total_income_paise"`
 	TotalExpenses    int64    `json:"total_expenses_paise"`
-	GrossProfitPaise int64    `json:"gross_profit_paise"` // sales − returns − purchases + purchase returns − direct expenses
+	GrossProfitPaise int64    `json:"gross_profit_paise"` // sales − returns − purchases + purchase returns − direct expenses (COGS, stock loss, …)
 	NetProfitPaise   int64    `json:"net_profit_paise"`
+}
+
+// grossProfitCodes is posting.GrossProfitCodes plus every account under the
+// Direct Expenses group (Cost of Goods Sold, Stock Loss, Other Direct Expenses
+// and any leaf the tenant adds there).
+func (s *Service) grossProfitCodes(ctx context.Context, tenantID string) (map[string]bool, error) {
+	out := make(map[string]bool, len(posting.GrossProfitCodes)+4)
+	for c := range posting.GrossProfitCodes {
+		out[c] = true
+	}
+	rows, err := s.DB.Query(ctx, `WITH RECURSIVE t AS (
+			SELECT id, code FROM accounts WHERE tenant_id=$1 AND code=$2
+			UNION ALL
+			SELECT a.id, a.code FROM accounts a JOIN t ON a.parent_id=t.id WHERE a.tenant_id=$1)
+		SELECT code FROM t`, tenantID, posting.DirectExpenses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		out[code] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Service) profitLoss(ctx context.Context, tenantID, from, to string) (*ProfitLoss, error) {
@@ -114,9 +141,11 @@ func (s *Service) profitLoss(ctx context.Context, tenantID, from, to string) (*P
 	if err != nil {
 		return nil, err
 	}
+	direct, err := s.grossProfitCodes(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
 	pl := &ProfitLoss{From: from, To: to, Income: []PLLine{}, Expenses: []PLLine{}}
-	direct := map[string]bool{posting.Sales: true, posting.SalesReturns: true, posting.Purchases: true,
-		posting.PurchaseReturns: true, posting.DirectExpenses: true}
 	for _, t := range ts {
 		switch t.Group {
 		case "income":

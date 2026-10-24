@@ -154,7 +154,14 @@ func (s *Service) createParty(ctx context.Context, tx pgx.Tx, tenantID, userID s
 		return "", err
 	}
 	if in.OpeningBalancePaise > 0 {
-		asOf := orDefault(in.OpeningAsOf, s.today())
+		// Opening balances belong to the start of the financial year, not to the
+		// day the party happened to be keyed in.
+		asOf := in.OpeningAsOf
+		if asOf == "" {
+			asOf = s.fyStart()
+		} else if _, err := time.Parse(time.DateOnly, asOf); err != nil {
+			return "", httpx.Validation("opening_as_of must be YYYY-MM-DD")
+		}
 		v, err := posting.Opening(posting.Entry{PartyID: id}, in.OpeningBalancePaise, in.OpeningType, asOf, "party:"+id)
 		if err != nil {
 			return "", httpx.Validation("%s", err.Error())
@@ -367,6 +374,7 @@ type internalParty struct {
 	StateCode        string `json:"state_code"`
 	Address          string `json:"address"`
 	CreditLimitPaise int64  `json:"credit_limit_paise"`
+	CreditDays       int    `json:"credit_days"` // aadesh derives due dates and enforces credit from these
 	BalancePaise     int64  `json:"balance_paise"`
 }
 
@@ -381,7 +389,7 @@ func (s *Service) handleInternalParty(w http.ResponseWriter, r *http.Request) er
 	}
 	return httpx.OK(w, internalParty{ID: pt.ID, Name: pt.Name, Type: pt.Type, Phone: pt.Phone, Email: pt.Email,
 		GSTIN: pt.GSTIN, StateCode: pt.StateCode, Address: pt.Address, CreditLimitPaise: pt.CreditLimitPaise,
-		BalancePaise: pt.BalancePaise})
+		CreditDays: pt.CreditDays, BalancePaise: pt.BalancePaise})
 }
 
 // BulkResult is the shape every bulk endpoint returns.

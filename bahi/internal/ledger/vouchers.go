@@ -26,7 +26,8 @@ type VoucherView struct {
 	SourceID   string      `json:"source_id,omitempty"`
 	SourceRef  string      `json:"source_ref,omitempty"`
 	Status     string      `json:"status"`
-	ReversalOf string      `json:"reversal_of,omitempty"`
+	ReversalOf string      `json:"reversal_of,omitempty"` // set on a reversal voucher: the original
+	ReversedBy string      `json:"reversed_by,omitempty"` // set on a reversed original: its reversal
 	TotalPaise int64       `json:"total_paise"`
 	CreatedBy  string      `json:"created_by"`
 	CreatedAt  time.Time   `json:"created_at"`
@@ -46,13 +47,14 @@ type EntryView struct {
 }
 
 const voucherCols = `v.id, v.vtype, v.number, v.vdate, COALESCE(v.narration,''), v.source, COALESCE(v.source_id,''),
-	COALESCE(v.source_ref,''), v.status, COALESCE(v.reversal_of::text,''), v.total_paise, v.created_by, v.created_at`
+	COALESCE(v.source_ref,''), v.status, COALESCE(v.reversal_of::text,''), COALESCE(v.reversed_by::text,''), v.total_paise,
+	v.created_by, v.created_at`
 
 func scanVoucher(row pgx.Row) (*VoucherView, error) {
 	var v VoucherView
 	var d time.Time
 	err := row.Scan(&v.ID, &v.Type, &v.Number, &d, &v.Narration, &v.Source, &v.SourceID, &v.SourceRef, &v.Status,
-		&v.ReversalOf, &v.TotalPaise, &v.CreatedBy, &v.CreatedAt)
+		&v.ReversalOf, &v.ReversedBy, &v.TotalPaise, &v.CreatedBy, &v.CreatedAt)
 	v.Date = d.Format(time.DateOnly)
 	return &v, err
 }
