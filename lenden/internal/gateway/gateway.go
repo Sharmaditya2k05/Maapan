@@ -1,6 +1,7 @@
 // Package gateway abstracts the payment provider. The razorpay and cashfree
 // drivers talk to the real APIs; the mock driver lets the POS flow run locally
-// without keys. Registry holds every configured driver at once.
+// without keys. Registry holds every configured driver at once and resolves a
+// tenant's own keys (per-tenant credentials) ahead of the platform keys.
 package gateway
 
 import (
@@ -41,11 +42,21 @@ type Created struct {
 
 // RemotePayment is one payment the provider has seen against a QR/link.
 type RemotePayment struct {
-	PaymentRef  string // pay_xxx
+	PaymentRef    string // pay_xxx
+	AmountPaise   int64
+	Method        string
+	Status        string // captured | authorized | failed | refunded
+	CapturedAt    time.Time
+	RefundedPaise int64          // Σ refunds the provider has processed against it (0 when unknown)
+	Refunds       []RemoteRefund // the refunds themselves, when the provider lists them cheaply
+}
+
+// RemoteRefund is one refund the provider knows about for a payment.
+type RemoteRefund struct {
+	RefundRef   string // rfnd_xxx / cf_refund_id
+	Receipt     string // our refunds.id when we initiated it (Razorpay receipt/notes, Cashfree refund_id)
 	AmountPaise int64
-	Method      string
-	Status      string // captured | authorized | failed | refunded
-	CapturedAt  time.Time
+	Status      string // pending | processed | failed
 }
 
 // RemoteStatus is the provider's view of a QR/link (for reconciliation).
@@ -68,7 +79,30 @@ type Gateway interface {
 	FetchQR(ctx context.Context, gatewayRef string) (RemoteStatus, error)
 	FetchLink(ctx context.Context, gatewayRef string) (RemoteStatus, error)
 	Refund(ctx context.Context, paymentRef string, amountPaise int64, receipt string) (Refund, error)
+	// FetchRefunds lists every refund the provider has for a payment, so a
+	// refund whose outcome we never learned (timeout) can be settled.
+	FetchRefunds(ctx context.Context, paymentRef string) ([]RemoteRefund, error)
 }
+
+// Credentials are one tenant's own keys for a gateway (MATURITY-PLAN D5).
+type Credentials struct {
+	TenantID      string
+	Gateway       string
+	KeyID         string
+	KeySecret     string
+	WebhookSecret string // Razorpay webhook secret; Cashfree signs webhooks with KeySecret
+	Env           string // razorpay: test | live; cashfree: sandbox | production
+	UpdatedAt     time.Time
+}
+
+// CredentialSource looks up a tenant's own gateway keys. Implemented by creds.Store.
+type CredentialSource interface {
+	// Credentials returns the tenant's keys for gateway, ok=false when none are stored.
+	Credentials(ctx context.Context, tenantID, gateway string) (Credentials, bool, error)
+}
+
+// Factory builds a driver from a tenant's credentials.
+type Factory func(c Credentials) (Gateway, error)
 
 // RupeeString formats paise as a decimal rupee amount ("1234.50") — the
 // format UPI intents and dashboards expect.

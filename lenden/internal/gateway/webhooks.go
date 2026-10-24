@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,15 +14,34 @@ import (
 )
 
 // WebhookSource verifies and normalises one provider's webhooks. lenden mounts
-// one at POST /v1/webhooks/{name} for every configured gateway.
+// one at POST /v1/webhooks/{name} for every supported gateway.
 type WebhookSource interface {
 	Gateway() string
-	// Verify checks the provider's signature over the raw body.
+	// Verify checks the provider's signature over the raw body with the
+	// platform-wide secret (false when none is configured).
 	Verify(raw []byte, h http.Header) bool
+	// VerifyWith checks the signature with a tenant's own webhook secret.
+	VerifyWith(raw []byte, h http.Header, secret string) bool
 	// Parse normalises the body into a WebhookEvent (KindIgnore for events lenden doesn't use).
 	Parse(raw []byte) (WebhookEvent, error)
 	// EventID is the provider's delivery id, or "" (lenden then hashes the body).
 	EventID(h http.Header) string
+}
+
+// TenantSecret is one tenant's webhook secret for a gateway.
+type TenantSecret struct {
+	TenantID string
+	Secret   string
+}
+
+// WebhookSecretSource looks up tenants' webhook secrets so a webhook can be
+// verified against the keys of the store it belongs to. Implemented by creds.Store.
+type WebhookSecretSource interface {
+	// WebhookSecret returns tenantID's webhook secret for gateway, ok=false when none is stored.
+	WebhookSecret(ctx context.Context, tenantID, gateway string) (string, bool, error)
+	// AllWebhookSecrets returns every tenant's webhook secret for gateway (for
+	// bodies that reference no payment, such as settlements).
+	AllWebhookSecrets(ctx context.Context, gateway string) ([]TenantSecret, error)
 }
 
 // RazorpayWebhooks handles X-Razorpay-Signature webhooks.
@@ -29,7 +49,10 @@ type RazorpayWebhooks struct{ Secret string }
 
 func (RazorpayWebhooks) Gateway() string { return "razorpay" }
 func (w RazorpayWebhooks) Verify(raw []byte, h http.Header) bool {
-	return VerifySignature(raw, h.Get("X-Razorpay-Signature"), w.Secret)
+	return w.VerifyWith(raw, h, w.Secret)
+}
+func (RazorpayWebhooks) VerifyWith(raw []byte, h http.Header, secret string) bool {
+	return VerifySignature(raw, h.Get("X-Razorpay-Signature"), secret)
 }
 func (RazorpayWebhooks) Parse(raw []byte) (WebhookEvent, error) { return ParseWebhook(raw) }
 func (RazorpayWebhooks) EventID(h http.Header) string           { return h.Get("X-Razorpay-Event-Id") }
@@ -45,8 +68,12 @@ type CashfreeWebhooks struct {
 func (CashfreeWebhooks) Gateway() string { return "cashfree" }
 
 func (w CashfreeWebhooks) Verify(raw []byte, h http.Header) bool {
+	return w.VerifyWith(raw, h, w.Secret)
+}
+
+func (w CashfreeWebhooks) VerifyWith(raw []byte, h http.Header, secret string) bool {
 	sig, ts := strings.TrimSpace(h.Get("x-webhook-signature")), strings.TrimSpace(h.Get("x-webhook-timestamp"))
-	if sig == "" || ts == "" || w.Secret == "" {
+	if sig == "" || ts == "" || secret == "" {
 		return false
 	}
 	if w.MaxSkew > 0 {
@@ -62,7 +89,7 @@ func (w CashfreeWebhooks) Verify(raw []byte, h http.Header) bool {
 			return false
 		}
 	}
-	return hmac.Equal([]byte(SignCashfree(raw, ts, w.Secret)), []byte(sig))
+	return hmac.Equal([]byte(SignCashfree(raw, ts, secret)), []byte(sig))
 }
 
 // SignCashfree computes Cashfree's webhook signature (tests and local simulation use it).
@@ -84,7 +111,8 @@ type cfWebhook struct {
 		Order *struct {
 			OrderID           string            `json:"order_id"`
 			OrderTags         map[string]string `json:"order_tags"`
-			TransactionID     json.Number       `json:"transaction_id"`     // link event
+			CFPaymentID       json.Number       `json:"cf_payment_id"`      // link event (newer payloads)
+			TransactionID     json.Number       `json:"transaction_id"`     // link event (older payloads)
 			TransactionStatus string            `json:"transaction_status"` // link event
 		} `json:"order"`
 		Payment *struct {
@@ -152,7 +180,14 @@ func (CashfreeWebhooks) Parse(raw []byte) (WebhookEvent, error) {
 		if ev.RequestID == "" {
 			ev.RequestID = w.Data.LinkID
 		}
-		ev.PaymentRef = CashfreePaymentRef(w.Data.Order.OrderID, w.Data.Order.TransactionID)
+		// Key the payment on cf_payment_id, exactly as FetchLink does (GET /orders/{id}/payments),
+		// so a reconcile after a webhook can never book the same payment twice. Older link
+		// payloads only carry transaction_id, which is that same id under another name.
+		payID := w.Data.Order.CFPaymentID
+		if payID.String() == "" {
+			payID = w.Data.Order.TransactionID
+		}
+		ev.PaymentRef = CashfreePaymentRef(w.Data.Order.OrderID, payID)
 		ev.AmountPaise = paise(w.Data.LinkAmountPaid) // links are created without partial payments
 		ev.Method = MapMethod("")
 		ev.CapturedAt = parseCFTime(w.EventTime)

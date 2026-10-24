@@ -1,5 +1,6 @@
 // Package payment is lenden's core: payment requests (UPI QR / links),
-// captured payments, manual receipts, refunds, webhooks and reconciliation.
+// captured payments, manual receipts, refunds, webhooks, settlements,
+// per-tenant gateway keys and reconciliation.
 package payment
 
 import (
@@ -8,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/taraju/lenden/internal/gateway"
 	"github.com/taraju/mool/httpx"
 )
 
@@ -92,46 +94,56 @@ type Request struct {
 	UPIQRImageURL *string   `json:"upi_qr_image_url,omitempty"`
 	UPIIntent     *string   `json:"upi_intent,omitempty"`
 	ShortURL      *string   `json:"short_url,omitempty"`
-	Status        string    `json:"status"` // created | paid | expired | cancelled | failed
+	Status        string    `json:"status"` // created | partial | paid | expired | cancelled | failed
 	ExpiresAt     time.Time `json:"expires_at"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
 // Payment is money received.
 type Payment struct {
-	ID            string    `json:"id"`
-	StoreID       *string   `json:"store_id,omitempty"`
-	RequestID     *string   `json:"request_id,omitempty"`
-	InvoiceID     *string   `json:"invoice_id,omitempty"`
-	PartyID       *string   `json:"party_id,omitempty"`
-	PartyPhone    *string   `json:"party_phone,omitempty"`
-	AmountPaise   int64     `json:"amount_paise"`
-	RefundedPaise int64     `json:"refunded_paise"`
-	Method        string    `json:"method"`
-	Gateway       string    `json:"gateway"`
-	GatewayRef    *string   `json:"gateway_ref,omitempty"`
-	Status        string    `json:"status"`
-	Notes         *string   `json:"notes,omitempty"`
-	CapturedAt    time.Time `json:"captured_at"`
-	CreatedBy     string    `json:"created_by"`
+	ID             string    `json:"id"`
+	StoreID        *string   `json:"store_id,omitempty"`
+	RequestID      *string   `json:"request_id,omitempty"`
+	InvoiceID      *string   `json:"invoice_id,omitempty"`
+	PartyID        *string   `json:"party_id,omitempty"`
+	PartyPhone     *string   `json:"party_phone,omitempty"`
+	AmountPaise    int64     `json:"amount_paise"`
+	RefundedPaise  int64     `json:"refunded_paise"`
+	ShortPaise     int64     `json:"short_paise"`  // requested − captured, when the capture fell short of the request
+	ExcessPaise    int64     `json:"excess_paise"` // captured − requested, when the customer paid more than asked
+	Method         string    `json:"method"`
+	Gateway        string    `json:"gateway"`
+	GatewayRef     *string   `json:"gateway_ref,omitempty"`
+	Status         string    `json:"status"`
+	Notes          *string   `json:"notes,omitempty"`
+	IdempotencyKey *string   `json:"idempotency_key,omitempty"`
+	CapturedAt     time.Time `json:"captured_at"`
+	CreatedBy      string    `json:"created_by"`
 }
 
+// MaxIdempotencyKey is the longest idempotency key accepted on manual receipts.
+const MaxIdempotencyKey = 64
+
 // ManualInput records a cash/cheque/bank receipt (POST /v1/payments/manual).
+// IdempotencyKey (body field or Idempotency-Key header) is required: a replay
+// returns the receipt recorded the first time instead of booking it twice.
 type ManualInput struct {
-	InvoiceID   string `json:"invoice_id,omitempty"`
-	PartyID     string `json:"party_id,omitempty"`
-	PartyPhone  string `json:"party_phone,omitempty"`
-	StoreID     string `json:"store_id,omitempty"`
-	AmountPaise int64  `json:"amount_paise"`
-	Method      string `json:"method"`              // cash | cheque | bank | upi | card
-	Reference   string `json:"reference,omitempty"` // cheque no / UTR
-	Notes       string `json:"notes,omitempty"`
-	ReceivedAt  string `json:"received_at,omitempty"` // RFC3339 or YYYY-MM-DD; default now
+	InvoiceID      string `json:"invoice_id,omitempty"`
+	PartyID        string `json:"party_id,omitempty"`
+	PartyPhone     string `json:"party_phone,omitempty"`
+	StoreID        string `json:"store_id,omitempty"`
+	AmountPaise    int64  `json:"amount_paise"`
+	Method         string `json:"method"`              // cash | cheque | bank | upi | card
+	Reference      string `json:"reference,omitempty"` // cheque no / UTR
+	Notes          string `json:"notes,omitempty"`
+	ReceivedAt     string `json:"received_at,omitempty"` // RFC3339 or YYYY-MM-DD; default now
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 var manualMethods = map[string]bool{"cash": true, "cheque": true, "bank": true, "upi": true, "card": true}
 
-// Validate checks the receipt.
+// Validate checks the receipt. The idempotency key may still arrive through the
+// header, so only its length is checked here; Service.Manual requires it.
 func (in *ManualInput) Validate() error {
 	if in.AmountPaise <= 0 {
 		return httpx.Validation("amount_paise must be positive")
@@ -149,6 +161,9 @@ func (in *ManualInput) Validate() error {
 	}
 	if in.Method == "cheque" && strings.TrimSpace(in.Reference) == "" {
 		return httpx.Validation("cheque receipts need the cheque number in reference")
+	}
+	if len(strings.TrimSpace(in.IdempotencyKey)) > MaxIdempotencyKey {
+		return httpx.Validation("idempotency_key must be at most %d characters", MaxIdempotencyKey)
 	}
 	if _, err := in.receivedAt(time.Now()); err != nil {
 		return err
@@ -186,6 +201,28 @@ func (in *RefundInput) Validate() error {
 	return nil
 }
 
+// RefundView is one refund as returned by the API.
+type RefundView struct {
+	ID          string     `json:"id"`
+	PaymentID   string     `json:"payment_id"`
+	AmountPaise int64      `json:"amount_paise"`
+	GatewayRef  *string    `json:"gateway_ref,omitempty"`
+	Status      string     `json:"status"` // pending | unknown | processed | failed
+	Source      string     `json:"source"` // taraju | gateway
+	Reason      string     `json:"reason"`
+	LastError   *string    `json:"last_error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ProcessedAt *time.Time `json:"processed_at,omitempty"`
+}
+
+// RefundResponse is the answer to POST /v1/payments/{id}/refund: the payment as
+// it stands plus the refund just made. Status unknown means the gateway did not
+// answer; the webhook or reconciliation settles it and the amount stays reserved.
+type RefundResponse struct {
+	*Payment
+	Refund RefundView `json:"refund"`
+}
+
 // Capture is a provider payment to record against a request.
 type Capture struct {
 	RequestID   string
@@ -200,9 +237,61 @@ type Capture struct {
 type RefundDone struct {
 	Gateway     string
 	RefundRef   string
-	RefundID    string // our refunds.id from refund notes, when present
+	RefundID    string // our refunds.id from refund notes/receipt, when present
 	PaymentRef  string
 	AmountPaise int64
+}
+
+// SettlementDone is a provider payout reported by a webhook. TenantID is empty
+// when the body named no tenant and the platform-wide secret verified it.
+type SettlementDone struct {
+	Gateway  string
+	TenantID string
+	gateway.Settlement
+}
+
+// Settlement is a stored gateway payout.
+type Settlement struct {
+	ID           string    `json:"id"`
+	Gateway      string    `json:"gateway"`
+	GatewayRef   string    `json:"gateway_ref"`
+	UTR          *string   `json:"utr,omitempty"`
+	GrossPaise   int64     `json:"gross_paise"`
+	FeePaise     int64     `json:"fee_paise"`
+	FeeTaxPaise  int64     `json:"fee_tax_paise"`
+	RefundsPaise int64     `json:"refunds_paise"`
+	NetPaise     int64     `json:"net_paise"`
+	SettledAt    time.Time `json:"settled_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// SettlementFilter narrows GET /v1/settlements.
+type SettlementFilter struct {
+	Gateway, From, To string
+	httpx.Page
+}
+
+// GatewayCredentialInput is the body of PUT /v1/settings/gateways/{gateway}.
+type GatewayCredentialInput struct {
+	KeyID         string `json:"key_id"`
+	KeySecret     string `json:"key_secret"`
+	WebhookSecret string `json:"webhook_secret,omitempty"` // Razorpay: required; Cashfree signs with key_secret
+	Env           string `json:"env,omitempty"`            // razorpay: test | live; cashfree: sandbox | production
+}
+
+// Validate checks the shape; gateway-specific rules live in Service.PutGatewayCredentials.
+func (in *GatewayCredentialInput) Validate() error {
+	in.KeyID, in.KeySecret, in.WebhookSecret = strings.TrimSpace(in.KeyID), strings.TrimSpace(in.KeySecret), strings.TrimSpace(in.WebhookSecret)
+	in.Env = strings.ToLower(strings.TrimSpace(in.Env))
+	if in.KeyID == "" || in.KeySecret == "" {
+		return httpx.Validation("key_id and key_secret are required")
+	}
+	for name, v := range map[string]string{"key_id": in.KeyID, "key_secret": in.KeySecret, "webhook_secret": in.WebhookSecret} {
+		if len(v) > 256 {
+			return httpx.Validation("%s is too long", name)
+		}
+	}
+	return nil
 }
 
 // Filter narrows GET /v1/payments.

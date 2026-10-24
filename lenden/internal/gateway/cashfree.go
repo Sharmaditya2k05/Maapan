@@ -49,10 +49,27 @@ func NewCashfree(clientID, clientSecret, env, apiVersion, fallbackPhone string) 
 		FallbackPhone: fallbackPhone, HTTP: &http.Client{Timeout: 15 * time.Second}}
 }
 
+// CashfreeFactory builds per-tenant Cashfree drivers. The tenant's Env picks
+// sandbox or production unless baseURL overrides it (local tests only).
+func CashfreeFactory(apiVersion, fallbackPhone, baseURL string, client *http.Client) Factory {
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	return func(c Credentials) (Gateway, error) {
+		cf := NewCashfree(c.KeyID, c.KeySecret, c.Env, apiVersion, fallbackPhone)
+		cf.HTTP = client
+		if baseURL != "" {
+			cf.BaseURL = baseURL
+		}
+		return cf, nil
+	}
+}
+
 // Name implements Gateway.
 func (c *Cashfree) Name() string { return "cashfree" }
 
 func (c *Cashfree) call(ctx context.Context, method, path string, body, out any, idemKey string) error {
+	op := method + " " + path
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -77,22 +94,25 @@ func (c *Cashfree) call(ctx context.Context, method, path string, body, out any,
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("cashfree %s %s: %w", method, path, err)
+		return &Error{Gateway: "cashfree", Op: op, Err: err}
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 2<<20))
 	if res.StatusCode >= 300 {
+		ge := &Error{Gateway: "cashfree", Op: op, Status: res.StatusCode}
 		var e struct {
 			Message string `json:"message"`
 			Code    string `json:"code"`
 		}
 		if json.Unmarshal(raw, &e) == nil && e.Message != "" {
-			return fmt.Errorf("cashfree %s: %s (%s)", path, e.Message, e.Code)
+			ge.Code, ge.Message = e.Code, e.Message
 		}
-		return fmt.Errorf("cashfree %s: status %d", path, res.StatusCode)
+		return ge
 	}
 	if out != nil {
-		return json.Unmarshal(raw, out)
+		if err := json.Unmarshal(raw, out); err != nil {
+			return &Error{Gateway: "cashfree", Op: op, Status: res.StatusCode, Err: err}
+		}
 	}
 	return nil
 }
@@ -265,14 +285,41 @@ func (c *Cashfree) CreateLink(ctx context.Context, l LinkRequest) (Created, erro
 	return Created{GatewayRef: out.LinkID, ShortURL: out.LinkURL}, nil
 }
 
+// orderPayments lists an order's payments; successful ones also carry the
+// order's refunds so reconcile can book a refund whose webhook never came.
 func (c *Cashfree) orderPayments(ctx context.Context, orderID string) ([]RemotePayment, error) {
 	var list []cfPayment
 	if err := c.call(ctx, http.MethodGet, "/orders/"+url.PathEscape(orderID)+"/payments", nil, &list, ""); err != nil {
 		return nil, err
 	}
 	out := make([]RemotePayment, 0, len(list))
+	var refunds []cfRefund
+	fetched := false
 	for _, p := range list {
-		out = append(out, p.remote(orderID))
+		rp := p.remote(orderID)
+		if rp.Status == "captured" {
+			if !fetched {
+				var err error
+				if refunds, err = c.orderRefunds(ctx, orderID); err != nil {
+					return nil, err
+				}
+				fetched = true
+			}
+			for _, rf := range refunds {
+				if rf.CFPaymentID.String() != "" && rf.CFPaymentID.String() != p.CFPaymentID.String() {
+					continue
+				}
+				rr := rf.remote()
+				rp.Refunds = append(rp.Refunds, rr)
+				if rr.Status == "processed" {
+					rp.RefundedPaise += rr.AmountPaise
+				}
+			}
+			if rp.RefundedPaise >= rp.AmountPaise && rp.AmountPaise > 0 {
+				rp.Status = "refunded"
+			}
+		}
+		out = append(out, rp)
 	}
 	return out, nil
 }
@@ -334,6 +381,47 @@ func (c *Cashfree) Refund(ctx context.Context, paymentRef string, amountPaise in
 		return Refund{}, err
 	}
 	return Refund{RefundRef: out.CFRefundID.String(), Status: cfRefundStatus(out.RefundStatus)}, nil
+}
+
+type cfRefund struct {
+	CFRefundID   json.Number `json:"cf_refund_id"`
+	CFPaymentID  json.Number `json:"cf_payment_id"`
+	RefundID     string      `json:"refund_id"`
+	RefundAmount float64     `json:"refund_amount"`
+	RefundStatus string      `json:"refund_status"`
+}
+
+func (r cfRefund) remote() RemoteRefund {
+	return RemoteRefund{RefundRef: r.CFRefundID.String(), Receipt: r.RefundID, AmountPaise: paise(r.RefundAmount),
+		Status: cfRefundStatus(r.RefundStatus)}
+}
+
+func (c *Cashfree) orderRefunds(ctx context.Context, orderID string) ([]cfRefund, error) {
+	var list []cfRefund
+	if err := c.call(ctx, http.MethodGet, "/orders/"+url.PathEscape(orderID)+"/refunds", nil, &list, ""); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// FetchRefunds implements Gateway (GET /orders/{order_id}/refunds, filtered to the payment).
+func (c *Cashfree) FetchRefunds(ctx context.Context, paymentRef string) ([]RemoteRefund, error) {
+	orderID, payID, ok := splitCashfreeRef(paymentRef)
+	if !ok {
+		return nil, fmt.Errorf("cashfree refunds: payment ref %q is not <order_id>/<cf_payment_id>", paymentRef)
+	}
+	list, err := c.orderRefunds(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RemoteRefund, 0, len(list))
+	for _, rf := range list {
+		if rf.CFPaymentID.String() != "" && rf.CFPaymentID.String() != payID {
+			continue
+		}
+		out = append(out, rf.remote())
+	}
+	return out, nil
 }
 
 func cfRefundStatus(s string) string {

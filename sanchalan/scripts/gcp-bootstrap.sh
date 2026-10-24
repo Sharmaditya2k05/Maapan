@@ -58,6 +58,8 @@ have_secret() { gcloud secrets describe "$1" >/dev/null 2>&1; }
 echo "==> Shared secrets"
 have_secret jwt-secret     || secret jwt-secret "$(openssl rand -hex 32)"
 have_secret service-secret || secret service-secret "$(openssl rand -hex 32)"
+# lenden encrypts per-tenant gateway keys with this (AES-256-GCM); prod refuses to start without it.
+have_secret lenden-credentials-key || secret lenden-credentials-key "$(openssl rand -hex 32)"
 if [[ "$REDIS_PROVIDER" == memorystore ]]; then
   have_secret redis-url || secret redis-url "redis://${REDIS_HOST}:6379/0"
 else

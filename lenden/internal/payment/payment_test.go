@@ -13,15 +13,17 @@ import (
 
 // fakeLedger mimics PGLedger's idempotency rules in memory.
 type fakeLedger struct {
-	webhooks map[string]bool
-	payments map[string]Capture // gateway_ref → capture
-	requests map[string]bool    // known request ids
-	refunds  int
-	fail     bool
+	webhooks    map[string]bool
+	payments    map[string]Capture // gateway_ref → capture
+	requests    map[string]bool    // known request ids
+	tenants     map[string]string  // request id → tenant
+	refunds     int
+	settlements []SettlementDone
+	fail        bool
 }
 
 func newFake(reqs ...string) *fakeLedger {
-	f := &fakeLedger{webhooks: map[string]bool{}, payments: map[string]Capture{}, requests: map[string]bool{}}
+	f := &fakeLedger{webhooks: map[string]bool{}, payments: map[string]Capture{}, requests: map[string]bool{}, tenants: map[string]string{}}
 	for _, r := range reqs {
 		f.requests[r] = true
 	}
@@ -69,6 +71,27 @@ func (f *fakeLedger) Ignore(_ context.Context, eventID, _, _ string, _ []byte) (
 		return Duplicate, nil
 	}
 	return Applied, nil
+}
+
+func (f *fakeLedger) SettlementProcessed(_ context.Context, eventID string, _ []byte, s SettlementDone) (Result, error) {
+	if f.seen(eventID) {
+		return Duplicate, nil
+	}
+	for _, have := range f.settlements {
+		if have.GatewayRef == s.GatewayRef {
+			return Duplicate, nil
+		}
+	}
+	f.settlements = append(f.settlements, s)
+	return Applied, nil
+}
+
+// TenantFor mirrors PGLedger: a known request id resolves to its tenant.
+func (f *fakeLedger) TenantFor(_ context.Context, _ string, ev gateway.WebhookEvent) (string, error) {
+	if f.requests[ev.RequestID] {
+		return f.tenants[ev.RequestID], nil
+	}
+	return "", nil
 }
 
 const reqID = "11111111-2222-3333-4444-555555555555"

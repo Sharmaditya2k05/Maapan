@@ -33,12 +33,26 @@ type WebhookKind string
 
 // Kinds of normalised webhook.
 const (
-	KindCapture WebhookKind = "capture" // a payment was captured
-	KindRefund  WebhookKind = "refund"  // a refund was processed
-	KindIgnore  WebhookKind = "ignore"  // not relevant (still acknowledged)
+	KindCapture    WebhookKind = "capture"    // a payment was captured
+	KindRefund     WebhookKind = "refund"     // a refund was processed
+	KindSettlement WebhookKind = "settlement" // the gateway paid out a settlement
+	KindIgnore     WebhookKind = "ignore"     // not relevant (still acknowledged)
 )
 
-// WebhookEvent is a Razorpay webhook normalised to what lenden needs.
+// Settlement is a gateway payout as reported by a webhook. Gross − Refunds
+// should equal Net + Fee + FeeTax; the ledger checks and logs when it does not.
+type Settlement struct {
+	GatewayRef   string // setl_xxx
+	UTR          string
+	GrossPaise   int64
+	FeePaise     int64 // MDR / platform fee, ex tax
+	FeeTaxPaise  int64 // GST on the fee
+	RefundsPaise int64
+	NetPaise     int64
+	SettledAt    time.Time
+}
+
+// WebhookEvent is a gateway webhook normalised to what lenden needs.
 type WebhookEvent struct {
 	Type        string // e.g. payment.captured
 	Kind        WebhookKind
@@ -48,8 +62,9 @@ type WebhookEvent struct {
 	AmountPaise int64  // payment amount (capture) or refund amount (refund)
 	Method      string
 	CapturedAt  time.Time
-	RefundRef   string // rfnd_xxx
-	RefundNote  string // our refund id from refund notes
+	RefundRef   string      // rfnd_xxx
+	RefundNote  string      // our refund id from refund notes
+	Settlement  *Settlement // KindSettlement only
 }
 
 type rzpEntity struct {
@@ -59,6 +74,10 @@ type rzpEntity struct {
 	Status      string          `json:"status"`
 	PaymentID   string          `json:"payment_id"`
 	ReferenceID string          `json:"reference_id"`
+	Receipt     string          `json:"receipt"`
+	Fees        int64           `json:"fees"`
+	Tax         int64           `json:"tax"`
+	UTR         string          `json:"utr"`
 	CreatedAt   int64           `json:"created_at"`
 	Notes       json.RawMessage `json:"notes"`
 	notes       map[string]string
@@ -89,11 +108,14 @@ type rzpWebhook struct {
 		Refund *struct {
 			Entity rzpEntity `json:"entity"`
 		} `json:"refund"`
+		Settlement *struct {
+			Entity rzpEntity `json:"entity"`
+		} `json:"settlement"`
 	} `json:"payload"`
 }
 
-// ParseWebhook normalises the events lenden handles:
-// payment.captured, qr_code.credited, payment_link.paid, refund.processed.
+// ParseWebhook normalises the events lenden handles: payment.captured,
+// qr_code.credited, payment_link.paid, refund.processed, settlement.processed.
 // Everything else is KindIgnore.
 func ParseWebhook(raw []byte) (WebhookEvent, error) {
 	var w rzpWebhook
@@ -144,6 +166,36 @@ func ParseWebhook(raw []byte) (WebhookEvent, error) {
 		ev.PaymentRef = r.PaymentID
 		ev.AmountPaise = r.Amount
 		ev.RefundNote = r.note("refund_id")
+		if ev.RefundNote == "" {
+			ev.RefundNote = r.Receipt
+		}
+	case "settlement.processed":
+		if w.Payload.Settlement == nil {
+			return ev, errors.New("settlement.processed: missing settlement entity")
+		}
+		s := &w.Payload.Settlement.Entity
+		if s.ID == "" {
+			return ev, errors.New("settlement.processed: missing settlement id")
+		}
+		if s.Status != "" && s.Status != "processed" {
+			return ev, nil
+		}
+		// Razorpay reports the net payout (amount), the fee (fees) and GST on it (tax);
+		// refunds are already netted into the payout, so gross = net + fees + tax.
+		ev.Kind = KindSettlement
+		ev.GatewayRef = s.ID
+		ev.AmountPaise = s.Amount
+		ev.Settlement = &Settlement{
+			GatewayRef: s.ID, UTR: s.UTR, NetPaise: s.Amount, FeePaise: s.Fees, FeeTaxPaise: s.Tax,
+			GrossPaise: s.Amount + s.Fees + s.Tax, SettledAt: time.Unix(s.CreatedAt, 0).UTC(),
+		}
+		if s.CreatedAt == 0 {
+			ev.Settlement.SettledAt = time.Unix(w.CreatedAt, 0).UTC()
+		}
+		if s.Amount < 0 || s.Fees < 0 || s.Tax < 0 {
+			return ev, errors.New("settlement.processed: negative amounts")
+		}
+		return ev, nil
 	}
 	if ev.Kind != KindIgnore && ev.AmountPaise <= 0 {
 		return ev, errors.New(w.Event + ": amount must be positive")

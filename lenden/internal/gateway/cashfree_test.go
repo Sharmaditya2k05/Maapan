@@ -116,8 +116,18 @@ func fakeCashfree(t *testing.T) (*Cashfree, *[]string) {
 			_, _ = w.Write([]byte(`{"order_id":"req-1","order_status":"PAID"}`))
 		case r.Method == "GET" && r.URL.Path == "/orders/req-1/payments":
 			_, _ = w.Write([]byte(`[{"cf_payment_id":42,"order_id":"req-1","payment_status":"SUCCESS","payment_amount":10,"payment_group":"credit_card","payment_time":"2026-10-17T10:00:00+05:30"}]`))
+		case r.Method == "GET" && r.URL.Path == "/orders/req-1/refunds":
+			_, _ = w.Write([]byte(`[{"cf_refund_id":9001,"cf_payment_id":42,"refund_id":"rf-1","refund_amount":5,"refund_status":"PENDING"}]`))
 		case r.Method == "POST" && r.URL.Path == "/orders/req-1/refunds":
 			_, _ = w.Write([]byte(`{"cf_refund_id":"9001","refund_status":"PENDING"}`))
+		case r.Method == "GET" && r.URL.Path == "/links/lnk-1":
+			_, _ = w.Write([]byte(`{"link_id":"lnk-1","link_url":"https://cf/lnk-1","link_status":"PAID","link_amount_paid":250}`))
+		case r.Method == "GET" && r.URL.Path == "/links/lnk-1/orders":
+			_, _ = w.Write([]byte(`[{"order_id":"CFPay_lnk-1_abc","order_status":"PAID"}]`))
+		case r.Method == "GET" && r.URL.Path == "/orders/CFPay_lnk-1_abc/payments":
+			_, _ = w.Write([]byte(`[{"cf_payment_id":998877,"order_id":"CFPay_lnk-1_abc","payment_status":"SUCCESS","payment_amount":250,"payment_group":"upi","payment_time":"2026-10-17T10:00:00+05:30"}]`))
+		case r.Method == "GET" && r.URL.Path == "/orders/CFPay_lnk-1_abc/refunds":
+			_, _ = w.Write([]byte(`[]`))
 		default:
 			http.Error(w, `{"message":"not found","code":"not_found"}`, 404)
 		}

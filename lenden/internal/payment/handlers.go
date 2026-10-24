@@ -2,6 +2,7 @@ package payment
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/taraju/mool/auth"
 	"github.com/taraju/mool/httpx"
@@ -12,16 +13,33 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, hooks []*Webhooks
 	user := func(h httpx.HandlerFunc, perms ...string) http.Handler {
 		return v.User(auth.Require(httpx.H(h), perms...))
 	}
+	// userAny lets the principal through when it holds any one of perms.
+	userAny := func(h httpx.HandlerFunc, perms ...string) http.Handler {
+		return v.User(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := auth.FromContext(r.Context())
+			for _, perm := range perms {
+				if p != nil && p.Can(perm) {
+					httpx.H(h).ServeHTTP(w, r)
+					return
+				}
+			}
+			httpx.WriteError(w, r, httpx.Forbidden("missing permission %s", strings.Join(perms, " or ")))
+		}))
+	}
 	mux.Handle("POST /v1/payment-requests", user(s.createRequest, auth.PermPaymentCollect))
 	mux.Handle("GET /v1/payment-requests/{id}", user(s.getRequest, auth.PermPaymentCollect))
 	mux.Handle("GET /v1/payments", user(s.listPayments, auth.PermPaymentCollect))
 	mux.Handle("GET /v1/payments/{id}", user(s.getPayment, auth.PermPaymentCollect))
 	mux.Handle("POST /v1/payments/manual", user(s.manual, auth.PermPaymentCollect))
 	mux.Handle("POST /v1/payments/{id}/refund", user(s.refund, auth.PermInvoiceCancel))
+	mux.Handle("GET /v1/settlements", userAny(s.listSettlements, auth.PermPaymentCollect, auth.PermLedgerRead))
 	for _, wh := range hooks {
 		mux.Handle("POST /v1/webhooks/"+wh.Source.Gateway(), wh)
 	}
 	mux.Handle("GET /v1/gateways", user(s.listGateways, auth.PermPaymentCollect))
+	mux.Handle("GET /v1/settings/gateways", user(s.listGatewayCredentials, auth.PermSettingsManage))
+	mux.Handle("PUT /v1/settings/gateways/{gateway}", user(s.putGatewayCredentials, auth.PermSettingsManage))
+	mux.Handle("DELETE /v1/settings/gateways/{gateway}", user(s.deleteGatewayCredentials, auth.PermSettingsManage))
 	if _, ok := s.Gateways.Mock(); ok {
 		mux.Handle("POST /v1/dev/simulate-payment/{id}", user(s.simulate, auth.PermPaymentCollect))
 	}
@@ -32,8 +50,13 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, hooks []*Webhooks
 }
 
 // listGateways tells the POS which gateways it may pick and which is the default.
-func (s *Service) listGateways(w http.ResponseWriter, _ *http.Request) error {
-	return httpx.OK(w, map[string]any{"default": s.Gateways.Default().Name(), "available": s.Gateways.Names()})
+func (s *Service) listGateways(w http.ResponseWriter, r *http.Request) error {
+	p := auth.FromContext(r.Context())
+	names, err := s.Gateways.NamesFor(r.Context(), p.TenantID)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, map[string]any{"default": s.Gateways.DefaultName(), "available": names})
 }
 
 func (s *Service) createRequest(w http.ResponseWriter, r *http.Request) error {
@@ -94,28 +117,78 @@ func (s *Service) getPayment(w http.ResponseWriter, r *http.Request) error {
 	return httpx.OK(w, pay)
 }
 
+// manual records a receipt. The idempotency key comes from the body or the
+// Idempotency-Key header; a replay answers 200 with the first receipt, a new one 201.
 func (s *Service) manual(w http.ResponseWriter, r *http.Request) error {
 	var in ManualInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	pay, err := s.Manual(r.Context(), auth.FromContext(r.Context()), in)
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		in.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	}
+	pay, created, err := s.Manual(r.Context(), auth.FromContext(r.Context()), in)
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, pay)
+	if created {
+		return httpx.Created(w, pay)
+	}
+	return httpx.OK(w, pay)
 }
 
+// refund answers 200 when the refund is processed, 202 when the gateway still
+// has to confirm it (status pending or unknown).
 func (s *Service) refund(w http.ResponseWriter, r *http.Request) error {
 	var in RefundInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	pay, err := s.Refund(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), in)
+	res, err := s.Refund(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), in)
 	if err != nil {
 		return err
 	}
-	return httpx.OK(w, pay)
+	if res.Refund.Status == "processed" {
+		return httpx.OK(w, res)
+	}
+	return httpx.JSON(w, http.StatusAccepted, res)
+}
+
+func (s *Service) listSettlements(w http.ResponseWriter, r *http.Request) error {
+	p := auth.FromContext(r.Context())
+	f := SettlementFilter{Gateway: httpx.Query(r, "gateway"), From: httpx.Query(r, "from"), To: httpx.Query(r, "to"), Page: httpx.ParsePage(r)}
+	items, total, err := s.ListSettlements(r.Context(), p.TenantID, f)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, httpx.List[Settlement]{Items: items, Total: total, Limit: f.Limit, Offset: f.Offset})
+}
+
+func (s *Service) listGatewayCredentials(w http.ResponseWriter, r *http.Request) error {
+	items, err := s.ListGatewayCredentials(r.Context(), auth.FromContext(r.Context()).TenantID)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, map[string]any{"items": items, "configurable": s.configurable()})
+}
+
+func (s *Service) putGatewayCredentials(w http.ResponseWriter, r *http.Request) error {
+	var in GatewayCredentialInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	sm, err := s.PutGatewayCredentials(r.Context(), auth.FromContext(r.Context()), strings.ToLower(r.PathValue("gateway")), in)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, sm)
+}
+
+func (s *Service) deleteGatewayCredentials(w http.ResponseWriter, r *http.Request) error {
+	if err := s.DeleteGatewayCredentials(r.Context(), auth.FromContext(r.Context()), strings.ToLower(r.PathValue("gateway"))); err != nil {
+		return err
+	}
+	return httpx.NoContent(w)
 }
 
 func (s *Service) reconcile(w http.ResponseWriter, r *http.Request) error {

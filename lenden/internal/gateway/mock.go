@@ -16,6 +16,7 @@ type Mock struct {
 	mu       sync.Mutex
 	payments map[string][]RemotePayment // gatewayRef → payments
 	closed   map[string]bool
+	refunds  map[string][]RemoteRefund // paymentRef → refunds
 }
 
 // NewMock builds the mock provider.
@@ -23,7 +24,7 @@ func NewMock(vpa string) *Mock {
 	if vpa == "" {
 		vpa = "taraju@mock"
 	}
-	return &Mock{VPA: vpa, payments: map[string][]RemotePayment{}, closed: map[string]bool{}}
+	return &Mock{VPA: vpa, payments: map[string][]RemotePayment{}, closed: map[string]bool{}, refunds: map[string][]RemoteRefund{}}
 }
 
 // Name implements Gateway.
@@ -58,7 +59,20 @@ func (m *Mock) Pay(gatewayRef string, amountPaise int64, method string) RemotePa
 func (m *Mock) fetch(ref string) RemoteStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return RemoteStatus{Closed: m.closed[ref], Payments: append([]RemotePayment(nil), m.payments[ref]...)}
+	st := RemoteStatus{Closed: m.closed[ref]}
+	for _, p := range m.payments[ref] {
+		p.Refunds = append([]RemoteRefund(nil), m.refunds[p.PaymentRef]...)
+		for _, r := range p.Refunds {
+			if r.Status == "processed" {
+				p.RefundedPaise += r.AmountPaise
+			}
+		}
+		if p.AmountPaise > 0 && p.RefundedPaise >= p.AmountPaise {
+			p.Status = "refunded"
+		}
+		st.Payments = append(st.Payments, p)
+	}
+	return st
 }
 
 // FetchQR implements Gateway.
@@ -70,6 +84,17 @@ func (m *Mock) FetchLink(_ context.Context, ref string) (RemoteStatus, error) {
 }
 
 // Refund implements Gateway; mock refunds are processed immediately.
-func (m *Mock) Refund(_ context.Context, _ string, _ int64, _ string) (Refund, error) {
-	return Refund{RefundRef: "mockrfnd_" + uuid.NewString()[:12], Status: "processed"}, nil
+func (m *Mock) Refund(_ context.Context, paymentRef string, amountPaise int64, receipt string) (Refund, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := RemoteRefund{RefundRef: "mockrfnd_" + uuid.NewString()[:12], Receipt: receipt, AmountPaise: amountPaise, Status: "processed"}
+	m.refunds[paymentRef] = append(m.refunds[paymentRef], r)
+	return Refund{RefundRef: r.RefundRef, Status: r.Status}, nil
+}
+
+// FetchRefunds implements Gateway.
+func (m *Mock) FetchRefunds(_ context.Context, paymentRef string) ([]RemoteRefund, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]RemoteRefund(nil), m.refunds[paymentRef]...), nil
 }
