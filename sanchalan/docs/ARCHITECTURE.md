@@ -146,7 +146,8 @@ Envelope (JSON, same for Pub/Sub and local direct delivery):
 | `aadesh.invoice.cancelled` | aadesh | bahi, bhandar, buddhi | reverse voucher and stock |
 | `aadesh.note.created` | aadesh | bahi, bhandar, buddhi | credit/debit note (returns) |
 | `lenden.payment.captured` | lenden | bahi, aadesh, soochna, buddhi | receipt voucher, mark invoice paid, receipt message |
-| `lenden.payment.refunded` | lenden | bahi, aadesh | reverse receipt |
+| `lenden.payment.refunded` | lenden | bahi, aadesh | reverse receipt (one event per refund, `refund_id`) |
+| `lenden.settlement.processed` | lenden | bahi | gateway payout: move gateway clearing to bank, book MDR + GST on fee |
 | `bhandar.stock.low` | bhandar | soochna, buddhi | re-order alert, purchase draft suggestion |
 | `bhandar.batch.expiring` | bhandar | soochna | expiry early warning |
 | `bhandar.stock.moved` | bhandar | bahi, buddhi | every costed stock movement of a document (weighted-average cost) → COGS / inventory vouchers, margin KPIs |

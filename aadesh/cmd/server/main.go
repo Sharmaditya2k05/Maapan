@@ -38,6 +38,8 @@ func run(ctx context.Context) error {
 	dir := clients.NewDirectory(
 		svc.New(config.String("PEHCHAAN_URL", "http://localhost:7001"), secret, idTok),
 		svc.New(config.String("BAHI_URL", "http://localhost:7002"), secret, idTok),
+		svc.New(config.String("BHANDAR_URL", "http://localhost:7008"), secret, idTok),
+		svc.New(config.String("LENDEN_URL", "http://localhost:7005"), secret, idTok),
 	)
 	invoices := &invoice.Service{DB: app.DB, Dir: dir, Relay: app.Relay, Log: app.Log, Now: time.Now}
 

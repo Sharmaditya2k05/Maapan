@@ -193,13 +193,17 @@ func (s *Service) post(ctx context.Context, tx pgx.Tx, req postRequest) ([]Movem
 		if err != nil {
 			return nil, err
 		}
-		inAt, outAt := "last_in_at", "last_out_at"
-		col := outAt
-		if qty > 0 {
-			col = inAt
+		// last_in_at marks receipts; last_out_at marks demand (sales, consumption).
+		// Write-offs, adjustments, returns to vendor and transfers are not demand,
+		// so they must not make dead stock look alive.
+		set := "qty=$5, avg_cost_paise=$6, updated_at=now()"
+		switch {
+		case qty > 0:
+			set += ", last_in_at=now()"
+		case req.Reason == ReasonSale || req.Reason == ReasonProductionConsume:
+			set += ", last_out_at=now()"
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE stock_balances SET qty=$5, avg_cost_paise=$6, %s=now(), updated_at=now()
-			WHERE tenant_id=$1 AND store_id=$2 AND item_id=$3 AND batch_id=$4`, col),
+		if _, err := tx.Exec(ctx, `UPDATE stock_balances SET `+set+` WHERE tenant_id=$1 AND store_id=$2 AND item_id=$3 AND batch_id=$4`,
 			req.TenantID, req.StoreID, it.ID, batchID, newQty, newAvg); err != nil {
 			return nil, err
 		}
@@ -355,6 +359,9 @@ type Adjustment struct {
 
 // Adjust posts a manual stock adjustment.
 func (s *Service) Adjust(ctx context.Context, tenantID, storeID, userID string, in AdjustmentInput) (*Adjustment, error) {
+	if err := in.Validate(); err != nil {
+		return nil, err
+	}
 	id := uuid.NewString()
 	req := postRequest{TenantID: tenantID, StoreID: storeID, Source: SourceAdjustment, SourceID: id, Reason: in.Reason, CreatedBy: userID}
 	for i, l := range in.Lines {

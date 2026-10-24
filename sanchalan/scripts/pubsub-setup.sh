@@ -13,6 +13,7 @@ SUBS=(
   "aadesh.note.created|bahi bhandar buddhi"
   "lenden.payment.captured|bahi aadesh soochna buddhi"
   "lenden.payment.refunded|bahi aadesh"
+  "lenden.settlement.processed|bahi"
   "bhandar.stock.low|soochna buddhi"
   "bhandar.batch.expiring|soochna"
   "bhandar.stock.moved|bahi buddhi"

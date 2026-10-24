@@ -67,7 +67,7 @@ steps:
       - --min-instances=1           # POS billing path: no cold starts during store hours
       - --max-instances=20
       - --no-cpu-throttling         # outbox relay runs between requests
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,LENDEN_URL=https://lenden-$PROJECT_NUMBER.${_REGION}.run.app
       - --update-secrets=DATABASE_URL=aadesh-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
 
 images:

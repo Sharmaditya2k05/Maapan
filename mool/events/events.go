@@ -18,6 +18,7 @@ const (
 	NoteCreated         = "aadesh.note.created"
 	PaymentCaptured     = "lenden.payment.captured"
 	PaymentRefunded     = "lenden.payment.refunded"
+	SettlementProcessed = "lenden.settlement.processed"
 	StockLow            = "bhandar.stock.low"
 	BatchExpiring       = "bhandar.batch.expiring"
 	StockMoved          = "bhandar.stock.moved"
@@ -65,6 +66,7 @@ var Subscriptions = map[string][]string{
 	NoteCreated:         {"bahi", "bhandar", "buddhi"},
 	PaymentCaptured:     {"bahi", "aadesh", "soochna", "buddhi"},
 	PaymentRefunded:     {"bahi", "aadesh"},
+	SettlementProcessed: {"bahi"},
 	StockLow:            {"soochna", "buddhi"},
 	BatchExpiring:       {"soochna"},
 	StockMoved:          {"bahi", "buddhi"},

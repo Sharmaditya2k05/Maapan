@@ -88,6 +88,23 @@ type PaymentPayload struct {
 	CapturedAt       string `json:"captured_at"` // RFC3339
 }
 
+// SettlementPayload is the data of lenden.settlement.processed: the gateway
+// paid the store's bank account for a batch of captures, net of its fee.
+type SettlementPayload struct {
+	SettlementID    string   `json:"settlement_id"` // lenden's id (idempotency)
+	Gateway         string   `json:"gateway"`       // razorpay | cashfree
+	GatewayRef      string   `json:"gateway_ref"`   // settlement id at the gateway
+	UTR             string   `json:"utr,omitempty"` // bank reference of the payout
+	GrossPaise      int64    `json:"gross_paise"`   // captures settled
+	FeePaise        int64    `json:"fee_paise"`     // MDR / platform fee (ex tax)
+	FeeTaxPaise     int64    `json:"fee_tax_paise"` // GST on the fee (input credit)
+	RefundsPaise    int64    `json:"refunds_paise"` // refunds netted in this settlement
+	NetPaise        int64    `json:"net_paise"`     // credited to the bank account
+	PaymentIDs      []string `json:"payment_ids,omitempty"`
+	SettledAt       string   `json:"settled_at"` // RFC3339
+	BankAccountLast string   `json:"bank_account_last,omitempty"`
+}
+
 // StockLowPayload is the data of bhandar.stock.low.
 type StockLowPayload struct {
 	ItemID       string  `json:"item_id"`

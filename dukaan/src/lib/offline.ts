@@ -113,6 +113,8 @@ export async function blockStatus(storeId: string) {
 /* ---------------- offline queue ---------------- */
 
 export async function enqueueBill(bill: QueuedBill) {
+  // The server dates an offline bill by the moment it was made, not by when it finally syncs.
+  if (!bill.input.client_created_at) bill.input.client_created_at = bill.created_at
   await (await db()).put('queue', bill)
   notify()
 }
@@ -128,7 +130,8 @@ export async function clearSynced() {
   notify()
 }
 
-interface SyncResult { client_uuid: string; status: 'created' | 'duplicate' | 'error'; invoice?: Invoice; error?: { message: string } }
+/** `retry` means a downstream service (stock, parties) was unavailable: the bill stays queued. */
+interface SyncResult { client_uuid: string; status: 'created' | 'duplicate' | 'error' | 'retry'; invoice?: Invoice; error?: { message: string } }
 
 let syncing = false
 
@@ -156,6 +159,9 @@ export async function syncQueue(): Promise<{ synced: number; failed: number }> {
           if (r.status === 'error') {
             failed++
             await d.put('queue', { ...b, status: 'error', error: r.error?.message ?? 'rejected' })
+          } else if (r.status === 'retry') {
+            failed++
+            await d.put('queue', { ...b, status: 'pending', error: r.error?.message ?? 'service unavailable, will retry' })
           } else {
             synced++
             await d.put('queue', { ...b, status: 'synced', error: undefined, server_number: r.invoice?.number, invoice_id: r.invoice?.id })
