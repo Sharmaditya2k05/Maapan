@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/maapan/dwaar/internal/gateway"
 	"github.com/maapan/dwaar/internal/ratelimit"
@@ -56,6 +57,7 @@ func run(ctx context.Context) error {
 		},
 		MaxBodyBytes:    int64(config.Int("MAX_BODY_MB", 25)) << 20,
 		UpstreamTimeout: config.Duration("UPSTREAM_TIMEOUT", 0),
+		EdgeRetry:       config.Duration("EDGE_RETRY", 75*time.Second),
 		Log:             app.Log,
 	}
 	if app.Cfg.UseIDTokens {

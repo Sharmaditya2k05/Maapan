@@ -31,6 +31,9 @@ type Options struct {
 	Limits          Limits
 	MaxBodyBytes    int64
 	UpstreamTimeout time.Duration
+	// EdgeRetry is how long to keep retrying requests a host's edge proxy
+	// rejected while a service was starting (0 = no retries).
+	EdgeRetry time.Duration
 	// IDToken, when set, fetches a Google ID token for the upstream audience
 	// (Cloud Run IAM). It is sent as X-Serverless-Authorization so the user's
 	// JWT can stay in Authorization.
@@ -62,6 +65,7 @@ func New(opt Options) *Gateway {
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: opt.UpstreamTimeout,
 	}
+	retrying := edgeRetry{next: transport, budget: opt.EdgeRetry}
 	g := &Gateway{opt: opt, proxies: map[string]*httputil.ReverseProxy{}}
 	for name, target := range opt.Upstreams {
 		target := target
@@ -79,7 +83,7 @@ func New(opt Options) *Gateway {
 				// CORS is answered here; upstream CORS would duplicate headers.
 				pr.Out.Header.Del("Origin")
 			},
-			Transport:     transport,
+			Transport:     retrying,
 			FlushInterval: -1, // stream SSE (buddhi) without buffering
 			ModifyResponse: func(res *http.Response) error {
 				for k := range res.Header {
