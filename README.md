@@ -1,3 +1,5 @@
+<p align="center"><img src="dukaan/public/brand/logo-full.png" alt="Maapan" width="320"></p>
+
 # Maapan (मापन) — GST Billing, Accounting & Inventory ERP
 
 Cloud-native, multi-tenant ERP for Indian retail ("Beyond MargBooks"): POS billing, double-entry
