@@ -1,11 +1,14 @@
 /* Maapan POS service worker.
- * - App shell + Next static assets: cache-first (hashed filenames, safe to keep).
+ * - Next static assets: cache-first (hashed filenames, safe to keep).
+ * - Next page data (RSC payloads for in-app navigation): network only, never cached,
+ *   so a deploy is visible at once.
+ * - Other same-origin files (logos, icons, manifest): network-first, cache as offline fallback.
  * - Page navigations: network-first, fall back to the cached page (or /pos) so the counter opens offline.
  * - API: network-first; only the POS catalog GET is cached as an offline fallback (IndexedDB holds the
  *   authoritative offline copy). Writes are never intercepted — the app queues them in IndexedDB.
  * Bump VERSION to invalidate old caches on deploy.
  */
-const VERSION = 'v1'
+const VERSION = 'v2'
 const SHELL = `maapan-shell-${VERSION}`
 const RUNTIME = `maapan-runtime-${VERSION}`
 const PRECACHE = ['/', '/pos', '/login', '/manifest.webmanifest', '/favicon-64.png', '/brand/mark-512.png', '/brand/wordmark.png', '/brand/wordmark-light.png']
@@ -47,7 +50,9 @@ self.addEventListener('fetch', (event) => {
     return
   }
   if (isApi(url)) return // straight to network; app handles offline
-  if (url.origin === self.location.origin) event.respondWith(cacheFirst(req, RUNTIME))
+  if (url.origin !== self.location.origin) return
+  if (url.searchParams.has('_rsc') || req.headers.get('RSC') === '1') return // live page data
+  event.respondWith(networkFirst(req, RUNTIME))
 })
 
 async function cacheFirst(req, cacheName) {
