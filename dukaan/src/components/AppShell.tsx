@@ -31,15 +31,15 @@ function Sidebar({ onNavigate, rail = false }: { onNavigate?: () => void; rail?:
           return (
             <div key={g} className={rail ? 'space-y-1 border-t border-white/5 pt-2 first:border-0 first:pt-0' : 'mb-4'}>
               {!rail && <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400/70">{g}</div>}
-              {group.map(({ href, label, icon: Icon, exact }) => {
+              {group.map(({ href, label, model, icon: Icon, exact }) => {
                 const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + '/')
                 return (
-                  <Link key={href} href={href} onClick={onNavigate} title={rail ? label : undefined} aria-current={active ? 'page' : undefined}
+                  <Link key={href} href={href} onClick={onNavigate} title={rail ? `${label} (${model})` : undefined} aria-current={active ? 'page' : undefined}
                     className={`group relative flex items-center rounded-xl text-sm font-medium transition ${rail ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5'} ${
                       active ? 'bg-gradient-to-r from-white/15 to-white/5 text-white shadow-inner ring-1 ring-white/10' : 'text-slate-300/80 hover:bg-white/5 hover:text-white'}`}>
                     {active && <span className="absolute -left-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-400" />}
                     <Icon size={rail ? 20 : 18} className={active ? 'text-brand-400' : 'transition group-hover:scale-110'} />
-                    {!rail && label}
+                    {!rail && <span className="min-w-0 truncate">{label} <span className="text-[11px] font-normal text-slate-400/80">({model})</span></span>}
                   </Link>
                 )
               })}

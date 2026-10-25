@@ -36,7 +36,7 @@ function SettingsInner() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle={current ? `${current.label} · ${current.hint}` : undefined} />
+      <PageHeader title="Settings" subtitle={current ? `${current.label} (${current.model}) · ${current.hint}` : undefined} />
       <div className="grid gap-4 lg:grid-cols-[240px_1fr] lg:items-start">
         <nav aria-label="Settings sections" className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:overflow-visible lg:px-0 lg:pb-0">
           {visible.map((s) => {
@@ -46,7 +46,7 @@ function SettingsInner() {
                 className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition cursor-pointer lg:w-full ${active ? 'bg-white font-semibold text-brand-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/70 hover:text-ink'}`}>
                 <s.icon size={17} className={active ? 'text-brand-600' : 'text-slate-400'} />
                 <span className="min-w-0">
-                  <span className="block whitespace-nowrap">{s.label}</span>
+                  <span className="block whitespace-nowrap">{s.label} <span className="text-[11px] font-normal text-slate-400">({s.model})</span></span>
                   <span className="hidden text-xs font-normal text-slate-400 lg:block">{s.hint}</span>
                 </span>
                 {active && <ChevronRight size={14} className="ml-auto hidden text-slate-300 lg:block" />}

@@ -10,9 +10,11 @@ import { session } from '@/lib/session'
 import { refreshSessionUser } from '@/lib/pehchaan'
 import type { Membership, VerifyResponse } from '@/lib/types'
 
-// Demo deployments (APP_ENV=local) send no SMS; the server accepts a fixed code.
+// Showcase deployments (APP_ENV=local) replace sign-in with one "Enter demo"
+// button: the server accepts a fixed code there and sends no SMS.
 const DEMO = process.env.NEXT_PUBLIC_APP_ENV === 'local'
 const DEMO_OTP = '123456'
+const DEMO_PHONE = (process.env.NEXT_PUBLIC_DEMO_PHONE || '9812345670').replace(/\D/g, '')
 
 interface OTPRequested { phone: string; channel: string; expires_in_sec: number }
 
@@ -58,6 +60,28 @@ function LoginForm() {
     }
   }
 
+  const enterDemo = async () => {
+    setErr('')
+    setBusy(true)
+    try {
+      await api<OTPRequested>('/pehchaan/v1/auth/otp/request', { method: 'POST', body: { phone: DEMO_PHONE, channel: 'sms' }, auth: false })
+      const r = await api<VerifyResponse>('/pehchaan/v1/auth/otp/verify', {
+        method: 'POST', auth: false, body: { phone: DEMO_PHONE, otp: DEMO_OTP, tenant_id: undefined },
+      })
+      setPhone(DEMO_PHONE)
+      if (!r.needs_onboarding && !r.access_token && (r.memberships?.length ?? 0) > 1) {
+        setMemberships(r.memberships ?? [])
+        setStep('tenant')
+        return
+      }
+      await finish(r)
+    } catch (e) {
+      setErr(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const finish = async (r: VerifyResponse) => {
     if (r.needs_onboarding) {
       sessionStorage.setItem('maapan.onboarding', JSON.stringify({ token: r.onboarding_token, phone: phone.replace(/\D/g, '') }))
@@ -96,7 +120,18 @@ function LoginForm() {
   return (
     <div className="card w-full max-w-md p-6 sm:p-8">
       <Logo size={40} tagline />
-      {step === 'phone' && (
+      {DEMO && step === 'phone' && (
+        <div className="mt-8 space-y-4">
+          <div>
+            <h1 className="text-xl font-extrabold">Explore the live demo</h1>
+            <p className="mt-1 text-sm text-slate-500">Step into a ready-made business with sample items, bills, stock, ledgers and GST returns. No sign-up needed.</p>
+          </div>
+          {err && <ErrorBox message={err} />}
+          <Button type="button" size="lg" className="w-full" loading={busy} icon={ArrowRight} onClick={() => void enterDemo()}>Enter demo</Button>
+          <p className="text-center text-xs text-slate-500">The first visit can take up to a minute while the demo servers wake up.</p>
+        </div>
+      )}
+      {!DEMO && step === 'phone' && (
         <form className="mt-8 space-y-4" onSubmit={(e) => { e.preventDefault(); void requestOTP() }}>
           <div>
             <h1 className="text-xl font-extrabold">Sign in</h1>
@@ -125,11 +160,6 @@ function LoginForm() {
             <h1 className="text-xl font-extrabold">Enter the code</h1>
             <p className="mt-1 text-sm text-slate-500">Sent to {masked || phone}{left > 0 ? ` · valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : ''}.</p>
           </div>
-          {DEMO && (
-            <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">
-              Demo mode: no SMS is sent. Use code <button type="button" className="num font-bold underline" onClick={() => setOtp(DEMO_OTP)}>{DEMO_OTP}</button>.
-            </div>
-          )}
           <Field label="6-digit code">
             <div className="relative">
               <ShieldCheck size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -164,9 +194,11 @@ function LoginForm() {
           {err && <ErrorBox message={err} />}
         </div>
       )}
-      <p className="mt-8 text-center text-[11px] text-slate-400">
-        New to Maapan? Sign in with your mobile number and we will set up your business in a minute.
-      </p>
+      {!DEMO && (
+        <p className="mt-8 text-center text-[11px] text-slate-400">
+          New to Maapan? Sign in with your mobile number and we will set up your business in a minute.
+        </p>
+      )}
     </div>
   )
 }
