@@ -10,6 +10,10 @@ import { session } from '@/lib/session'
 import { refreshSessionUser } from '@/lib/pehchaan'
 import type { Membership, VerifyResponse } from '@/lib/types'
 
+// Demo deployments (APP_ENV=local) send no SMS; the server accepts a fixed code.
+const DEMO = process.env.NEXT_PUBLIC_APP_ENV === 'local'
+const DEMO_OTP = '123456'
+
 interface OTPRequested { phone: string; channel: string; expires_in_sec: number }
 
 function LoginForm() {
@@ -121,6 +125,11 @@ function LoginForm() {
             <h1 className="text-xl font-extrabold">Enter the code</h1>
             <p className="mt-1 text-sm text-slate-500">Sent to {masked || phone}{left > 0 ? ` · valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : ''}.</p>
           </div>
+          {DEMO && (
+            <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">
+              Demo mode: no SMS is sent. Use code <button type="button" className="num font-bold underline" onClick={() => setOtp(DEMO_OTP)}>{DEMO_OTP}</button>.
+            </div>
+          )}
           <Field label="6-digit code">
             <div className="relative">
               <ShieldCheck size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />

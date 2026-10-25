@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 /**
  * Brand assets extracted from the master artwork in /public/logo.png: navy
- * "maapan" wordmark with the green arrow-j, plus a white variant for dark surfaces.
+ * "maapan" wordmark (Outfit 800), the green arrow mark, plus a white variant for dark surfaces.
  */
 
 /** Square app icon: navy tile with the arrow-j. */
@@ -14,8 +14,9 @@ export function LogoMark({ size = 36, className = '' }: { size?: number; classNa
  * wordmark for dark backgrounds, `tagline` adds “GST | Billing | Accounting”.
  */
 export function Logo({ size = 36, light = false, tagline = false }: { size?: number; light?: boolean; tagline?: boolean }) {
-  const height = Math.round(size * 1.12) // wordmark art is 696×254
-  const width = Math.round((height * 696) / 254)
+  // Same footprint width as before; the wordmark art is 696×132.
+  const width = Math.round((Math.round(size * 1.12) * 696) / 254)
+  const height = Math.round((width * 132) / 696)
   const bar = <span className="inline-block h-[1em] w-[1.5px] rounded bg-brand-500" />
   return (
     <div className="inline-flex select-none flex-col items-start">
