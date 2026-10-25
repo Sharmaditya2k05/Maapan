@@ -73,6 +73,12 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
   try {
     res = await send()
     if (res.status === 401 && auth && (await refresh())) res = await send()
+    // A gateway error on a read usually means a service is still starting:
+    // retry once. Writes are never repeated here.
+    if ([502, 503, 504].includes(res.status) && (!rest.method || rest.method === 'GET')) {
+      await new Promise((r) => setTimeout(r, 3000))
+      res = await send()
+    }
   } catch (e) {
     throw new ApiError(0, 'network', (e as Error).message || 'Network error')
   }

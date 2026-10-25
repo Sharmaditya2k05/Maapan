@@ -12,6 +12,7 @@ import { session } from '@/lib/session'
 import { post } from '@/lib/api'
 import { listQueue, onQueueChange, startAutoSync, syncQueue } from '@/lib/offline'
 import { ROLE_LABEL } from '@/lib/rbac'
+import { DEMO, wakeServers } from '@/lib/wake'
 
 function Sidebar({ onNavigate, rail = false }: { onNavigate?: () => void; rail?: boolean }) {
   const pathname = usePathname()
@@ -151,6 +152,14 @@ function UserMenu() {
 
 /** Sidebar + top bar around every authenticated screen. */
 export function AppShell({ children }: { children: ReactNode }) {
+  // Demo: keep the sleeping-when-idle services awake while someone uses the app.
+  useEffect(() => {
+    if (!DEMO) return
+    const ping = () => { if (document.visibilityState === 'visible') void wakeServers().catch(() => undefined) }
+    ping()
+    const t = setInterval(ping, 10 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [])
   const [drawer, setDrawer] = useState(false)
   const pathname = usePathname()
   useEffect(() => setDrawer(false), [pathname])

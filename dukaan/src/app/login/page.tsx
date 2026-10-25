@@ -9,10 +9,10 @@ import { api, errorMessage } from '@/lib/api'
 import { session } from '@/lib/session'
 import { refreshSessionUser } from '@/lib/pehchaan'
 import type { Membership, VerifyResponse } from '@/lib/types'
+import { DEMO, wakeServers } from '@/lib/wake'
 
 // Showcase deployments (APP_ENV=local) replace sign-in with one "Enter demo"
 // button: the server accepts a fixed code there and sends no SMS.
-const DEMO = process.env.NEXT_PUBLIC_APP_ENV === 'local'
 const DEMO_OTP = '123456'
 const DEMO_PHONE = (process.env.NEXT_PUBLIC_DEMO_PHONE || '9812345670').replace(/\D/g, '')
 
@@ -36,6 +36,16 @@ function LoginForm() {
   useEffect(() => {
     if (session.accessToken()) router.replace(next)
   }, [router, next])
+  // Demo: wake every service before the visitor goes in.
+  const [waking, setWaking] = useState<'waking' | 'ready' | 'slow'>(DEMO ? 'waking' : 'ready')
+  useEffect(() => {
+    if (!DEMO) return
+    const ctl = new AbortController()
+    wakeServers(ctl.signal)
+      .then((r) => setWaking(r.ready ? 'ready' : 'slow'))
+      .catch(() => { if (!ctl.signal.aborted) setWaking('slow') })
+    return () => ctl.abort()
+  }, [])
   useEffect(() => {
     if (left <= 0) return
     const t = setTimeout(() => setLeft((l) => l - 1), 1000)
@@ -127,8 +137,14 @@ function LoginForm() {
             <p className="mt-1 text-sm text-slate-500">Step into a ready-made business with sample items, bills, stock, ledgers and GST returns. No sign-up needed.</p>
           </div>
           {err && <ErrorBox message={err} />}
-          <Button type="button" size="lg" className="w-full" loading={busy} icon={ArrowRight} onClick={() => void enterDemo()}>Enter demo</Button>
-          <p className="text-center text-xs text-slate-500">The first visit can take up to a minute while the demo servers wake up.</p>
+          <Button type="button" size="lg" className="w-full" loading={busy || waking === 'waking'} disabled={waking === 'waking'} icon={ArrowRight} onClick={() => void enterDemo()}>
+            {waking === 'waking' ? 'Starting demo servers…' : 'Enter demo'}
+          </Button>
+          <p className="text-center text-xs text-slate-500">
+            {waking === 'waking' ? 'The demo servers sleep when idle; waking them takes up to a minute.'
+              : waking === 'slow' ? 'Some demo servers are still starting; screens may take a moment to load.'
+              : 'Demo servers are ready.'}
+          </p>
         </div>
       )}
       {!DEMO && step === 'phone' && (

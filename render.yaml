@@ -25,6 +25,8 @@ envVarGroups:
         value: https://maapan.vercel.app,http://localhost:3000
       - key: LOG_LEVEL
         value: info
+      - key: SVC_TIMEOUT        # services sleep when idle; waking takes up to a minute
+        value: 75s
       - key: DWAAR_URL
         value: https://maapan-dwaar.onrender.com
       - key: PEHCHAAN_URL

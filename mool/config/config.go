@@ -110,6 +110,11 @@ func Bool(key string, def bool) bool {
 }
 
 // Duration returns the env var parsed by time.ParseDuration, or def.
+// ServiceTimeout is the timeout for service-to-service calls and direct event
+// delivery (SVC_TIMEOUT, default 10s). Raise it where an upstream can be asleep,
+// e.g. free hosting that takes tens of seconds to wake a service.
+func ServiceTimeout() time.Duration { return Duration("SVC_TIMEOUT", 10*time.Second) }
+
 func Duration(key string, def time.Duration) time.Duration {
 	if v := String(key, ""); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

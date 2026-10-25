@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/config"
 	"github.com/maapan/mool/gcp"
 	"github.com/maapan/mool/httpx"
 	"github.com/maapan/mool/logx"
@@ -34,7 +34,7 @@ func New(baseURL, serviceSecret string, useIDToken bool) *Client {
 		BaseURL:       strings.TrimRight(baseURL, "/"),
 		ServiceSecret: serviceSecret,
 		UseIDToken:    useIDToken,
-		HTTP:          &http.Client{Timeout: 10 * time.Second},
+		HTTP:          &http.Client{Timeout: config.ServiceTimeout()},
 	}
 }
 

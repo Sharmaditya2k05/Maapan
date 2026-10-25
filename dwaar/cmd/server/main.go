@@ -70,6 +70,7 @@ func run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /api", httpx.H(gw.Catalog))
+	mux.Handle("GET /wake", httpx.H(gw.Wake))
 	mux.Handle("/api/", gw)
 	return app.Run(ctx, mux)
 }

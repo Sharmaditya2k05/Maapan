@@ -214,6 +214,41 @@ type ServiceInfo struct {
 }
 
 // Catalog serves GET /api: which services this gateway can reach.
+// Wake asks every upstream's /healthz at once and answers when all have
+// replied (or 85s passed). Hosts that put idle services to sleep wake them on
+// the first request, so the app calls this before a demo session starts. It
+// needs no token and returns only up/down per service.
+func (g *Gateway) Wake(w http.ResponseWriter, r *http.Request) error {
+	ctx, cancel := context.WithTimeout(r.Context(), 85*time.Second)
+	defer cancel()
+	client := &http.Client{}
+	type result struct{ name, status string }
+	ch := make(chan result, len(g.opt.Upstreams))
+	for name, u := range g.opt.Upstreams {
+		go func(name, base string) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/healthz", nil)
+			if err == nil {
+				var res *http.Response
+				if res, err = client.Do(req); err == nil {
+					res.Body.Close()
+					if res.StatusCode == http.StatusOK {
+						ch <- result{name, "up"}
+						return
+					}
+				}
+			}
+			ch <- result{name, "down"}
+		}(name, strings.TrimRight(u.String(), "/"))
+	}
+	out, ready := map[string]string{}, true
+	for range g.opt.Upstreams {
+		res := <-ch
+		out[res.name] = res.status
+		ready = ready && res.status == "up"
+	}
+	return httpx.OK(w, map[string]any{"ready": ready, "services": out})
+}
+
 func (g *Gateway) Catalog(w http.ResponseWriter, _ *http.Request) error {
 	out := make([]ServiceInfo, 0, len(Services))
 	for _, s := range Services {

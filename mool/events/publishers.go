@@ -27,7 +27,7 @@ func NewPublisher(cfg config.Base, log *slog.Logger) Publisher {
 	case "log":
 		return &LogOnly{Log: log}
 	default:
-		return &Direct{Secret: cfg.ServiceSecret, Log: log, http: &http.Client{Timeout: 10 * time.Second}}
+		return &Direct{Secret: cfg.ServiceSecret, Log: log, http: &http.Client{Timeout: config.ServiceTimeout()}}
 	}
 }
 
