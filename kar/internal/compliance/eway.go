@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/money"
 )
 
 // EWayVersion is the NIC bulk-generation JSON version this builder targets.

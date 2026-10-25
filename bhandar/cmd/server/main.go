@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/bhandar/internal/inventory"
-	"github.com/taraju/bhandar/migrations"
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
+	"github.com/maapan/bhandar/internal/inventory"
+	"github.com/maapan/bhandar/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
 )
 
 func main() {

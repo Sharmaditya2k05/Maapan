@@ -11,11 +11,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/soochna/internal/clients"
-	"github.com/taraju/soochna/internal/providers"
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/soochna/internal/clients"
+	"github.com/maapan/soochna/internal/providers"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 // MaxAttempts is how often a failed message is tried before giving up.

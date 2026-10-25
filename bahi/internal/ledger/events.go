@@ -8,11 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/taraju/bahi/internal/posting"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/bahi/internal/posting"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // EventRoutes are bahi's Pub/Sub subscriptions (ARCHITECTURE §5).

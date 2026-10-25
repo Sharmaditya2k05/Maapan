@@ -13,10 +13,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/taraju/bhandar/internal/barcode"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/bhandar/internal/barcode"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // ItemInput is the body of POST /v1/items and PUT /v1/items/{id}.

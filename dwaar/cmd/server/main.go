@@ -10,12 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/taraju/dwaar/internal/gateway"
-	"github.com/taraju/dwaar/internal/ratelimit"
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/gcp"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/dwaar/internal/gateway"
+	"github.com/maapan/dwaar/internal/ratelimit"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/gcp"
+	"github.com/maapan/mool/httpx"
 )
 
 func main() {

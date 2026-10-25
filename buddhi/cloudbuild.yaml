@@ -7,11 +7,11 @@ substitutions:
   _SERVICE: buddhi
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _MOOL_REPO: github.com/taraju/mool
+  _REPO: maapan
+  _MOOL_REPO: github.com/maapan/mool
   _MOOL_REF: main
-  _VPC_NETWORK: taraju-vpc
-  _VPC_SUBNET: taraju-run-subnet
+  _VPC_NETWORK: maapan-vpc
+  _VPC_SUBNET: maapan-run-subnet
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -67,7 +67,7 @@ steps:
       - --timeout=300               # ask-your-books streams; agent loop may take a while
       - --min-instances=0           # not on the billing path; cold starts are fine
       - --max-instances=10          # also caps concurrent Claude spend
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,AI_MODEL_SMART=claude-opus-5-5,AI_MODEL_FAST=claude-opus-5-5,AI_MONTHLY_TOKEN_BUDGET=2000000,AI_REQUIRE_TENANT_FLAG=true,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,AADESH_URL=https://aadesh-$PROJECT_NUMBER.${_REGION}.run.app,SOOCHNA_URL=https://soochna-$PROJECT_NUMBER.${_REGION}.run.app,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,AI_MODEL_SMART=claude-opus-5-5,AI_MODEL_FAST=claude-opus-5-5,AI_MONTHLY_TOKEN_BUDGET=2000000,AI_REQUIRE_TENANT_FLAG=true,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,AADESH_URL=https://aadesh-$PROJECT_NUMBER.${_REGION}.run.app,SOOCHNA_URL=https://soochna-$PROJECT_NUMBER.${_REGION}.run.app,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app
       - --update-secrets=DATABASE_URL=buddhi-database-url:latest,REDIS_URL=redis-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest
 
 images:

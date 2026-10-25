@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Document types.

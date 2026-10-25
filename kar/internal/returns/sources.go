@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 // AadeshInvoices reads invoices from aadesh's internal API.

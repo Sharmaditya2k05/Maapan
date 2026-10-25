@@ -353,7 +353,7 @@ export interface AiUsageReport {
 }
 
 /** Hand-off to /app/purchases/new: stored in sessionStorage under PURCHASE_DRAFT_KEY. Mirrors aadesh CreateInput. */
-export const PURCHASE_DRAFT_KEY = 'taraju.purchaseDraft'
+export const PURCHASE_DRAFT_KEY = 'maapan.purchaseDraft'
 /**
  * Pre-filled purchase bill or debit note handed to /app/purchases/new through
  * sessionStorage[PURCHASE_DRAFT_KEY]. Producers: bill scan (purchase, no party),

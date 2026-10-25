@@ -18,12 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/taraju/buddhi/internal/anomaly"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/logx"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/buddhi/internal/anomaly"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/logx"
+	"github.com/maapan/mool/money"
 )
 
 // IST is India Standard Time.

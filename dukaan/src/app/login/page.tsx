@@ -56,7 +56,7 @@ function LoginForm() {
 
   const finish = async (r: VerifyResponse) => {
     if (r.needs_onboarding) {
-      sessionStorage.setItem('taraju.onboarding', JSON.stringify({ token: r.onboarding_token, phone: phone.replace(/\D/g, '') }))
+      sessionStorage.setItem('maapan.onboarding', JSON.stringify({ token: r.onboarding_token, phone: phone.replace(/\D/g, '') }))
       router.replace('/onboarding')
       return
     }
@@ -156,7 +156,7 @@ function LoginForm() {
         </div>
       )}
       <p className="mt-8 text-center text-[11px] text-slate-400">
-        New to Taraju? Sign in with your mobile number and we will set up your business in a minute.
+        New to Maapan? Sign in with your mobile number and we will set up your business in a minute.
       </p>
     </div>
   )
@@ -166,7 +166,7 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-dvh place-items-center bg-gradient-to-br from-slate-50 via-white to-brand-50 p-4">
       <Suspense fallback={null}><LoginForm /></Suspense>
-      <div className="fixed bottom-3 text-[11px] text-slate-400">© Taraju · GST | Billing | Accounting</div>
+      <div className="fixed bottom-3 text-[11px] text-slate-400">© Maapan · GST | Billing | Accounting</div>
     </div>
   )
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/taraju/mool/cache"
+	"github.com/maapan/mool/cache"
 )
 
 // Limiter decides whether one more hit for key is allowed within window.

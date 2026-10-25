@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 // AnyOf runs h when the principal holds at least one of perms.

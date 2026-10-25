@@ -35,8 +35,8 @@ type def struct {
 var defs = map[string]def{
 	OTP: {
 		params:   []string{"otp", "minutes"},
-		sms:      `{{.otp}} is your Taraju login OTP. Valid for {{.minutes}} min. Do not share it. / आपका Taraju OTP {{.otp}} है।`,
-		whatsapp: "*{{.otp}}* is your Taraju login OTP. It is valid for {{.minutes}} minutes. Do not share it with anyone.\n\nआपका Taraju लॉगिन OTP *{{.otp}}* है। इसे किसी के साथ साझा न करें।",
+		sms:      `{{.otp}} is your Maapan login OTP. Valid for {{.minutes}} min. Do not share it. / आपका Maapan OTP {{.otp}} है।`,
+		whatsapp: "*{{.otp}}* is your Maapan login OTP. It is valid for {{.minutes}} minutes. Do not share it with anyone.\n\nआपका Maapan लॉगिन OTP *{{.otp}}* है। इसे किसी के साथ साझा न करें।",
 	},
 	Invoice: {
 		params:   []string{"party_name", "business", "number", "amount", "date"},
@@ -65,12 +65,12 @@ var defs = map[string]def{
 	},
 	WeeklySummary: {
 		params:   []string{"text"},
-		sms:      `Taraju weekly summary: {{.text}}`,
-		whatsapp: "📊 *Your week at a glance*\n\n{{.text}}\n\n— Taraju",
+		sms:      `Maapan weekly summary: {{.text}}`,
+		whatsapp: "📊 *Your week at a glance*\n\n{{.text}}\n\n— Maapan",
 	},
 	ImportDone: {
 		params:   []string{"kind", "imported", "total", "failed"},
-		sms:      `Taraju: your {{.kind}} import finished - {{.imported}}/{{.total}} imported, {{.failed}} failed.`,
+		sms:      `Maapan: your {{.kind}} import finished - {{.imported}}/{{.total}} imported, {{.failed}} failed.`,
 		whatsapp: "📥 *Import finished*\n\n{{.kind}}: {{.imported}} of {{.total}} imported, {{.failed}} failed.\n{{if .link}}\nDetails: {{.link}}\n{{end}}\nआपका डेटा आयात पूरा हुआ।",
 	},
 }

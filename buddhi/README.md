@@ -1,6 +1,6 @@
 # buddhi (बुद्धि) — AI & Insights Service
 
-"Buddhi" means *intelligence*. It is Taraju's AI initiative plus the live analytics that feed it:
+"Buddhi" means *intelligence*. It is Maapan's AI initiative plus the live analytics that feed it:
 
 1. **Purchase-bill scanner** — photo/PDF of a supplier bill → Claude vision → a *draft* purchase bill for `aadesh`, with GSTIN checksum, line-sum and GST re-computation checks, catalog item matching, confidence and warnings. **Never auto-posts.**
 2. **Ask your books** — questions in Hindi / English / Hinglish ("is mahine kitna udhaar baaki hai?") answered by Claude using read-only tools over the tenant's own ledger, sales, stock and invoices. Optional SSE streaming.
@@ -12,11 +12,11 @@
 | | |
 |---|---|
 | Port (local) | `7010` |
-| Database | `taraju_buddhi` (+ Redis db 3, optional) |
+| Database | `maapan_buddhi` (+ Redis db 3, optional) |
 | Publishes | — |
 | Subscribes | `aadesh.invoice.created`, `aadesh.invoice.cancelled`, `lenden.payment.captured`, `bhandar.stock.low` |
 | Calls | `bahi` (reports summary), `bhandar` (stock summary), `aadesh` (invoices), `pehchaan` (tenant/store), `soochna` (WhatsApp), Claude API |
-| Gateway prefix | `https://api.taraju.in/api/buddhi/...` |
+| Gateway prefix | `https://api.maapan.in/api/buddhi/...` |
 | First deployed | **Week 23** (dashboards). AI features piloted from **Week 12** behind the per-tenant flag `tenant_settings.ai_enabled` |
 
 ## Run locally

@@ -12,7 +12,7 @@ import (
 )
 
 // MSG91 sends SMS through the MSG91 Flow API (DLT-approved templates).
-// Each Taraju template maps to a flow template_id via MSG91_TEMPLATE_<NAME>;
+// Each Maapan template maps to a flow template_id via MSG91_TEMPLATE_<NAME>;
 // template variables are passed by name, so the flow must use ##otp##, ##minutes## ...
 type MSG91 struct {
 	authKey   string

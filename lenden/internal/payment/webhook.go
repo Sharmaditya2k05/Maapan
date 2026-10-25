@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // Webhooks receives one gateway's webhooks (POST /v1/webhooks/{gateway}).

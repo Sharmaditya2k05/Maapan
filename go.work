@@ -1,5 +1,5 @@
 // Go workspace for local development and IDEs: one `go build ./...` from any
-// service directory resolves github.com/taraju/mool to ../mool through this
+// service directory resolves github.com/maapan/mool to ../mool through this
 // file, and gopls sees every service at once.
 //
 // Cloud Build and the Dockerfiles never see this file (they build one service

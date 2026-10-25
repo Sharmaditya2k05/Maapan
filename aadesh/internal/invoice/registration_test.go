@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/taraju/aadesh/internal/clients"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/aadesh/internal/clients"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 const (

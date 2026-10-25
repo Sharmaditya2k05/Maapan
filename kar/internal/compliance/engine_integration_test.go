@@ -18,21 +18,21 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/kar/migrations"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/kar/migrations"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable)")
+		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable)")
 	}
 	ctx := context.Background()
 	schema := fmt.Sprintf("kar_engine_test_%d", rand.Int63())

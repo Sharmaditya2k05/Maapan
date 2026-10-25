@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/gst"
 )
 
 // Simulator is an offline, deterministic stand-in for the GSTN search, the
@@ -364,7 +364,7 @@ func (s *Simulator) GenerateIRN(ctx context.Context, _ Credentials, payload any)
 		DocTyp: in.DocDtls.Typ, DocDt: in.DocDtls.Dt, TotInvVal: in.ValDtls.TotInvVal, ItemCnt: len(in.ItemList),
 		MainHsnCode: mainHSN, Irn: irn, IrnDt: ackDt.Format(NICTimeLayout)}
 	qrJSON, _ := json.Marshal(qr)
-	signedQR, err := SignJWS(s.Key, signedClaims{Data: string(qrJSON), Iss: "NIC Sandbox (Taraju simulator)"})
+	signedQR, err := SignJWS(s.Key, signedClaims{Data: string(qrJSON), Iss: "NIC Sandbox (Maapan simulator)"})
 	if err != nil {
 		return IRNResult{}, err
 	}
@@ -372,7 +372,7 @@ func (s *Simulator) GenerateIRN(ctx context.Context, _ Credentials, payload any)
 	_ = json.Unmarshal(raw, &full)
 	full["Irn"], full["AckNo"], full["AckDt"] = irn, ackNoFor(irn), ackDt.Format(NICTimeLayout)
 	fullJSON, _ := json.Marshal(full)
-	signedInv, err := SignJWS(s.Key, signedClaims{Data: string(fullJSON), Iss: "NIC Sandbox (Taraju simulator)"})
+	signedInv, err := SignJWS(s.Key, signedClaims{Data: string(fullJSON), Iss: "NIC Sandbox (Maapan simulator)"})
 	if err != nil {
 		return IRNResult{}, err
 	}

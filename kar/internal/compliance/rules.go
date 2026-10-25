@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/gst"
 )
 
 // DefaultEWayThresholdPaise is the Rule 138 consignment value above which an

@@ -1,4 +1,4 @@
-# dukaan (दुकान) — Taraju Web App & Offline POS
+# dukaan (दुकान) — Maapan Web App & Offline POS
 
 "Dukaan" means *shop*. This is the Next.js frontend: the cashier's POS counter, invoices, purchases,
 party ledgers, items & stock, GST reports, the MargBooks importer, manufacturing, AI Q&A and settings.
@@ -38,8 +38,8 @@ Without them the landing page and login screen render, but API calls fail with c
 
 | Variable | Example | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.taraju.in/api` | dwaar base URL incl. `/api`. **Build-time** (baked into JS) |
-| `NEXT_PUBLIC_APP_URL` | `https://app.taraju.in` | Used for OpenGraph `metadataBase` |
+| `NEXT_PUBLIC_API_URL` | `https://api.maapan.in/api` | dwaar base URL incl. `/api`. **Build-time** (baked into JS) |
+| `NEXT_PUBLIC_APP_URL` | `https://app.maapan.in` | Used for OpenGraph `metadataBase` |
 | `NEXT_PUBLIC_APP_ENV` | `dev` / `staging` / `prod` | Display only |
 | `NEXT_PUBLIC_SENTRY_DSN` | – | Reserved for Sentry wiring (TODO) |
 | `NEXT_PUBLIC_SUPPORT_PHONE` | – | Landing page call link; hidden when empty |
@@ -74,7 +74,7 @@ the services enforce permissions.
 ## Offline billing
 
 1. On opening `/pos` the catalog is fetched from `GET /bhandar/v1/items/pos-catalog` and stored in IndexedDB
-   (`taraju-pos` → `catalog`). Offline, the cached copy is used.
+   (`maapan-pos` → `catalog`). Offline, the cached copy is used.
 2. The device reserves a block of invoice numbers (`POST /aadesh/v1/number-blocks`, 200 at a time) and
    reserves the next block when less than 20% is left.
 3. Every bill gets a `client_uuid`. Online it goes to `POST /aadesh/v1/invoices`. On a network error or
@@ -122,7 +122,7 @@ public/  sw.js, manifest.webmanifest, brand/, icons
 ## Deploy (Cloud Run)
 
 `cloudbuild.yaml`: `npm ci && npm test && tsc` → `docker build --build-arg NEXT_PUBLIC_API_URL=…` →
-push to `asia-south1-docker.pkg.dev/$PROJECT_ID/taraju/dukaan:$SHORT_SHA` → `gcloud run deploy dukaan`
+push to `asia-south1-docker.pkg.dev/$PROJECT_ID/maapan/dukaan:$SHORT_SHA` → `gcloud run deploy dukaan`
 (`--ingress=all --allow-unauthenticated --min-instances=1`). Because `NEXT_PUBLIC_*` is baked at build
 time, each environment has its own trigger with its own `_API_URL`.
 

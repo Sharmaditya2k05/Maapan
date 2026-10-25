@@ -1,4 +1,4 @@
-# Taraju (तराजू) — GST Billing, Accounting & Inventory ERP
+# Maapan (मापन) — GST Billing, Accounting & Inventory ERP
 
 Cloud-native, multi-tenant ERP for Indian retail ("Beyond MargBooks"): POS billing, double-entry
 ledgers, live GSTIN verification, e-Way bill / e-Invoice JSON, OTP login + RBAC, multi-store
@@ -38,3 +38,24 @@ cd ../dukaan && npm install && npm run dev        # http://localhost:3000, OTP 1
 
 Every service repo has its own `README.md` (run steps, API, deploy notes), `.env.example`,
 `Makefile`, `Dockerfile` and `cloudbuild.yaml`.
+
+## Showcase deployment (Render + Vercel)
+
+A demo deployment runs every service on Render's free plan and the dukaan app on Vercel.
+
+- **Backend**: `render.yaml` is a Render Blueprint. In Render, choose *New → Blueprint*, pick this
+  repository, and apply. It creates one free Postgres (each service in its own schema), one free
+  Key Value instance, and the eleven services as `maapan-<service>.onrender.com`. Set
+  `ANTHROPIC_API_KEY` on `maapan-buddhi` only if you want the AI features.
+- **Frontend**: import the repository in Vercel with **Root Directory `dukaan`** (Next.js is detected)
+  and these environment variables:
+  - `NEXT_PUBLIC_API_URL=https://maapan-dwaar.onrender.com/api`
+  - `NEXT_PUBLIC_APP_ENV=local`
+  - `NEXT_PUBLIC_APP_URL=https://maapan.vercel.app`
+
+  If Vercel gives the project another domain, add it to `CORS_ORIGINS` in the `maapan-shared`
+  environment group on Render.
+- **Demo mode**: log in with any phone number and OTP `123456`. Payments use a mock gateway, IRN and
+  e-way bills come from kar's simulator, and SMS/WhatsApp go to the service logs. Free services sleep
+  after 15 minutes, so the first request after a pause takes about a minute. Render's free Postgres
+  expires 30 days after it is created.

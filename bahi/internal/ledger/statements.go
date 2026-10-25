@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 // StatementLine is one posting with the running balance (debit − credit).

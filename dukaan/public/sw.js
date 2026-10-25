@@ -1,4 +1,4 @@
-/* Taraju POS service worker.
+/* Maapan POS service worker.
  * - App shell + Next static assets: cache-first (hashed filenames, safe to keep).
  * - Page navigations: network-first, fall back to the cached page (or /pos) so the counter opens offline.
  * - API: network-first; only the POS catalog GET is cached as an offline fallback (IndexedDB holds the
@@ -6,8 +6,8 @@
  * Bump VERSION to invalidate old caches on deploy.
  */
 const VERSION = 'v1'
-const SHELL = `taraju-shell-${VERSION}`
-const RUNTIME = `taraju-runtime-${VERSION}`
+const SHELL = `maapan-shell-${VERSION}`
+const RUNTIME = `maapan-runtime-${VERSION}`
 const PRECACHE = ['/', '/pos', '/login', '/manifest.webmanifest', '/favicon-64.png', '/brand/mark-512.png', '/brand/wordmark.png', '/brand/wordmark-light.png']
 
 self.addEventListener('install', (event) => {

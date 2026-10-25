@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Tenant is a business.

@@ -1,4 +1,4 @@
-module github.com/taraju/buddhi
+module github.com/maapan/buddhi
 
 go 1.25.0
 
@@ -6,7 +6,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.82.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/redis/go-redis/v9 v9.7.3
-	github.com/taraju/mool v0.0.0
+	github.com/maapan/mool v0.0.0
 )
 
 require (
@@ -39,4 +39,4 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 )
 
-replace github.com/taraju/mool => ../mool
+replace github.com/maapan/mool => ../mool

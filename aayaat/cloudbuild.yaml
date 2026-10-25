@@ -7,12 +7,12 @@ substitutions:
   _SERVICE: aayaat
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _MOOL_REPO: github.com/taraju/mool
+  _REPO: maapan
+  _MOOL_REPO: github.com/maapan/mool
   _MOOL_REF: main
-  _VPC_NETWORK: taraju-vpc
-  _VPC_SUBNET: taraju-run-subnet
-  _BUCKET: taraju-dev-files
+  _VPC_NETWORK: maapan-vpc
+  _VPC_SUBNET: maapan-run-subnet
+  _BUCKET: maapan-dev-files
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -68,7 +68,7 @@ steps:
       - --min-instances=0           # imports are occasional
       - --max-instances=3
       - --no-cpu-throttling         # commits run in a goroutine after the request returns
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,STORAGE_DRIVER=gcs,GCS_BUCKET=${_BUCKET},WORKER_JOB_NAME=aayaat-worker,GCP_REGION=${_REGION},LARGE_IMPORT_ROWS=50000
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app,STORAGE_DRIVER=gcs,GCS_BUCKET=${_BUCKET},WORKER_JOB_NAME=aayaat-worker,GCP_REGION=${_REGION},LARGE_IMPORT_ROWS=50000
       - --update-secrets=DATABASE_URL=aayaat-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
 
   # Same image as a Cloud Run Job for imports above LARGE_IMPORT_ROWS. The API

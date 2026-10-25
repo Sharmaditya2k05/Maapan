@@ -7,7 +7,7 @@
  */
 import type { SessionUser, TokenPair } from './types'
 
-const KEY = 'taraju.session.v1'
+const KEY = 'maapan.session.v1'
 
 interface Stored { access?: string; refresh?: string; user?: SessionUser; storeId?: string }
 
@@ -57,7 +57,7 @@ export const session = {
 /** Stable per-browser device id, used for offline number blocks. */
 export function deviceId(): string {
   if (typeof window === 'undefined') return 'server'
-  const k = 'taraju.device'
+  const k = 'maapan.device'
   let id = localStorage.getItem(k)
   if (!id) {
     id = `pos-${crypto.randomUUID().slice(0, 8)}`

@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 const jobCols = `id, kind, status, file_name, file_key, COALESCE(content_type,''), file_size, COALESCE(sheet,''), header_row,

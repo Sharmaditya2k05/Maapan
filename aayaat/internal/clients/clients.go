@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 // BulkError is one rejected record (index into the sent batch).

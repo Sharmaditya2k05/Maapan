@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/mool/logx"
 )
 
 // HeaderRequestID carries the correlation ID across services.

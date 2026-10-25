@@ -7,11 +7,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/mool/gst"
 )
 
-// EInvoice is the IRP INV-01 schema v1.1 payload (fields Taraju populates).
+// EInvoice is the IRP INV-01 schema v1.1 payload (fields Maapan populates).
 type EInvoice struct {
 	Version    string         `json:"Version"`
 	TranDtls   EInvTran       `json:"TranDtls"`

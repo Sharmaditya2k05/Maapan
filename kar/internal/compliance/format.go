@@ -1,4 +1,4 @@
-// Package compliance builds statutory JSON payloads from Taraju invoices —
+// Package compliance builds statutory JSON payloads from Maapan invoices —
 // NIC e-Way Bill (v1.0.0621) and IRP e-Invoice (INV-01 schema v1.1) — and runs
 // their lifecycle against a gsp.Client (Engine: generate, cancel, Part-B,
 // extend, events and outbox). The builders and rule tables (format.go,
@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/gst"
 )
 
 // Party is one side of a movement of goods (seller/buyer, consignor/consignee).

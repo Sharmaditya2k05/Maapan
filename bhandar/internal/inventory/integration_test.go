@@ -16,11 +16,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/bhandar/migrations"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/bhandar/migrations"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 // newTestService connects to TEST_DATABASE_URL, creates a fresh schema, runs
@@ -29,7 +29,7 @@ func newTestService(t *testing.T) (*Service, *pgxpool.Pool) {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable)")
+		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable)")
 	}
 	ctx := context.Background()
 	schema := fmt.Sprintf("bhandar_test_%d", rand.Int63())

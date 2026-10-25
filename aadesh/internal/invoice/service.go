@@ -11,12 +11,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/aadesh/internal/clients"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/aadesh/internal/clients"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Service implements invoice use cases.

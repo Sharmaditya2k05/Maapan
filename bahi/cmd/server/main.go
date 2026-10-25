@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/bahi/internal/ledger"
-	"github.com/taraju/bahi/migrations"
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/bahi/internal/ledger"
+	"github.com/maapan/bahi/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
 )
 
 func main() {

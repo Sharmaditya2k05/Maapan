@@ -4,8 +4,8 @@ package job
 import (
 	"time"
 
-	"github.com/taraju/aayaat/internal/mapping"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/aayaat/internal/mapping"
+	"github.com/maapan/mool/httpx"
 )
 
 // Job statuses.

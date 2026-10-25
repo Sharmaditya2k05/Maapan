@@ -8,9 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 // IST is India Standard Time; budgets reset on the 1st of the month IST.

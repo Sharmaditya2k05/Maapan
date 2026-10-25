@@ -22,7 +22,7 @@ type Mock struct {
 // NewMock builds the mock provider.
 func NewMock(vpa string) *Mock {
 	if vpa == "" {
-		vpa = "taraju@mock"
+		vpa = "maapan@mock"
 	}
 	return &Mock{VPA: vpa, payments: map[string][]RemotePayment{}, closed: map[string]bool{}, refunds: map[string][]RemoteRefund{}}
 }

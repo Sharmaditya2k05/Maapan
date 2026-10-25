@@ -33,7 +33,7 @@ function AiForm({ s }: { s: AiSettings }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit() }} noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2"><Toggle checked={enabled} onChange={(v) => canEdit && setEnabled(v)} label={<span>Enable Ask Taraju, bill scanning and weekly summaries <span className="block text-xs text-slate-500">Questions and bill images are sent to the AI provider; your books never leave your account otherwise</span></span>} /></div>
+        <div className="sm:col-span-2"><Toggle checked={enabled} onChange={(v) => canEdit && setEnabled(v)} label={<span>Enable Ask Maapan, bill scanning and weekly summaries <span className="block text-xs text-slate-500">Questions and bill images are sent to the AI provider; your books never leave your account otherwise</span></span>} /></div>
         <Field label="Monthly token budget" hint="Empty = platform default; 0 = unlimited"><Input value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ''))} inputMode="numeric" className="num" disabled={!canEdit} placeholder="e.g. 2000000" /></Field>
         <Field label="Owner phone for the weekly WhatsApp summary" hint="+91 followed by 10 digits"><Input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d+]/g, ''))} inputMode="tel" className="font-mono" disabled={!canEdit} placeholder="+919876543210" /></Field>
       </div>

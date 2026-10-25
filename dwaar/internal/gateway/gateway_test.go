@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/dwaar/internal/ratelimit"
-	"github.com/taraju/mool/auth"
+	"github.com/maapan/dwaar/internal/ratelimit"
+	"github.com/maapan/mool/auth"
 )
 
 var secret = []byte("test-secret-test-secret-test-secret")

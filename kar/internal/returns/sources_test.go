@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/svc"
 )
 
 func TestAadeshPaging(t *testing.T) {

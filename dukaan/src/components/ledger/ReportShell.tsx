@@ -57,7 +57,7 @@ export function ReportShell({ title, subtitle, back = '/app/reports', range, asO
       {controls}
       <div className="print-root print-a4">
         <div className="mb-4 hidden print:block">
-          <div className="text-lg font-extrabold">{store?.name ?? 'Taraju'}</div>
+          <div className="text-lg font-extrabold">{store?.name ?? 'Maapan'}</div>
           {store?.gstin && <div className="text-xs">GSTIN {store.gstin}</div>}
           <div className="mt-1 text-base font-bold">{title}</div>
           {period && <div className="text-xs">{period}</div>}

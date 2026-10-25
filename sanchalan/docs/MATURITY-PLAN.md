@@ -1,6 +1,6 @@
-# Taraju — per-model maturity plan (proposal for approval)
+# Maapan — per-model maturity plan (proposal for approval)
 
-Basis: static read of `kinbox-ctrl/taraju` at commit `3b4cd74` ("Replace Vite demo with the Taraju ERP monorepo"), 23 Oct 2026.
+Basis: static read of `kinbox-ctrl/maapan` at commit `3b4cd74` ("Replace Vite demo with the Maapan ERP monorepo"), 23 Oct 2026.
 Every `.go`, `.sql`, `.ts` and README was read; the architecture contract, deployment plan and the
 "External Integrations, Supabase & Cloud Run Setup" PDF were read. **Nothing was compiled or run** — Go is
 not installed on this machine — so everything below comes from reading code, and a few items are marked
@@ -44,7 +44,7 @@ Net: of 13 models, **2 must be built** (bhandar, dukaan), **1 must be rebuilt in
 | D2 | bhandar | Build from scratch against its existing schema and README (they are a good spec), plus the market additions in §2.10. This is the first thing to build; it unblocks aadesh, nirmaan, aayaat, buddhi, dukaan POS and five Pub/Sub subscriptions. |
 | D3 | dukaan | Build from scratch on Next.js 15 App Router + Tailwind v4, keeping the existing `src/lib`. Salvage screens, forms and the UI kit from the retired Vite demo (commit `b0f031d`, 13 pages, same brand) as the visual reference so we are not designing from zero. |
 | D4 | GST Suvidha Provider | Pick one GSP covering GSTIN search + e-way + e-invoice with multi-GSTIN access (your PDF shortlists Masters India, ClearTax, Cygnet, IRIS, Vayana). I will build a provider-agnostic adapter in kar and implement one concrete driver against that GSP's sandbox. Until the contract exists kar runs on checksum with the UI clearly saying "not portal-verified". |
-| D5 | Payment money flow | Per-tenant Razorpay/Cashfree keys (option A in your PDF): money lands in the store's account, Taraju never handles funds, no aggregator licence. Needs a settings screen and encrypted key storage in lenden. |
+| D5 | Payment money flow | Per-tenant Razorpay/Cashfree keys (option A in your PDF): money lands in the store's account, Maapan never handles funds, no aggregator licence. Needs a settings screen and encrypted key storage in lenden. |
 | D6 | Inventory valuation | Weighted average cost as default (what Tally/Marg/Busy users expect), FIFO as a per-tenant option later. Perpetual costing: every stock movement posts COGS / Inventory to bahi, so P&L is right for any period. |
 | D7 | Monorepo tooling | Add a root `go.work`, a root Makefile, and one GitHub Actions workflow that builds, vets and tests every service + dukaan on every push. Keep the "each folder is its own repo" story for Cloud Build; local dev becomes one command. |
 | D8 | Tax regime scope | Support regular taxpayer **and** composition (bill of supply, CMP-08), reverse charge, exempt/nil/non-GST, SEZ and export (LUT) supply types in mool, aadesh, kar and bahi. Retail pilots will hit composition dealers and RCM (freight, legal) in month one. |

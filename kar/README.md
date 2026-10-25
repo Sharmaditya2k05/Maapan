@@ -1,6 +1,6 @@
 # kar (कर) — Tax Service
 
-"Kar" means *tax*. It owns GST compliance for Taraju:
+"Kar" means *tax*. It owns GST compliance for Maapan:
 
 - **GSTIN verification**: checksum + state first, then a live taxpayer search through the GSP client
   (legal name, trade name, status, address), cached 7 days. A provider failure answers
@@ -21,11 +21,11 @@
 | | |
 |---|---|
 | Port (local) | `7003` |
-| Database | `taraju_kar` |
+| Database | `maapan_kar` |
 | Publishes (outbox) | `kar.einvoice.generated`, `kar.eway.generated` |
 | Subscribes | `pehchaan.tenant.created` (seeds tax settings), `aadesh.invoice.created`, `aadesh.note.created` (auto e-invoice) |
 | Calls | `aadesh` (invoices), `pehchaan` (store + registration, tenant), `bahi` (party address/PIN), GSP API |
-| Gateway prefix | `https://api.taraju.in/api/kar/...` |
+| Gateway prefix | `https://api.maapan.in/api/kar/...` |
 
 ## Run locally
 
@@ -41,7 +41,7 @@ cp .env.example .env          # GSP_PROVIDER=simulator works with no GSP contrac
 
 # 3. run (migrations apply automatically)
 make run                      # → http://localhost:7003/healthz
-make test                     # TEST_DATABASE_URL=postgres://…/taraju_test runs the DB tests too
+make test                     # TEST_DATABASE_URL=postgres://…/maapan_test runs the DB tests too
 ```
 
 e-Invoice, e-Way bill and returns read invoices from `aadesh` and store/registration details from

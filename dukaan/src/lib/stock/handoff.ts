@@ -10,7 +10,7 @@ import { PURCHASE_DRAFT_KEY } from '../types.more'
 export { PURCHASE_DRAFT_KEY }
 
 /** Label-sheet job for /app/items/labels (items + copies, layout). */
-export const LABEL_JOB_KEY = 'taraju.labelJob'
+export const LABEL_JOB_KEY = 'maapan.labelJob'
 export interface LabelJob { items: { item_id: string; copies: number }[]; show_price: boolean; columns: number }
 
 export function storePurchaseDraft(body: PurchaseDraftBody) {

@@ -1,6 +1,6 @@
 # aayaat (आयात) — Import & Migration Service
 
-"Aayaat" means *import*. It moves a shop's existing books into Taraju — typically from **MargBooks**
+"Aayaat" means *import*. It moves a shop's existing books into Maapan — typically from **MargBooks**
 Excel exports, but any `.xlsx` / `.csv` works:
 
 | Kind | Goes to | Typical MargBooks export |
@@ -16,11 +16,11 @@ then `aayaat.import.completed` is published so `soochna` can tell the owner.
 | | |
 |---|---|
 | Port (local) | `7007` |
-| Database | `taraju_aayaat` |
+| Database | `maapan_aayaat` |
 | Publishes | `aayaat.import.completed` (via outbox) |
 | Subscribes | — |
 | Calls | `bahi` (bulk parties / opening balances), `bhandar` (bulk items / opening stock), Cloud Storage, Cloud Run Admin API |
-| Gateway prefix | `https://api.taraju.in/api/aayaat/...` |
+| Gateway prefix | `https://api.maapan.in/api/aayaat/...` |
 | First deployed | **Week 9** (MargBooks Excel Importer); used for pilot data in Week 12 |
 
 ## Run locally
@@ -157,7 +157,7 @@ on the `aayaat-worker` job (to start executions with overrides), `roles/pubsub.p
 `roles/run.invoker` on bahi and bhandar.
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml --substitutions=_ENV=dev,_BUCKET=taraju-dev-files,SHORT_SHA=$(git rev-parse --short HEAD)
+gcloud builds submit --config cloudbuild.yaml --substitutions=_ENV=dev,_BUCKET=maapan-dev-files,SHORT_SHA=$(git rev-parse --short HEAD)
 ```
 
 ## TODO

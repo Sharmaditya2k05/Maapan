@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/gst"
 )
 
 // HTTPPaths are the GSP endpoints, relative to BaseURL. %s placeholders are

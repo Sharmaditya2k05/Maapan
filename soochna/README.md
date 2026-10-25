@@ -1,6 +1,6 @@
 # soochna (सूचना) — Notification Service
 
-"Soochna" means *information / notice*. Every SMS and WhatsApp message Taraju sends goes through here:
+"Soochna" means *information / notice*. Every SMS and WhatsApp message Maapan sends goes through here:
 
 - **OTP** for login (called synchronously by `pehchaan`)
 - **WhatsApp bill** to the customer after a POS sale
@@ -11,12 +11,12 @@
 | | |
 |---|---|
 | Port (local) | `7006` |
-| Database | `taraju_soochna` |
+| Database | `maapan_soochna` |
 | Publishes | – |
 | Subscribes | `aadesh.invoice.created`, `lenden.payment.captured`, `bhandar.stock.low`, `bhandar.batch.expiring`, `aayaat.import.completed` |
 | Calls | `pehchaan` `GET /internal/v1/tenants/{id}` (business name, owner phone) |
 | Providers | SMS: **MSG91** Flow API · WhatsApp: **Gupshup** · `console` driver for local |
-| Gateway prefix | `https://api.taraju.in/api/soochna/...` |
+| Gateway prefix | `https://api.maapan.in/api/soochna/...` |
 | First deployed | **Week 3** (OTP) · WhatsApp bills & alerts live **Week 10** · stock/expiry alerts **Weeks 17–18** |
 
 ## Run locally
@@ -86,6 +86,6 @@ migrations/                  messages, processed_events
 - secrets: `soochna-database-url`, `jwt-secret`, `service-secret`, `msg91-auth-key`, `gupshup-api-key`, `soochna-webhook-token`
 - template ids / `GUPSHUP_SOURCE` / `GUPSHUP_APP_NAME`: set once with `gcloud run services update soochna --update-env-vars=...` (deploy uses `--update-env-vars`, so they persist)
 - Cloud Scheduler: `*/15 * * * *` → `POST /internal/v1/jobs/retry-failed` with OIDC token + `X-Service-Secret`
-- Provider webhooks must reach `dwaar` at `https://api.taraju.in/api/soochna/v1/webhooks/{provider}?token=...` (public route on the gateway)
+- Provider webhooks must reach `dwaar` at `https://api.maapan.in/api/soochna/v1/webhooks/{provider}?token=...` (public route on the gateway)
 
 Deploy order in Week 3: **soochna → pehchaan → dwaar**.

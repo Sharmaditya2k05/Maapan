@@ -1,8 +1,8 @@
 package returns
 
 import (
-	"github.com/taraju/kar/internal/recon"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/recon"
+	"github.com/maapan/mool/gst"
 )
 
 // Head is a GSTR-3B row with taxable value and tax by head.

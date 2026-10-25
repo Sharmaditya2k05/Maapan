@@ -3,7 +3,7 @@ package production
 import (
 	"testing"
 
-	"github.com/taraju/nirmaan/internal/bom"
+	"github.com/maapan/nirmaan/internal/bom"
 )
 
 func TestNextStatus(t *testing.T) {

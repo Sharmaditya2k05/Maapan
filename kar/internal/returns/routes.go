@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/taraju/kar/internal/recon"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/kar/internal/recon"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Register mounts the returns, GSTR-2B and IMS routes:

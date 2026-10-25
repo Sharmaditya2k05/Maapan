@@ -24,7 +24,7 @@ export function normalizeCode(code: string): string {
   return s.length === 12 && digitsOnly(s) ? `0${s}` : s
 }
 
-/** In-store code (GS1 restricted-circulation prefix 20–29); Taraju generates 21… codes. */
+/** In-store code (GS1 restricted-circulation prefix 20–29); Maapan generates 21… codes. */
 export const isInternalEAN = (code: string) => code.length === 13 && digitsOnly(code) && code[0] === '2'
 
 /**

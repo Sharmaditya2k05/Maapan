@@ -15,16 +15,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/aayaat/internal/clients"
-	"github.com/taraju/aayaat/internal/mapping"
-	"github.com/taraju/aayaat/internal/sheet"
-	"github.com/taraju/aayaat/internal/storage"
-	"github.com/taraju/aayaat/internal/validate"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/aayaat/internal/clients"
+	"github.com/maapan/aayaat/internal/mapping"
+	"github.com/maapan/aayaat/internal/sheet"
+	"github.com/maapan/aayaat/internal/storage"
+	"github.com/maapan/aayaat/internal/validate"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 // Limits.

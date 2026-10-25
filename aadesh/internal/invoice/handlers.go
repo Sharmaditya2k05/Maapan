@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Routes registers aadesh's HTTP API on mux.

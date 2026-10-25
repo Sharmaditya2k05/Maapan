@@ -1,10 +1,10 @@
-module github.com/taraju/nirmaan
+module github.com/maapan/nirmaan
 
 go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/taraju/mool v0.0.0
+	github.com/maapan/mool v0.0.0
 )
 
 require (
@@ -20,4 +20,4 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 )
 
-replace github.com/taraju/mool => ../mool
+replace github.com/maapan/mool => ../mool

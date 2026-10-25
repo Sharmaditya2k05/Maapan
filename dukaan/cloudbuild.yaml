@@ -4,8 +4,8 @@ substitutions:
   _SERVICE: dukaan
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _API_URL: https://api-dev.taraju.in/api
+  _REPO: maapan
+  _API_URL: https://api-dev.maapan.in/api
 
 options:
   logging: CLOUD_LOGGING_ONLY

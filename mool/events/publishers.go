@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/gcp"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/gcp"
 )
 
 // NewPublisher picks the driver from EVENTS_DRIVER: pubsub | direct | log.

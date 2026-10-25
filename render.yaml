@@ -1,0 +1,252 @@
+# Render Blueprint for the Maapan showcase (free plan, Singapore).
+# One free Postgres shared by every service, each in its own schema
+# (?search_path=<service>, created on connect by mool/db), and one free
+# Key Value instance for OTPs and rate limits.
+#
+# Demo mode: APP_ENV=local, so the login OTP is always 123456, payments use
+# the mock gateway, GST calls use kar's simulator and messages go to the logs.
+# Do not put real business data in this deployment.
+#
+# Free web services cannot receive private-network traffic, so services call
+# each other on their public onrender.com URLs (see the shared env group).
+
+envVarGroups:
+  - name: maapan-shared
+    envVars:
+      - key: APP_ENV
+        value: local
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SERVICE_SECRET
+        generateValue: true
+      - key: EVENTS_DRIVER
+        value: direct
+      - key: CORS_ORIGINS
+        value: https://maapan.vercel.app,http://localhost:3000
+      - key: LOG_LEVEL
+        value: info
+      - key: DWAAR_URL
+        value: https://maapan-dwaar.onrender.com
+      - key: PEHCHAAN_URL
+        value: https://maapan-pehchaan.onrender.com
+      - key: BAHI_URL
+        value: https://maapan-bahi.onrender.com
+      - key: KAR_URL
+        value: https://maapan-kar.onrender.com
+      - key: AADESH_URL
+        value: https://maapan-aadesh.onrender.com
+      - key: LENDEN_URL
+        value: https://maapan-lenden.onrender.com
+      - key: SOOCHNA_URL
+        value: https://maapan-soochna.onrender.com
+      - key: AAYAAT_URL
+        value: https://maapan-aayaat.onrender.com
+      - key: BHANDAR_URL
+        value: https://maapan-bhandar.onrender.com
+      - key: NIRMAAN_URL
+        value: https://maapan-nirmaan.onrender.com
+      - key: BUDDHI_URL
+        value: https://maapan-buddhi.onrender.com
+
+databases:
+  - name: maapan-db
+    plan: free
+    region: singapore
+    databaseName: maapan
+    user: maapan
+    ipAllowList: []
+
+services:
+  - type: keyvalue
+    name: maapan-redis
+    plan: free
+    region: singapore
+    ipAllowList: []
+
+  - type: web
+    name: maapan-dwaar
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd dwaar && GOWORK=off go build -o bin/dwaar ./cmd/server
+    startCommand: cd dwaar && exec ./bin/dwaar
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: maapan-redis
+          property: connectionString
+      - key: UPSTREAM_TIMEOUT
+        value: 90s     # a sleeping free service takes about a minute to wake
+
+  - type: web
+    name: maapan-pehchaan
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd pehchaan && GOWORK=off go build -o bin/pehchaan ./cmd/server
+    startCommand: cd pehchaan && DATABASE_URL="${DATABASE_URL}?search_path=pehchaan&pool_max_conns=3" exec ./bin/pehchaan
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: maapan-redis
+          property: connectionString
+      - key: OTP_DEV_FIXED
+        value: "123456"
+
+  - type: web
+    name: maapan-bahi
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd bahi && GOWORK=off go build -o bin/bahi ./cmd/server
+    startCommand: cd bahi && DATABASE_URL="${DATABASE_URL}?search_path=bahi&pool_max_conns=3" exec ./bin/bahi
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-kar
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd kar && GOWORK=off go build -o bin/kar ./cmd/server
+    startCommand: cd kar && DATABASE_URL="${DATABASE_URL}?search_path=kar&pool_max_conns=3" exec ./bin/kar
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-aadesh
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd aadesh && GOWORK=off go build -o bin/aadesh ./cmd/server
+    startCommand: cd aadesh && DATABASE_URL="${DATABASE_URL}?search_path=aadesh&pool_max_conns=3" exec ./bin/aadesh
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-lenden
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd lenden && GOWORK=off go build -o bin/lenden ./cmd/server
+    startCommand: cd lenden && DATABASE_URL="${DATABASE_URL}?search_path=lenden&pool_max_conns=3" exec ./bin/lenden
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-soochna
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd soochna && GOWORK=off go build -o bin/soochna ./cmd/server
+    startCommand: cd soochna && DATABASE_URL="${DATABASE_URL}?search_path=soochna&pool_max_conns=3" exec ./bin/soochna
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-aayaat
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd aayaat && GOWORK=off go build -o bin/aayaat ./cmd/server
+    startCommand: cd aayaat && DATABASE_URL="${DATABASE_URL}?search_path=aayaat&pool_max_conns=3" exec ./bin/aayaat
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-bhandar
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd bhandar && GOWORK=off go build -o bin/bhandar ./cmd/server
+    startCommand: cd bhandar && DATABASE_URL="${DATABASE_URL}?search_path=bhandar&pool_max_conns=3" exec ./bin/bhandar
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-nirmaan
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd nirmaan && GOWORK=off go build -o bin/nirmaan ./cmd/server
+    startCommand: cd nirmaan && DATABASE_URL="${DATABASE_URL}?search_path=nirmaan&pool_max_conns=3" exec ./bin/nirmaan
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+
+  - type: web
+    name: maapan-buddhi
+    runtime: go
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: cd buddhi && GOWORK=off go build -o bin/buddhi ./cmd/server
+    startCommand: cd buddhi && DATABASE_URL="${DATABASE_URL}?search_path=buddhi&pool_max_conns=3" exec ./bin/buddhi
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: maapan-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maapan-db
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false    # optional: AI features stay off without it

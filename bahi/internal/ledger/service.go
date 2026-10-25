@@ -11,10 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/bahi/internal/posting"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/bahi/internal/posting"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 // Service implements ledger use cases.

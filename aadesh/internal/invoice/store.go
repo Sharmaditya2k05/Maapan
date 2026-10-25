@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/gst"
 )
 
 const invoiceCols = `id, store_id, doc_type, number, fy, invoice_date, due_date, supplier_invoice_no, supplier_invoice_date,

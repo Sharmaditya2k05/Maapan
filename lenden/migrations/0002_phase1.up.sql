@@ -3,11 +3,11 @@
 
 -- Refunds: 'unknown' = the gateway call failed in a way that may still have executed
 -- (timeout, transport error, 5xx); the webhook or reconcile settles it. source tells
--- whether Taraju initiated the refund or the gateway dashboard did.
+-- whether Maapan initiated the refund or the gateway dashboard did.
 ALTER TABLE refunds DROP CONSTRAINT IF EXISTS refunds_status_check;
 ALTER TABLE refunds ADD CONSTRAINT refunds_status_check
     CHECK (status IN ('pending','unknown','processed','failed'));
-ALTER TABLE refunds ADD COLUMN IF NOT EXISTS source     TEXT NOT NULL DEFAULT 'taraju'; -- taraju | gateway
+ALTER TABLE refunds ADD COLUMN IF NOT EXISTS source     TEXT NOT NULL DEFAULT 'maapan'; -- maapan | gateway
 ALTER TABLE refunds ADD COLUMN IF NOT EXISTS last_error TEXT;
 ALTER TABLE refunds ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS refunds_open ON refunds (created_at) WHERE status IN ('pending','unknown');

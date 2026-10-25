@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/gcp"
+	"github.com/maapan/mool/gcp"
 )
 
 // Storage stores and reads back upload files by key.

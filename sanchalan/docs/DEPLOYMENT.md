@@ -1,10 +1,10 @@
-# Taraju — What goes to Cloud Run, and when
+# Maapan — What goes to Cloud Run, and when
 
 This is the deployment plan for the 26-week programme. It answers four questions for
 every repo: **what** gets deployed, **as what** (Cloud Run service / job / nothing),
 **when** (sprint week), and **what has to exist first**.
 
-Region `asia-south1` (Mumbai). Three GCP projects: `taraju-dev`, `taraju-staging`, `taraju-prod`.
+Region `asia-south1` (Mumbai). Three GCP projects: `maapan-dev`, `maapan-staging`, `maapan-prod`.
 Every repo deploys itself through its own `cloudbuild.yaml`; `sanchalan/scripts/` builds the shared plumbing.
 
 ---
@@ -35,22 +35,22 @@ Services that publish events (`aadesh`, `lenden`, `bhandar`, `nirmaan`, `aayaat`
 
 | Resource | Created by | Needed from |
 |---|---|---|
-| GCP projects `taraju-dev` (W1), `taraju-staging` (W11), `taraju-prod` (W12) | Console / org admin | W1 |
-| APIs, Artifact Registry `taraju`, VPC `taraju-vpc` + subnet, private service access | `scripts/gcp-bootstrap.sh` | W1 |
-| Cloud SQL Postgres 16 `taraju-pg` (private IP, PITR; REGIONAL HA in prod) + one database & user per service | `gcp-bootstrap.sh` | W1 |
+| GCP projects `maapan-dev` (W1), `maapan-staging` (W11), `maapan-prod` (W12) | Console / org admin | W1 |
+| APIs, Artifact Registry `maapan`, VPC `maapan-vpc` + subnet, private service access | `scripts/gcp-bootstrap.sh` | W1 |
+| Cloud SQL Postgres 16 `maapan-pg` (private IP, PITR; REGIONAL HA in prod) + one database & user per service | `gcp-bootstrap.sh` | W1 |
 | Memorystore Redis 7 (1 GB) | `gcp-bootstrap.sh` | W3 (OTP, rate limits) |
 | Secret Manager: `jwt-secret`, `service-secret`, `<svc>-database-url`, `redis-url`, `github-token` | `gcp-bootstrap.sh` | W1 |
 | Secrets with real values: `msg91-auth-key`, `gupshup-api-key` | you, before **W3** | W3 |
 | `gsp-client-id/secret` (GST Suvidha Provider contract) | you, before **W4** | W4 |
 | `razorpay-key-id/secret`, `razorpay-webhook-secret` | you, before **W10** | W10 |
 | `anthropic-api-key` | you, before **W12** (pilot) | W12 |
-| Cloud Storage `taraju-<env>-files` (imports, invoice PDFs, bill photos) | `gcp-bootstrap.sh` | W9 |
+| Cloud Storage `maapan-<env>-files` (imports, invoice PDFs, bill photos) | `gcp-bootstrap.sh` | W9 |
 | Service accounts per service, `pubsub-pusher`, `scheduler` | `gcp-bootstrap.sh` | W1 |
 | Cloud Build triggers per repo | `scripts/triggers-setup.sh` | W1 |
 | run.invoker grants (who may call whom) | `scripts/iam-invokers.sh` (re-run whenever a service is added) | W3 |
 | Pub/Sub topics + push subscriptions + dead-letter | `scripts/pubsub-setup.sh` (re-run when a subscriber is added) | W4 |
 | Cloud Scheduler jobs | `scripts/scheduler-setup.sh` | W3 |
-| HTTPS LB + managed certs for `app.taraju.in` → dukaan, `api.taraju.in` → dwaar, Cloud Armor policy | console / Terraform later | W3 (dev), W12 (prod) |
+| HTTPS LB + managed certs for `app.maapan.in` → dukaan, `api.maapan.in` → dwaar, Cloud Armor policy | console / Terraform later | W3 (dev), W12 (prod) |
 
 ## 3. Week-by-week deployment calendar
 
@@ -61,18 +61,18 @@ to **staging**. **Prod** is a manual promotion of the staging image (same digest
 
 | Week | Sprint | Deploy to Cloud Run (dev) | Infra / config that week | Notes |
 |---|---|---|---|---|
-| W1 | Discovery & scaffolding | nothing yet — CI only (`go vet`, tests) | Create `taraju-dev`, run `gcp-bootstrap.sh`, connect GitHub to Cloud Build, `triggers-setup.sh`, tag `mool v0.1.0` | Repos live, architecture doc signed off |
-| W2 | UI/UX design system | **dukaan** (static shell + design system pages, no API yet) | Domain `app.dev.taraju.in` | Figma → components |
-| W3 | OTP auth & RBAC | **soochna**, **pehchaan**, **dwaar**; redeploy **dukaan** (login) | Redis, MSG91/Gupshup secrets, `iam-invokers.sh`, `scheduler-setup.sh` (soochna-retry), LB for `api.dev.taraju.in` | Order: soochna → pehchaan → dwaar → dukaan |
+| W1 | Discovery & scaffolding | nothing yet — CI only (`go vet`, tests) | Create `maapan-dev`, run `gcp-bootstrap.sh`, connect GitHub to Cloud Build, `triggers-setup.sh`, tag `mool v0.1.0` | Repos live, architecture doc signed off |
+| W2 | UI/UX design system | **dukaan** (static shell + design system pages, no API yet) | Domain `app.dev.maapan.in` | Figma → components |
+| W3 | OTP auth & RBAC | **soochna**, **pehchaan**, **dwaar**; redeploy **dukaan** (login) | Redis, MSG91/Gupshup secrets, `iam-invokers.sh`, `scheduler-setup.sh` (soochna-retry), LB for `api.dev.maapan.in` | Order: soochna → pehchaan → dwaar → dukaan |
 | W4 | Accounts master & GSTIN | **kar**, **bahi** | GSP secrets, `pubsub-setup.sh` (topic `pehchaan.tenant.created` → bahi, kar, bhandar) | New tenants get a seeded chart of accounts |
 | W5 | POS sales billing engine | **bhandar** (item master lite + POS catalogue), **aadesh**; redeploy **dukaan** (/pos) | re-run `pubsub-setup.sh` (`aadesh.invoice.created` → bahi, bhandar) | First end-to-end bill → voucher posted in bahi |
 | W6 | Purchase billing & returns | redeploy **aadesh**, **bahi**, **bhandar** | `aadesh.note.created` subscriptions | Debit/credit notes post to ledger & stock |
 | W7 | Daily cashbook & banking | redeploy **bahi**, **dukaan** | – | Cashbook, bank, cheque reconciliation |
 | W8 | Treasury & aging reports | redeploy **bahi**, **kar** (GSTR-1/3B, e-Way/e-Invoice JSON), **dukaan** | – | Reports v1 |
-| W9 | MargBooks Excel importer | **aayaat** service + **aayaat-worker** Cloud Run **Job** | Bucket `taraju-dev-files`, aayaat → bahi/bhandar invoker grants | Tested on real MargBooks exports |
-| W10 | Razorpay & WhatsApp alerts | **lenden**; redeploy **soochna** (WhatsApp templates), **dwaar** (public webhook route) | Razorpay secrets, webhook URL `https://api.dev.taraju.in/api/lenden/v1/webhooks/razorpay`, `lenden.payment.*` subscriptions, `lenden-reconcile` scheduler job | Sandbox keys only |
-| W11 | Offline PWA & hardware QA | redeploy **dukaan** (service worker, IndexedDB queue), **aadesh** (sync & number blocks) | Create `taraju-staging`, bootstrap it, tag `v0.11.0` on every repo → staging | Thermal printer + scanner testing on staging |
-| W12 | Pilot store onboarding | **all services to staging**; create `taraju-prod`, bootstrap, **first prod deploy of everything shipped so far** | Prod LB `app.taraju.in` / `api.taraju.in`, Cloud Armor, REGIONAL Cloud SQL, alerting policies, `anthropic-api-key` (buddhi pilot stays off) | Import pilot data with aayaat-worker in prod |
+| W9 | MargBooks Excel importer | **aayaat** service + **aayaat-worker** Cloud Run **Job** | Bucket `maapan-dev-files`, aayaat → bahi/bhandar invoker grants | Tested on real MargBooks exports |
+| W10 | Razorpay & WhatsApp alerts | **lenden**; redeploy **soochna** (WhatsApp templates), **dwaar** (public webhook route) | Razorpay secrets, webhook URL `https://api.dev.maapan.in/api/lenden/v1/webhooks/razorpay`, `lenden.payment.*` subscriptions, `lenden-reconcile` scheduler job | Sandbox keys only |
+| W11 | Offline PWA & hardware QA | redeploy **dukaan** (service worker, IndexedDB queue), **aadesh** (sync & number blocks) | Create `maapan-staging`, bootstrap it, tag `v0.11.0` on every repo → staging | Thermal printer + scanner testing on staging |
+| W12 | Pilot store onboarding | **all services to staging**; create `maapan-prod`, bootstrap, **first prod deploy of everything shipped so far** | Prod LB `app.maapan.in` / `api.maapan.in`, Cloud Armor, REGIONAL Cloud SQL, alerting policies, `anthropic-api-key` (buddhi pilot stays off) | Import pilot data with aayaat-worker in prod |
 | W13 | Pilot go-live & review | prod hot-fixes only | Uptime checks + log-based alerts on 5xx, Pub/Sub dead-letter monitoring | Phase 1 MVP live in 2–3 stores |
 
 ### Phase 2 — Inventory, manufacturing BOM & scale (W14–W26)
@@ -116,7 +116,7 @@ Common to every Go service:
 
 ```text
 --region=asia-south1 --service-account=<svc>@<project>.iam.gserviceaccount.com
---network=taraju-vpc --subnet=taraju-run-subnet --vpc-egress=private-ranges-only
+--network=maapan-vpc --subnet=maapan-run-subnet --vpc-egress=private-ranges-only
 --update-env-vars=APP_ENV=<env>,EVENTS_DRIVER=pubsub,GCP_PROJECT=<project>,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true
 --update-secrets=JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest[,DATABASE_URL=<svc>-database-url:latest][,REDIS_URL=redis-url:latest]
 ```
@@ -136,7 +136,7 @@ Service-to-service URLs are deterministic: `https://<service>-<PROJECT_NUMBER>.a
 | aayaat | `BAHI_URL`, `BHANDAR_URL`, `STORAGE_DRIVER=gcs`, `GCS_BUCKET` |
 | nirmaan | `BHANDAR_URL` |
 | buddhi | `BAHI_URL`, `AADESH_URL`, `BHANDAR_URL`, `SOOCHNA_URL`, `anthropic-api-key`, `AI_MONTHLY_TOKEN_BUDGET` |
-| dukaan | build arg `NEXT_PUBLIC_API_URL=https://api.<env>.taraju.in/api` |
+| dukaan | build arg `NEXT_PUBLIC_API_URL=https://api.<env>.maapan.in/api` |
 
 ## 6. Release & rollback
 

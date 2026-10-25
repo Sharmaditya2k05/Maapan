@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/migrations"
-	"github.com/taraju/mool/db"
+	"github.com/maapan/kar/migrations"
+	"github.com/maapan/mool/db"
 )
 
 // testPool returns a pool on a fresh schema with kar's migrations (skips without TEST_DATABASE_URL).

@@ -21,12 +21,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/bahi/internal/posting"
-	"github.com/taraju/bahi/migrations"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/bahi/internal/posting"
+	"github.com/maapan/bahi/migrations"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 // testNow is 15:30 IST on 2026-10-23: "today" is 2026-10-23, FY 26-27.
@@ -39,7 +39,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable)")
+		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable)")
 	}
 	ctx := context.Background()
 	schema := fmt.Sprintf("bahi_test_%d", rand.Int63())

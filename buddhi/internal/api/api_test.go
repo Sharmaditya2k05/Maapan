@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 func TestAIErrorMapping(t *testing.T) {

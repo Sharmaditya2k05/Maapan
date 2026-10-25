@@ -3,14 +3,14 @@
 set -euo pipefail
 
 : "${ENV:=dev}"                                  # dev | staging | prod
-: "${PROJECT_ID:=taraju-${ENV}}"                 # one GCP project per environment
+: "${PROJECT_ID:=maapan-${ENV}}"                 # one GCP project per environment
 : "${REGION:=asia-south1}"                       # Mumbai
-: "${REPO:=taraju}"                              # Artifact Registry repository
-: "${VPC:=taraju-vpc}"
-: "${SUBNET:=taraju-run-subnet}"
-: "${SQL_INSTANCE:=taraju-pg}"
-: "${REDIS_INSTANCE:=taraju-redis}"
-: "${BUCKET:=taraju-${ENV}-files}"
+: "${REPO:=maapan}"                              # Artifact Registry repository
+: "${VPC:=maapan-vpc}"
+: "${SUBNET:=maapan-run-subnet}"
+: "${SQL_INSTANCE:=maapan-pg}"
+: "${REDIS_INSTANCE:=maapan-redis}"
+: "${BUCKET:=maapan-${ENV}-files}"
 
 # Go services that own a database.
 DB_SERVICES=(pehchaan bahi kar aadesh lenden soochna aayaat bhandar nirmaan buddhi)

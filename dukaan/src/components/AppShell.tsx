@@ -157,7 +157,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Bills queued offline upload from any screen, not only while the counter is open.
   useEffect(() => startAutoSync(), [])
   const user = useSessionUser()
-  const title = NAV.find((n) => (n.exact ? pathname === n.href : pathname === n.href || pathname.startsWith(n.href + '/')))?.label ?? 'Taraju'
+  const title = NAV.find((n) => (n.exact ? pathname === n.href : pathname === n.href || pathname.startsWith(n.href + '/')))?.label ?? 'Maapan'
   return (
     <div className="flex min-h-dvh">
       <aside className="app-sidebar hidden w-64 shrink-0 lg:block xl:w-[272px]"><div className="sticky top-0 h-dvh"><Sidebar /></div></aside>

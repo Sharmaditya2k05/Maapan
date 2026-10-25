@@ -1,6 +1,6 @@
 # Cloud Build: test → build → push to Artifact Registry → deploy lenden to Cloud Run.
 # Ingress is internal: the POS reaches lenden through dwaar, and Razorpay webhooks
-# arrive at https://api.taraju.in/api/lenden/v1/webhooks/{razorpay|cashfree} (public routes on dwaar).
+# arrive at https://api.maapan.in/api/lenden/v1/webhooks/{razorpay|cashfree} (public routes on dwaar).
 #
 # Cloud Scheduler calls POST /internal/v1/jobs/reconcile every 10 minutes
 # (sanchalan/scripts/scheduler-setup.sh) with X-Service-Secret + OIDC.
@@ -8,11 +8,11 @@ substitutions:
   _SERVICE: lenden
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _MOOL_REPO: github.com/taraju/mool
+  _REPO: maapan
+  _MOOL_REPO: github.com/maapan/mool
   _MOOL_REF: main
-  _VPC_NETWORK: taraju-vpc
-  _VPC_SUBNET: taraju-run-subnet
+  _VPC_NETWORK: maapan-vpc
+  _VPC_SUBNET: maapan-run-subnet
   _PAYMENT_GATEWAY: razorpay     # or cashfree: the default for new payment requests
   _CASHFREE_ENV: sandbox         # production in the prod project
 
@@ -70,7 +70,7 @@ steps:
       - --min-instances=1           # QR at the counter must not cold-start
       - --max-instances=10
       - --no-cpu-throttling         # outbox relay runs between requests
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,PAYMENT_GATEWAY=${_PAYMENT_GATEWAY},CASHFREE_ENV=${_CASHFREE_ENV},PAYEE_DISPLAY_NAME=Taraju Store
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,PAYMENT_GATEWAY=${_PAYMENT_GATEWAY},CASHFREE_ENV=${_CASHFREE_ENV},PAYEE_DISPLAY_NAME=Maapan Store
       - --update-secrets=DATABASE_URL=lenden-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,CREDENTIALS_KEY=lenden-credentials-key:latest
       - --update-secrets=RAZORPAY_KEY_ID=razorpay-key-id:latest,RAZORPAY_KEY_SECRET=razorpay-key-secret:latest,RAZORPAY_WEBHOOK_SECRET=razorpay-webhook-secret:latest,CASHFREE_CLIENT_ID=cashfree-client-id:latest,CASHFREE_CLIENT_SECRET=cashfree-client-secret:latest
 

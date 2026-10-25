@@ -138,7 +138,7 @@ function PartyDetailInner() {
                         {(st) => (
                           <div className="print-root print-a4">
                             <div className="mb-4 hidden print:block">
-                              <div className="text-lg font-extrabold">{store?.name ?? 'Taraju'}</div>
+                              <div className="text-lg font-extrabold">{store?.name ?? 'Maapan'}</div>
                               {store?.gstin && <div className="text-xs">GSTIN {store.gstin}</div>}
                               <div className="mt-2 text-base font-bold">Statement of account — {pt.name}</div>
                               <div className="text-xs">{[pt.gstin && `GSTIN ${pt.gstin}`, pt.phone, pt.address].filter(Boolean).join(' · ')}</div>

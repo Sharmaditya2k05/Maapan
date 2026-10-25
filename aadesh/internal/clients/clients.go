@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/svc"
 )
 
 // Store is the slice of pehchaan's store that billing needs, with the GST

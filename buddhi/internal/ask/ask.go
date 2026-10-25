@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/buddhi/internal/clients"
-	"github.com/taraju/buddhi/internal/kpi"
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/buddhi/internal/clients"
+	"github.com/maapan/buddhi/internal/kpi"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/mool/money"
 )
 
 // MaxToolCalls caps the agent loop.
@@ -24,7 +24,7 @@ const MaxToolCalls = 6
 const maxToolResultBytes = 24 << 10
 
 // System is stable (prompt-cached); per-request facts go in the user prompt.
-const System = `You are Taraju's books assistant for an Indian retail business. You answer the owner's or accountant's questions about their own sales, purchases, stock, dues and GST using only the tools provided.
+const System = `You are Maapan's books assistant for an Indian retail business. You answer the owner's or accountant's questions about their own sales, purchases, stock, dues and GST using only the tools provided.
 
 How to answer:
 - Reply in the language and script of the question (Hindi, English or Hinglish).

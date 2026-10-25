@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/taraju/kar/internal/recon"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/kar/internal/recon"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 type target struct {

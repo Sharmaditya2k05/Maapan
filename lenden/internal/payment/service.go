@@ -11,12 +11,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/lenden/internal/creds"
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/lenden/internal/creds"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 // Service implements lenden's use cases.

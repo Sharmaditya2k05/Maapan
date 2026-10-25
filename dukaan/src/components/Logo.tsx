@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 /**
  * Brand assets extracted from the master artwork in /public/logo.png: navy
- * "taraju" wordmark with the green arrow-j, plus a white variant for dark surfaces.
+ * "maapan" wordmark with the green arrow-j, plus a white variant for dark surfaces.
  */
 
 /** Square app icon: navy tile with the arrow-j. */
@@ -19,7 +19,7 @@ export function Logo({ size = 36, light = false, tagline = false }: { size?: num
   const bar = <span className="inline-block h-[1em] w-[1.5px] rounded bg-brand-500" />
   return (
     <div className="inline-flex select-none flex-col items-start">
-      <img src={`/brand/wordmark${light ? '-light' : ''}.png`} alt="Taraju" style={{ height, width }} className="block" draggable={false} />
+      <img src={`/brand/wordmark${light ? '-light' : ''}.png`} alt="Maapan" style={{ height, width }} className="block" draggable={false} />
       {tagline && (
         <div className={`font-logo mt-[0.5em] flex items-center gap-[0.5em] whitespace-nowrap font-medium leading-none ${light ? 'text-slate-300' : 'text-brand-800'}`}
           style={{ fontSize: Math.max(9, +(width * 0.074).toFixed(1)), paddingLeft: '0.25em', letterSpacing: '0.08em' }}>

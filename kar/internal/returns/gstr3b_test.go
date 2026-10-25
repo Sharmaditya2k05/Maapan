@@ -9,8 +9,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/taraju/kar/internal/recon"
-	"github.com/taraju/mool/auth"
+	"github.com/maapan/kar/internal/recon"
+	"github.com/maapan/mool/auth"
 )
 
 const testTenant = "11111111-1111-1111-1111-111111111111"

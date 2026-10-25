@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/migrations"
-	"github.com/taraju/mool/db"
+	"github.com/maapan/kar/migrations"
+	"github.com/maapan/mool/db"
 )
 
 const header = "code,description,rate_bp,cess_bp,cess_per_unit_paise,valid_from,valid_to,condition\n"

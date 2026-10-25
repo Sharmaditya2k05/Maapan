@@ -1,6 +1,6 @@
 {
-  "name": "Taraju — GST Billing & POS",
-  "short_name": "Taraju POS",
+  "name": "Maapan — GST Billing & POS",
+  "short_name": "Maapan POS",
   "description": "GST billing, POS, inventory and accounting. Works offline at the counter.",
   "start_url": "/pos",
   "scope": "/",

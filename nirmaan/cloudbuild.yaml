@@ -7,11 +7,11 @@ substitutions:
   _SERVICE: nirmaan
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _MOOL_REPO: github.com/taraju/mool
+  _REPO: maapan
+  _MOOL_REPO: github.com/maapan/mool
   _MOOL_REF: main
-  _VPC_NETWORK: taraju-vpc
-  _VPC_SUBNET: taraju-run-subnet
+  _VPC_NETWORK: maapan-vpc
+  _VPC_SUBNET: maapan-run-subnet
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -67,7 +67,7 @@ steps:
       - --min-instances=0           # back-office only; cold start is fine
       - --max-instances=5
       - --no-cpu-throttling         # outbox relay runs between requests
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.taraju.in,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,BHANDAR_URL=https://bhandar-$PROJECT_NUMBER.${_REGION}.run.app
       - --update-secrets=DATABASE_URL=nirmaan-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
 
 images:

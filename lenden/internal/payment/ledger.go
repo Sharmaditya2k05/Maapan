@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/logx"
 )
 
 // Result of applying a provider event.
@@ -241,7 +241,7 @@ func (l *PGLedger) RefundProcessed(ctx context.Context, eventID string, raw []by
 				return err
 			}
 			err = tx.QueryRow(ctx, `INSERT INTO refunds (tenant_id, payment_id, amount_paise, gateway_ref, reason, created_by, source)
-				VALUES ($1,$2,$3,$4,'refunded outside Taraju (gateway dashboard)','gateway','gateway') RETURNING id, status, amount_paise`,
+				VALUES ($1,$2,$3,$4,'refunded outside Maapan (gateway dashboard)','gateway','gateway') RETURNING id, status, amount_paise`,
 				tenantID, paymentID, r.AmountPaise, nilIfEmpty(r.RefundRef)).Scan(&refundID, &status, &amount)
 		}
 		if err != nil {

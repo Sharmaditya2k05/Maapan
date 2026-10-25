@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 // ErrCodePeriodLocked is the error code of the 409 raised when a voucher is

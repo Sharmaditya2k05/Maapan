@@ -376,7 +376,7 @@ func (c *Cashfree) Refund(ctx context.Context, paymentRef string, amountPaise in
 		CFRefundID   json.Number `json:"cf_refund_id"`
 		RefundStatus string      `json:"refund_status"` // SUCCESS | PENDING | CANCELLED | ONHOLD
 	}
-	body := map[string]any{"refund_amount": rupees(amountPaise), "refund_id": receipt, "refund_note": "Taraju refund"}
+	body := map[string]any{"refund_amount": rupees(amountPaise), "refund_id": receipt, "refund_note": "Maapan refund"}
 	if err := c.call(ctx, http.MethodPost, "/orders/"+url.PathEscape(orderID)+"/refunds", body, &out, receipt); err != nil {
 		return Refund{}, err
 	}

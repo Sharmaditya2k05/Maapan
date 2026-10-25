@@ -21,10 +21,10 @@ export function printUrl(id: string, layout: PrintLayout, opts: { auto?: boolean
 /** Print without leaving the page: a hidden iframe loads the print route, which prints itself. */
 export function printInIframe(id: string, layout: PrintLayout, width?: 58 | 80) {
   if (typeof document === 'undefined') return
-  const old = document.getElementById('taraju-print-frame')
+  const old = document.getElementById('maapan-print-frame')
   old?.remove()
   const f = document.createElement('iframe')
-  f.id = 'taraju-print-frame'
+  f.id = 'maapan-print-frame'
   f.title = 'Printing'
   f.setAttribute('aria-hidden', 'true')
   f.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none'

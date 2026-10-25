@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/svc"
-	"github.com/taraju/nirmaan/internal/bom"
-	"github.com/taraju/nirmaan/internal/clients"
-	"github.com/taraju/nirmaan/internal/production"
-	"github.com/taraju/nirmaan/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
+	"github.com/maapan/nirmaan/internal/bom"
+	"github.com/maapan/nirmaan/internal/clients"
+	"github.com/maapan/nirmaan/internal/production"
+	"github.com/maapan/nirmaan/migrations"
 )
 
 func main() {

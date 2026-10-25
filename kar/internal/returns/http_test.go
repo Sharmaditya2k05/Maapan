@@ -17,10 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/migrations"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/kar/migrations"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
 )
 
 func serve(t *testing.T, ctx context.Context, h httpx.HandlerFunc, method, target string, body []byte) *httptest.ResponseRecorder {

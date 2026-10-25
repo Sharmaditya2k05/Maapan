@@ -30,7 +30,7 @@ func (f *flakyPub) Publish(context.Context, Envelope) error {
 	return nil
 }
 
-// TestRelayLeaseRetryDead needs Postgres: TEST_DATABASE_URL=postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable
+// TestRelayLeaseRetryDead needs Postgres: TEST_DATABASE_URL=postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable
 func TestRelayLeaseRetryDead(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

@@ -1,4 +1,4 @@
-module github.com/taraju/mool
+module github.com/maapan/mool
 
 go 1.25.0
 

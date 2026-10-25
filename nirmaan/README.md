@@ -10,11 +10,11 @@
 | | |
 |---|---|
 | Port (local) | `7009` |
-| Database | `taraju_nirmaan` |
+| Database | `maapan_nirmaan` |
 | Publishes | `nirmaan.production.completed` |
 | Subscribes | nothing |
 | Calls | `bhandar` — `POST /internal/v1/items/lookup` (prices), `GET /internal/v1/stock/summary` (availability) |
-| Gateway prefix | `https://api.taraju.in/api/nirmaan/...` |
+| Gateway prefix | `https://api.maapan.in/api/nirmaan/...` |
 | First deployed | **Week 20** (BOM data model), Week 21 (BOM builder UI & costing), Week 22 (production run ↔ stock sync) |
 
 ## Run locally

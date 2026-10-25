@@ -9,13 +9,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/buddhi/internal/anomaly"
-	"github.com/taraju/buddhi/internal/clients"
-	"github.com/taraju/buddhi/internal/kpi"
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/buddhi/internal/store"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/buddhi/internal/anomaly"
+	"github.com/maapan/buddhi/internal/clients"
+	"github.com/maapan/buddhi/internal/kpi"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/buddhi/internal/store"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/money"
 )
 
 // WeeklySystem is the (cached) instruction for the WhatsApp summary.

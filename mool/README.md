@@ -1,6 +1,6 @@
 # mool (मूल) — Shared Go library
 
-"Mool" means *root*. Every Taraju Go service imports it so that config, logging, auth, database,
+"Mool" means *root*. Every Maapan Go service imports it so that config, logging, auth, database,
 events and GST maths behave identically everywhere. It is a library: **not deployed**.
 
 | Package | What it gives you |
@@ -24,8 +24,8 @@ Services reference it with a local replace so changes are picked up instantly:
 
 ```go
 // go.mod
-require github.com/taraju/mool v0.0.0
-replace github.com/taraju/mool => ../mool
+require github.com/maapan/mool v0.0.0
+replace github.com/maapan/mool => ../mool
 ```
 
 ```go

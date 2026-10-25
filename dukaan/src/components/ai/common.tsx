@@ -20,7 +20,7 @@ export function AiUnavailable({ message, compact }: { message?: string; compact?
     <div className={`flex flex-col items-center rounded-2xl border border-dashed border-brand-300 bg-brand-50/60 text-center ${compact ? 'px-4 py-6' : 'px-6 py-12'}`} role="status">
       <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-white text-brand-600 shadow-sm"><Sparkles size={24} /></div>
       <div className="font-bold">AI features are not switched on for this business</div>
-      <p className="mt-1 max-w-md text-sm text-slate-600">{message || 'Turn on Ask Taraju and bill scanning for your business and set a monthly token budget.'}</p>
+      <p className="mt-1 max-w-md text-sm text-slate-600">{message || 'Turn on Ask Maapan and bill scanning for your business and set a monthly token budget.'}</p>
       <Link href="/app/settings?tab=ai" className="mt-4"><Button icon={Settings} variant="secondary">Open Settings → AI</Button></Link>
     </div>
   )

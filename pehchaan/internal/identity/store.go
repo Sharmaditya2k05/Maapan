@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/taraju/mool/db"
+	"github.com/maapan/mool/db"
 )
 
 const userCols = `id, phone, name, email, status, last_login_at`

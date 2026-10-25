@@ -17,7 +17,7 @@ import { ForecastTab } from '@/components/ai/ForecastTab'
 type Tab = 'dashboard' | 'ask' | 'scan' | 'insights' | 'forecast'
 const TABS: { value: Tab; label: string; perm: 'ai' | 'report' }[] = [
   { value: 'dashboard', label: 'Dashboard', perm: 'report' },
-  { value: 'ask', label: 'Ask Taraju', perm: 'ai' },
+  { value: 'ask', label: 'Ask Maapan', perm: 'ai' },
   { value: 'scan', label: 'Scan a bill', perm: 'ai' },
   { value: 'insights', label: 'Insights', perm: 'ai' },
   { value: 'forecast', label: 'Forecast', perm: 'ai' },
@@ -38,7 +38,7 @@ function AiInner() {
   const tab: Tab = tabs.some((t) => t.value === requested) ? (requested as Tab) : (tabs[0]?.value ?? 'dashboard')
   const status = useAiStatus(ai)
 
-  if (tabs.length === 0) return <Empty icon={Sparkles} title="Ask Taraju" text="Owners, store managers and accountants can use the AI assistant and insights." />
+  if (tabs.length === 0) return <Empty icon={Sparkles} title="Ask Maapan" text="Owners, store managers and accountants can use the AI assistant and insights." />
 
   const usesLLM = tab === 'ask' || tab === 'scan'
   const budget = status.data
@@ -46,7 +46,7 @@ function AiInner() {
 
   return (
     <>
-      <PageHeader title="Ask Taraju" subtitle="Live dashboard, answers from your books, bill scanning, anomaly checks and re-order forecasts"
+      <PageHeader title="Ask Maapan" subtitle="Live dashboard, answers from your books, bill scanning, anomaly checks and re-order forecasts"
         actions={budget && ai && (
           <Link href="/app/settings?tab=ai" className="flex items-center gap-2 text-xs text-slate-500" title="AI tokens used this month">
             {pct !== null && <span className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><span className={`block h-full ${pct >= 90 ? 'bg-rose-500' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} /></span>}
@@ -58,7 +58,7 @@ function AiInner() {
       <div className="mb-4"><Tabs value={tab} onChange={(t) => router.replace(`/app/ai?tab=${t}`)} options={tabs.map(({ value, label }) => ({ value, label }))} /></div>
 
       {usesLLM && budget && !budget.ai_configured ? (
-        <AiUnavailable message="The server has no AI key configured, so Ask Taraju and bill scanning answer 503. Dashboard, insights and forecasts still work." />
+        <AiUnavailable message="The server has no AI key configured, so Ask Maapan and bill scanning answer 503. Dashboard, insights and forecasts still work." />
       ) : (
         <>
           {usesLLM && budget && !budget.ai_enabled && (

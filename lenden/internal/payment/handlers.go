@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 // Routes registers lenden's HTTP API on mux.

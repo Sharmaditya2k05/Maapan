@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/dwaar/internal/ratelimit"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/dwaar/internal/ratelimit"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // Limits configures rate limiting.

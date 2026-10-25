@@ -22,8 +22,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/gst"
 )
 
 // SourceSeed marks the unverified Phase-1 starter rows.

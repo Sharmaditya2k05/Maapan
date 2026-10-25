@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/url"
 
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/svc"
 )
 
 // Item is the slice of bhandar's item lookup nirmaan needs.

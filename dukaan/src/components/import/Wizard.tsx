@@ -54,7 +54,7 @@ function StepKind({ value, onNext }: { value: ImportKind | null; onNext: (k: Imp
     setTpl(k)
     try {
       const blob = await api<Blob>(`/aayaat/v1/imports/templates/${k}`, { method: 'GET', raw: true })
-      downloadFile(`taraju-${k}-template.csv`, blob)
+      downloadFile(`maapan-${k}-template.csv`, blob)
     } catch (e) { toast(errorMessage(e), 'error') } finally { setTpl(null) }
   }
   return (
@@ -254,10 +254,10 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
       {preview.isLoading && <div className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Reading the file…</div>}
       {preview.error && <ErrorBox message={(preview.error as Error).message} retry={() => preview.refetch()} />}
       {p && mapping && (
-        <Card title="Map Taraju fields to your columns" padded={false}
+        <Card title="Map Maapan fields to your columns" padded={false}
           actions={<Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => setMapping({ ...p.suggested_mapping })}>Use suggestions</Button>}>
           <div className="hidden grid-cols-[200px_1fr_1fr] gap-3 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 md:grid">
-            <div>Taraju field</div><div>Your column</div><div>Sample values</div>
+            <div>Maapan field</div><div>Your column</div><div>Sample values</div>
           </div>
           <ul className="divide-y divide-slate-100">
             {p.fields.map((f) => {

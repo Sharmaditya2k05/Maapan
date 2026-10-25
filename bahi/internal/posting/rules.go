@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/taraju/mool/events"
+	"github.com/maapan/mool/events"
 )
 
 // Voucher types.

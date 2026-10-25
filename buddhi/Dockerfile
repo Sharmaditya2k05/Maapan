@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# go.mod has `replace github.com/taraju/mool => ../mool`, so the shared library is
+# go.mod has `replace github.com/maapan/mool => ../mool`, so the shared library is
 # passed in as a named build context and copied next to the service source:
 #
 #   docker buildx build --build-context mool=../mool -t buddhi .

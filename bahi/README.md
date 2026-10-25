@@ -1,6 +1,6 @@
 # bahi (बही) — Ledger Service
 
-"Bahi" is the traditional Indian account book. This service is Taraju's **double-entry accounting core**:
+"Bahi" is the traditional Indian account book. This service is Maapan's **double-entry accounting core**:
 
 - **Chart of accounts** — Indian retail default (Cash, Bank, Cheques in Hand, Payment Gateway Clearing, Sundry
   Debtors/Creditors, Sales, Purchases, Cost of Goods Sold, Input/Output CGST·SGST·IGST·Cess, Stock, WIP, Round Off,
@@ -20,12 +20,12 @@
 | | |
 |---|---|
 | Port (local) | `7002` |
-| Database | `taraju_bahi` |
+| Database | `maapan_bahi` |
 | Publishes | — |
 | Subscribes | `pehchaan.tenant.created`, `aadesh.invoice.created`, `aadesh.note.created`, `aadesh.invoice.cancelled`, `lenden.payment.captured`, `lenden.payment.refunded`, `lenden.settlement.processed`, `bhandar.stock.moved`, `nirmaan.production.completed` |
 | Calls | `kar` (`POST /internal/v1/gstin/verify`, only for `?verify=true`) |
 | Called by | `aadesh` (party lookup), `aayaat` (bulk import), `buddhi` (summary) |
-| Gateway prefix | `https://api.taraju.in/api/bahi/...` |
+| Gateway prefix | `https://api.maapan.in/api/bahi/...` |
 | First deployed | **Week 4** (accounts master & parties) → Week 6 (purchase posting) → **Week 7** (cashbook & banking) → **Week 8** (reports) |
 
 ## Run locally
@@ -45,7 +45,7 @@ make run                    # → http://localhost:7002/healthz
 
 make test                   # posting-rule and aging unit tests
 # database-backed tests (fresh schema per test, dropped afterwards) run only when this is set:
-TEST_DATABASE_URL='postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable' go test ./...
+TEST_DATABASE_URL='postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable' go test ./...
 ```
 
 The chart of accounts is seeded on `pehchaan.tenant.created`, and lazily on the first request/event

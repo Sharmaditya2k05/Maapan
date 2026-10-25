@@ -13,14 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/cache"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/svc"
-	"github.com/taraju/pehchaan/internal/otp"
-	"github.com/taraju/pehchaan/internal/tokens"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/cache"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
+	"github.com/maapan/pehchaan/internal/otp"
+	"github.com/maapan/pehchaan/internal/tokens"
 )
 
 // OTP policy (ARCHITECTURE.md §3).

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/url"
 
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/svc"
 )
 
 // Clients groups the downstream services.

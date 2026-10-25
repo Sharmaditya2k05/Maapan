@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/money"
 )
 
 func nilIfEmpty(s string) *string {

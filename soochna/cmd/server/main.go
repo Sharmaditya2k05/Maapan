@@ -10,14 +10,14 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/svc"
-	"github.com/taraju/soochna/internal/clients"
-	"github.com/taraju/soochna/internal/messaging"
-	"github.com/taraju/soochna/internal/providers"
-	"github.com/taraju/soochna/internal/templates"
-	"github.com/taraju/soochna/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
+	"github.com/maapan/soochna/internal/clients"
+	"github.com/maapan/soochna/internal/messaging"
+	"github.com/maapan/soochna/internal/providers"
+	"github.com/maapan/soochna/internal/templates"
+	"github.com/maapan/soochna/migrations"
 )
 
 func main() {

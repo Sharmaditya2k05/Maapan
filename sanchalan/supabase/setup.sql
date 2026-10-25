@@ -1,4 +1,4 @@
--- Taraju on Supabase: one schema + one login role per service, inside the
+-- Maapan on Supabase: one schema + one login role per service, inside the
 -- project's single `postgres` database.
 --
 -- Run once per Supabase project (dev / staging / prod) in Dashboard → SQL Editor.
@@ -10,8 +10,8 @@
 -- around the `postgres` database. Each service's role has search_path = its schema,
 -- so the services' unqualified SQL and their schema_migrations table land there.
 
-CREATE TEMP TABLE IF NOT EXISTS taraju_new_roles (service text, role text, password text);
-TRUNCATE taraju_new_roles;
+CREATE TEMP TABLE IF NOT EXISTS maapan_new_roles (service text, role text, password text);
+TRUNCATE maapan_new_roles;
 
 DO $$
 DECLARE
@@ -25,7 +25,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       pw := encode(extensions.gen_random_bytes(24), 'hex');
       EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L CONNECTION LIMIT 40', r, pw);
-      INSERT INTO taraju_new_roles VALUES (svc, r, pw);
+      INSERT INTO maapan_new_roles VALUES (svc, r, pw);
     END IF;
 
     EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION %I', svc, r);
@@ -43,4 +43,4 @@ END $$;
 
 -- buddhi reads nothing from other schemas: cross-service data goes over HTTP/events.
 
-SELECT service, role, password FROM taraju_new_roles ORDER BY service;
+SELECT service, role, password FROM maapan_new_roles ORDER BY service;

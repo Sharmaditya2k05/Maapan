@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/httpx"
 )
 
 // BOM statuses.

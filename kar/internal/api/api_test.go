@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/taraju/kar/internal/compliance"
-	"github.com/taraju/mool/auth"
+	"github.com/maapan/kar/internal/compliance"
+	"github.com/maapan/mool/auth"
 )
 
 func TestSettingsUpdateValidate(t *testing.T) {

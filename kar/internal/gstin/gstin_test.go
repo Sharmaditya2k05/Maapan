@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/gst"
 )
 
 func TestChecksumOnly(t *testing.T) {

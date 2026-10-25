@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/mool/events"
+	"github.com/maapan/mool/events"
 )
 
 func sum(es []Entry, key string) (dr, cr int64) {

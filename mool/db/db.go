@@ -34,6 +34,10 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		pool, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err == nil {
 			if err = pool.Ping(ctx); err == nil {
+				if err = ensureSchema(ctx, pool, cfg.ConnConfig.RuntimeParams["search_path"]); err != nil {
+					pool.Close()
+					return nil, err
+				}
 				return pool, nil
 			}
 			pool.Close()
@@ -154,4 +158,20 @@ func MarkProcessed(ctx context.Context, tx pgx.Tx, eventID, eventType string) (b
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// ensureSchema creates the first schema named in search_path when it is
+// missing. Several services can then share one database, each in its own
+// schema, by adding ?search_path=<service> to DATABASE_URL (e.g. one free
+// Postgres for a demo deployment). Without search_path nothing happens.
+func ensureSchema(ctx context.Context, pool *pgxpool.Pool, searchPath string) error {
+	first := strings.TrimSpace(strings.Split(searchPath, ",")[0])
+	first = strings.Trim(first, `"`)
+	if first == "" || first == "public" || strings.HasPrefix(first, "$") {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{first}.Sanitize()); err != nil {
+		return fmt.Errorf("create schema %s: %w", first, err)
+	}
+	return nil
 }

@@ -11,16 +11,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/buddhi/internal/api"
-	"github.com/taraju/buddhi/internal/clients"
-	"github.com/taraju/buddhi/internal/jobs"
-	"github.com/taraju/buddhi/internal/kpi"
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/buddhi/internal/store"
-	"github.com/taraju/buddhi/migrations"
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/buddhi/internal/api"
+	"github.com/maapan/buddhi/internal/clients"
+	"github.com/maapan/buddhi/internal/jobs"
+	"github.com/maapan/buddhi/internal/kpi"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/buddhi/internal/store"
+	"github.com/maapan/buddhi/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
 )
 
 func main() {

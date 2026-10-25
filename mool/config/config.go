@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Base is the configuration every Taraju Go service shares.
+// Base is the configuration every Maapan Go service shares.
 type Base struct {
 	ServiceName   string
 	Env           string // local | dev | staging | prod

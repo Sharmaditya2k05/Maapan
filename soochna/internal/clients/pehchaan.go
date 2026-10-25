@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/taraju/mool/svc"
+	"github.com/maapan/mool/svc"
 )
 
 // Tenant is pehchaan's internal tenant shape.

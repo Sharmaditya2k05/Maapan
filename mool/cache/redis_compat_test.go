@@ -10,7 +10,7 @@ import (
 )
 
 // TestServerCompat checks that the Redis-protocol server at TEST_REDIS_URL
-// supports every command Taraju relies on (GETDEL for refresh-token
+// supports every command Maapan relies on (GETDEL for refresh-token
 // rotation, EXPIRE NX for rate-limit windows, pipelines, INCR, PTTL).
 // It skips when TEST_REDIS_URL is unset.
 func TestServerCompat(t *testing.T) {

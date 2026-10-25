@@ -1,6 +1,6 @@
-# Taraju — Platform Architecture (the contract every repo follows)
+# Maapan — Platform Architecture (the contract every repo follows)
 
-Taraju is a cloud-native, multi-tenant GST billing, accounting, inventory and
+Maapan is a cloud-native, multi-tenant GST billing, accounting, inventory and
 manufacturing ERP for Indian retail (the "Beyond MargBooks" programme).
 Backend services are **Go**, the frontend is **Next.js**, and everything runs on
 **Google Cloud Run**.
@@ -13,32 +13,32 @@ change it here first.
 
 ## 1. Repositories
 
-Every folder under `taraju/` is its own git repository.
+Every folder under `maapan/` is its own git repository.
 
 | Repo | Hindi | Meaning | What it owns | Local port | Database |
 |---|---|---|---|---|---|
 | `mool` | मूल | root | Shared Go library: config, logging, HTTP kit, JWT/RBAC, Postgres, Redis, events, GST maths, money | – | – |
 | `dwaar` | द्वार | gateway | **Middleware / API gateway** — the only public backend. CORS, request IDs, rate limiting, JWT verification, RBAC pre-check, tenant headers, reverse proxy to services | 8000 | – (Redis) |
-| `pehchaan` | पहचान | identity | OTP login (SMS/WhatsApp), JWT access + rotating refresh tokens, users, tenants (businesses), stores, role assignment | 7001 | `taraju_pehchaan` |
-| `bahi` | बही | ledger book | Chart of accounts, parties (customers/suppliers), opening balances, double-entry vouchers, cashbook, bank & cheque reconciliation, trial balance, P&L, aging, cash-flow | 7002 | `taraju_bahi` |
-| `kar` | कर | tax | GSTIN live verification, HSN/SAC master, tax computation API, e-Way bill & e-Invoice JSON, GSTR-1 / GSTR-3B | 7003 | `taraju_kar` |
-| `aadesh` | आदेश | order | **Order / billing service** — POS sales invoices, purchase bills, sales & purchase returns, credit/debit notes, document numbering, offline POS sync, invoice PDF/print payloads | 7004 | `taraju_aadesh` |
-| `lenden` | लेनदेन | transactions | **Payments** — Razorpay or Cashfree (switchable, both can run) dynamic UPI QR & payment links, webhook ingestion (idempotent, signature-verified), payment records, allocation to invoices, refunds | 7005 | `taraju_lenden` |
-| `soochna` | सूचना | notification | SMS & WhatsApp delivery (MSG91 / Gupshup), templates, delivery log; sends OTPs, bills, ledger statements, alerts | 7006 | `taraju_soochna` |
-| `aayaat` | आयात | import | MargBooks Excel/CSV migration: upload, column mapping, validation, dedupe, opening-balance reconciliation, push to bahi/bhandar | 7007 | `taraju_aayaat` |
-| `bhandar` | भंडार | storehouse | Item master, units, barcodes, multi-store stock ledger, batches & expiry, transfers, re-order rules, dead-stock analytics | 7008 | `taraju_bhandar` |
-| `nirmaan` | निर्माण | manufacturing | Multi-level Bill of Materials, cost roll-up, production runs that consume raw material and produce finished goods | 7009 | `taraju_nirmaan` |
-| `buddhi` | बुद्धि | intelligence | **AI initiative** — purchase-bill photo → draft bill (Claude vision), ask-your-books Q&A, re-order forecasting, anomaly & GST-mismatch detection, live KPI dashboards (Redis) | 7010 | `taraju_buddhi` |
+| `pehchaan` | पहचान | identity | OTP login (SMS/WhatsApp), JWT access + rotating refresh tokens, users, tenants (businesses), stores, role assignment | 7001 | `maapan_pehchaan` |
+| `bahi` | बही | ledger book | Chart of accounts, parties (customers/suppliers), opening balances, double-entry vouchers, cashbook, bank & cheque reconciliation, trial balance, P&L, aging, cash-flow | 7002 | `maapan_bahi` |
+| `kar` | कर | tax | GSTIN live verification, HSN/SAC master, tax computation API, e-Way bill & e-Invoice JSON, GSTR-1 / GSTR-3B | 7003 | `maapan_kar` |
+| `aadesh` | आदेश | order | **Order / billing service** — POS sales invoices, purchase bills, sales & purchase returns, credit/debit notes, document numbering, offline POS sync, invoice PDF/print payloads | 7004 | `maapan_aadesh` |
+| `lenden` | लेनदेन | transactions | **Payments** — Razorpay or Cashfree (switchable, both can run) dynamic UPI QR & payment links, webhook ingestion (idempotent, signature-verified), payment records, allocation to invoices, refunds | 7005 | `maapan_lenden` |
+| `soochna` | सूचना | notification | SMS & WhatsApp delivery (MSG91 / Gupshup), templates, delivery log; sends OTPs, bills, ledger statements, alerts | 7006 | `maapan_soochna` |
+| `aayaat` | आयात | import | MargBooks Excel/CSV migration: upload, column mapping, validation, dedupe, opening-balance reconciliation, push to bahi/bhandar | 7007 | `maapan_aayaat` |
+| `bhandar` | भंडार | storehouse | Item master, units, barcodes, multi-store stock ledger, batches & expiry, transfers, re-order rules, dead-stock analytics | 7008 | `maapan_bhandar` |
+| `nirmaan` | निर्माण | manufacturing | Multi-level Bill of Materials, cost roll-up, production runs that consume raw material and produce finished goods | 7009 | `maapan_nirmaan` |
+| `buddhi` | बुद्धि | intelligence | **AI initiative** — purchase-bill photo → draft bill (Claude vision), ask-your-books Q&A, re-order forecasting, anomaly & GST-mismatch detection, live KPI dashboards (Redis) | 7010 | `maapan_buddhi` |
 | `dukaan` | दुकान | shop | **Frontend** — Next.js PWA: POS counter, invoices, ledgers, stock, BOM, reports, settings. Offline billing via IndexedDB | 3000 | – |
 | `sanchalan` | संचालन | operations | Local docker-compose, Cloud Run / Pub/Sub / Cloud SQL setup scripts, deployment plan, runbooks, this document | – | – |
 
-Go module path: `github.com/taraju/<repo>`. Change the org with one `sed` when the GitHub org is created.
+Go module path: `github.com/maapan/<repo>`. Change the org with one `sed` when the GitHub org is created.
 
 ## 2. Request flow
 
 ```
 Browser / POS (dukaan, Next.js PWA)
-        │  HTTPS  https://api.taraju.in/api/<service>/<path>
+        │  HTTPS  https://api.maapan.in/api/<service>/<path>
         ▼
 ┌──────────────────────────── dwaar (Cloud Run, public) ───────────────────────┐
 │ request-id → CORS → rate-limit (Redis) → JWT verify → RBAC pre-check → proxy │
@@ -231,9 +231,9 @@ lenden    POST /internal/v1/payment-requests      {"invoice_id","party_id","part
 | Cache / OTP / rate limits / KPIs | Upstash Redis (Mumbai, TLS) — or Memorystore with `REDIS_PROVIDER=memorystore` |
 | Async events | Pub/Sub (push subscriptions) |
 | Schedules | Cloud Scheduler → HTTPS (OIDC) |
-| Files (imports, PDFs, bill photos) | Cloud Storage `taraju-<env>-files` |
+| Files (imports, PDFs, bill photos) | Cloud Storage `maapan-<env>-files` |
 | Secrets | Secret Manager, mounted as env vars |
-| Images | Artifact Registry `asia-south1-docker.pkg.dev/<project>/taraju` |
+| Images | Artifact Registry `asia-south1-docker.pkg.dev/<project>/maapan` |
 | CI/CD | Cloud Build trigger per repo (`cloudbuild.yaml` in each repo) |
 | Networking | VPC + Direct VPC egress, internal ingress for every service except dwaar & dukaan |
 | Edge | Global external HTTPS load balancer + Cloud Armor in front of dwaar and dukaan |

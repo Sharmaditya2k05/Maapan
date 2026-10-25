@@ -1,4 +1,4 @@
-// Package auth issues and verifies Taraju access tokens and enforces RBAC.
+// Package auth issues and verifies Maapan access tokens and enforces RBAC.
 package auth
 
 import (
@@ -15,7 +15,7 @@ const Issuer = "pehchaan"
 // AccessTTL is the lifetime of an access token.
 const AccessTTL = 15 * time.Minute
 
-// Claims are the Taraju access-token claims.
+// Claims are the Maapan access-token claims.
 type Claims struct {
 	TenantID string   `json:"tid"`
 	StoreID  string   `json:"sid,omitempty"`

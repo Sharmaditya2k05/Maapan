@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/httpx"
 )
 
 // memSecrets is an in-memory gateway.WebhookSecretSource.

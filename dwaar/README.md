@@ -1,7 +1,7 @@
 # dwaar (द्वार) — API Gateway / Middleware
 
-"Dwaar" means *gateway*. It is the **only public backend** in Taraju. Every browser and POS
-request goes `https://api.taraju.in/api/<service>/<path>` → dwaar → the internal service.
+"Dwaar" means *gateway*. It is the **only public backend** in Maapan. Every browser and POS
+request goes `https://api.maapan.in/api/<service>/<path>` → dwaar → the internal service.
 
 What it does, in order, for every request:
 
@@ -20,7 +20,7 @@ What it does, in order, for every request:
 | Database | none (Redis for rate limits) |
 | Publishes / subscribes | none |
 | Calls | every service: pehchaan, bahi, kar, aadesh, lenden, soochna, aayaat, bhandar, nirmaan, buddhi |
-| Public URL | `https://api.taraju.in` (HTTPS load balancer + Cloud Armor → Cloud Run) |
+| Public URL | `https://api.maapan.in` (HTTPS load balancer + Cloud Armor → Cloud Run) |
 | First deployed | **Week 3** (with pehchaan OTP auth) |
 
 ### Public routes (no JWT)

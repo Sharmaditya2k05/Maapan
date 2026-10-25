@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/gst"
 )
 
 const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"

@@ -23,7 +23,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem('taraju.onboarding')
+      const raw = sessionStorage.getItem('maapan.onboarding')
       if (!raw) { router.replace('/login'); return }
       setHandoff(JSON.parse(raw))
     } catch { router.replace('/login') }
@@ -51,7 +51,7 @@ export default function OnboardingPage() {
         method: 'POST', auth: false, headers: { Authorization: `Bearer ${handoff.token}` },
         body: { ...form, gstin: form.gstin.trim().toUpperCase() || undefined, address: form.address.trim() || undefined },
       })
-      sessionStorage.removeItem('taraju.onboarding')
+      sessionStorage.removeItem('maapan.onboarding')
       session.setTokens({ access_token: sess.access_token, refresh_token: sess.refresh_token })
       await refreshSessionUser()
       router.replace('/app')

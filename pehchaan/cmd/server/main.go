@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/svc"
-	"github.com/taraju/pehchaan/internal/identity"
-	"github.com/taraju/pehchaan/internal/tokens"
-	"github.com/taraju/pehchaan/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
+	"github.com/maapan/pehchaan/internal/identity"
+	"github.com/maapan/pehchaan/internal/tokens"
+	"github.com/maapan/pehchaan/migrations"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-// Package cache wraps Redis (Memorystore on Cloud Run) with the helpers Taraju
+// Package cache wraps Redis (Memorystore on Cloud Run) with the helpers Maapan
 // needs: fixed-window rate limiting and small JSON caching.
 package cache
 

@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/httpx"
 )
 
 // RequestInput is the body of POST /v1/payment-requests and /internal/v1/payment-requests.
@@ -208,7 +208,7 @@ type RefundView struct {
 	AmountPaise int64      `json:"amount_paise"`
 	GatewayRef  *string    `json:"gateway_ref,omitempty"`
 	Status      string     `json:"status"` // pending | unknown | processed | failed
-	Source      string     `json:"source"` // taraju | gateway
+	Source      string     `json:"source"` // maapan | gateway
 	Reason      string     `json:"reason"`
 	LastError   *string    `json:"last_error,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`

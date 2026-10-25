@@ -1,11 +1,11 @@
 -- Runs once when the local Postgres volume is first created.
-CREATE DATABASE taraju_pehchaan;
-CREATE DATABASE taraju_bahi;
-CREATE DATABASE taraju_kar;
-CREATE DATABASE taraju_aadesh;
-CREATE DATABASE taraju_lenden;
-CREATE DATABASE taraju_soochna;
-CREATE DATABASE taraju_aayaat;
-CREATE DATABASE taraju_bhandar;
-CREATE DATABASE taraju_nirmaan;
-CREATE DATABASE taraju_buddhi;
+CREATE DATABASE maapan_pehchaan;
+CREATE DATABASE maapan_bahi;
+CREATE DATABASE maapan_kar;
+CREATE DATABASE maapan_aadesh;
+CREATE DATABASE maapan_lenden;
+CREATE DATABASE maapan_soochna;
+CREATE DATABASE maapan_aayaat;
+CREATE DATABASE maapan_bhandar;
+CREATE DATABASE maapan_nirmaan;
+CREATE DATABASE maapan_buddhi;

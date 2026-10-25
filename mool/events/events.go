@@ -1,4 +1,4 @@
-// Package events is Taraju's async messaging: an envelope, publishers (Pub/Sub
+// Package events is Maapan's async messaging: an envelope, publishers (Pub/Sub
 // on Cloud Run, direct HTTP locally), a push-subscriber handler and a
 // transactional outbox so events are never lost when a request commits.
 package events

@@ -31,10 +31,10 @@ docker:          ## Build the container image (needs ../mool)
 	docker buildx build --build-context mool=../mool -t $(SERVICE):local .
 
 db-create:       ## Create the local database (postgres from sanchalan/docker-compose)
-	docker exec -i taraju-postgres psql -U taraju -c "CREATE DATABASE taraju_$(SERVICE)" || true
+	docker exec -i maapan-postgres psql -U maapan -c "CREATE DATABASE maapan_$(SERVICE)" || true
 
 db-reset:        ## Drop and recreate the local database
-	docker exec -i taraju-postgres psql -U taraju -c "DROP DATABASE IF EXISTS taraju_$(SERVICE)"
+	docker exec -i maapan-postgres psql -U maapan -c "DROP DATABASE IF EXISTS maapan_$(SERVICE)"
 	$(MAKE) db-create
 
 job-forecast:    ## Run the nightly forecast job against the local service

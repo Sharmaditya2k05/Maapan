@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 // MaxStatementBytes caps an uploaded 2B file (a large buyer's month is a few MB).

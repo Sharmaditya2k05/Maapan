@@ -4,7 +4,7 @@ import (
 	"context"
 	"slices"
 
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/httpx"
 )
 
 // Our registration in Maharashtra (27) and a second one that must never leak in.

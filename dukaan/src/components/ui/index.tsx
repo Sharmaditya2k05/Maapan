@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Taraju UI kit (ported from the original prototype). Small, dependency-free
+ * Maapan UI kit (ported from the original prototype). Small, dependency-free
  * primitives styled with the brand tokens in globals.css. Everything a screen
  * needs is exported from '@/components/ui'.
  */

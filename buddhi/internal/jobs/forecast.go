@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/buddhi/internal/clients"
-	"github.com/taraju/buddhi/internal/forecast"
+	"github.com/maapan/buddhi/internal/clients"
+	"github.com/maapan/buddhi/internal/forecast"
 )
 
 // IST is India Standard Time.

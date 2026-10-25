@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/db"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/db"
 )
 
 // Store keeps gateway_credentials. It implements gateway.CredentialSource and

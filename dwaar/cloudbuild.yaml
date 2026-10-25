@@ -1,17 +1,17 @@
 # Cloud Build: test → build → push to Artifact Registry → deploy dwaar to Cloud Run.
 # dwaar is the ONLY public backend: ingress "all", unauthenticated at the IAM layer
 # (it verifies user JWTs itself). Put it behind the global HTTPS load balancer +
-# Cloud Armor (api.taraju.in) — see sanchalan/scripts.
+# Cloud Armor (api.maapan.in) — see sanchalan/scripts.
 substitutions:
   _SERVICE: dwaar
   _ENV: dev
   _REGION: asia-south1
-  _REPO: taraju
-  _MOOL_REPO: github.com/taraju/mool
+  _REPO: maapan
+  _MOOL_REPO: github.com/maapan/mool
   _MOOL_REF: main
-  _VPC_NETWORK: taraju-vpc
-  _VPC_SUBNET: taraju-run-subnet
-  _CORS_ORIGINS: https://app.taraju.in
+  _VPC_NETWORK: maapan-vpc
+  _VPC_SUBNET: maapan-run-subnet
+  _CORS_ORIGINS: https://app.maapan.in
   # "all" until the HTTPS load balancer exists; then "internal-and-cloud-load-balancing"
   # so Cloud Armor cannot be bypassed via the run.app URL.
   _INGRESS: all

@@ -1,4 +1,4 @@
-// Package boot wires the pieces every Taraju Go service needs so main.go stays short:
+// Package boot wires the pieces every Maapan Go service needs so main.go stays short:
 //
 //	app, err := boot.New(ctx, boot.Options{Name: "aadesh", DefaultPort: "7004", DB: true, Migrations: migrations.FS, Outbox: true})
 //	mux := http.NewServeMux()
@@ -16,13 +16,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/cache"
-	"github.com/taraju/mool/config"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/cache"
+	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // Options select what the service needs.

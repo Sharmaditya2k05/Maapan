@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/internal/recon"
+	"github.com/maapan/kar/internal/recon"
 )
 
 // Invoice is the part of aadesh's invoice JSON (GET /internal/v1/invoices,

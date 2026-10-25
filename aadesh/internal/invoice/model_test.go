@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/mool/httpx"
 )
 
 func TestFinancialYear(t *testing.T) {

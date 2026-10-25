@@ -15,15 +15,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/kar/internal/compliance"
-	"github.com/taraju/kar/internal/creds"
-	"github.com/taraju/kar/internal/gstin"
-	"github.com/taraju/kar/internal/hsn"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/kar/internal/compliance"
+	"github.com/maapan/kar/internal/creds"
+	"github.com/maapan/kar/internal/gstin"
+	"github.com/maapan/kar/internal/hsn"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/httpx"
 )
 
 // Service holds kar's dependencies.

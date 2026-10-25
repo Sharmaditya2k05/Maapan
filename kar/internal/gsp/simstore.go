@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
+	"github.com/maapan/mool/db"
 )
 
 // SimIRN is one document registered on the simulated IRP.

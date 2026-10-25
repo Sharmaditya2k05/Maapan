@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/nirmaan/internal/clients"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/nirmaan/internal/clients"
 )
 
 // Service implements BOM use cases.

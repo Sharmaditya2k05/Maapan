@@ -16,13 +16,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/lenden/internal/creds"
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/lenden/migrations"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/lenden/internal/creds"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/lenden/migrations"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 // fakeGW is a controllable gateway named "razorpay" (so Razorpay webhooks apply to it).
@@ -93,7 +93,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable)")
+		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable)")
 	}
 	ctx := context.Background()
 	schema := fmt.Sprintf("lenden_test_%d", rand.Int63())
@@ -360,7 +360,7 @@ func TestRefundLockingAndEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	mr, err := e.svc.Refund(ctx, principal(tenant), m.ID, RefundInput{AmountPaise: 200, Reason: "change"})
-	if err != nil || mr.Refund.Status != "processed" || mr.RefundedPaise != 200 || mr.Refund.Source != "taraju" {
+	if err != nil || mr.Refund.Status != "processed" || mr.RefundedPaise != 200 || mr.Refund.Source != "maapan" {
 		t.Fatalf("manual refund %+v %v", mr, err)
 	}
 }

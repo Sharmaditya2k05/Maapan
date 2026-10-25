@@ -27,7 +27,7 @@ func TestRenderAllTemplates(t *testing.T) {
 
 func TestRenderOTPAndMissingParam(t *testing.T) {
 	body, err := Render(OTP, "sms", map[string]string{"otp": "123456", "minutes": "5"})
-	if err != nil || !strings.HasPrefix(body, "123456 is your Taraju login OTP") {
+	if err != nil || !strings.HasPrefix(body, "123456 is your Maapan login OTP") {
 		t.Fatalf("got %q %v", body, err)
 	}
 	if _, err := Render(OTP, "sms", map[string]string{"minutes": "5"}); err == nil {

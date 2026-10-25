@@ -30,8 +30,8 @@ ok gcloud iam service-accounts add-iam-policy-binding "$PUSHER" \
   --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator
 
-ok gcloud pubsub topics create taraju-dead-letter
-ok gcloud pubsub subscriptions create taraju-dead-letter-sub --topic=taraju-dead-letter --message-retention-duration=7d
+ok gcloud pubsub topics create maapan-dead-letter
+ok gcloud pubsub subscriptions create maapan-dead-letter-sub --topic=maapan-dead-letter --message-retention-duration=7d
 
 for row in "${SUBS[@]}"; do
   topic="${row%%|*}"; subs="${row#*|}"
@@ -46,7 +46,7 @@ for row in "${SUBS[@]}"; do
       gcloud pubsub subscriptions create "$name" --topic="$topic" \
         --push-endpoint="$url/events" --push-auth-service-account="$PUSHER" --push-auth-token-audience="$url" \
         --ack-deadline=60 --min-retry-delay=10s --max-retry-delay=600s \
-        --dead-letter-topic=taraju-dead-letter --max-delivery-attempts=15 >/dev/null
+        --dead-letter-topic=maapan-dead-letter --max-delivery-attempts=15 >/dev/null
     fi
     echo "  $topic → $sub"
   done

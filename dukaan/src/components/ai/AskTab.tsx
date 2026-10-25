@@ -1,6 +1,6 @@
 'use client'
 
-/** Ask Taraju: POST /buddhi/v1/ask {question} → {answer, usage}. History lives in component state. */
+/** Ask Maapan: POST /buddhi/v1/ask {question} → {answer, usage}. History lives in component state. */
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Loader2, RotateCcw, Send, Sparkles, User } from 'lucide-react'
 import { Button, Card, Empty, IconButton, Textarea } from '@/components/ui'
@@ -71,7 +71,7 @@ export function AskTab() {
                 {m.pending ? <span className="inline-flex items-center gap-2 text-slate-500"><Loader2 size={14} className="animate-spin" /> Reading your books…</span> : m.text}
               </div>
               <div className={`mt-1 flex items-center gap-2 text-[11px] text-slate-400 ${m.role === 'user' ? 'justify-end' : ''}`}>
-                {m.role === 'user' ? (user?.name?.split(' ')[0] ?? 'You') : 'Taraju'}
+                {m.role === 'user' ? (user?.name?.split(' ')[0] ?? 'You') : 'Maapan'}
                 {m.usage && <UsageChip usage={m.usage} />}
               </div>
             </div>

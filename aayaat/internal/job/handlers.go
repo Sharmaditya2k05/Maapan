@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/taraju/aayaat/internal/mapping"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/aayaat/internal/mapping"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 // Routes registers aayaat's HTTP API. aayaat publishes but does not subscribe,
@@ -149,7 +149,7 @@ func template(w http.ResponseWriter, kind string) error {
 		head[i], example[i] = f.Label, f.Example
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="taraju-`+strings.TrimSuffix(kind, ".csv")+`-template.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="maapan-`+strings.TrimSuffix(kind, ".csv")+`-template.csv"`)
 	cw := csv.NewWriter(w)
 	_ = cw.Write(head)
 	_ = cw.Write(example)

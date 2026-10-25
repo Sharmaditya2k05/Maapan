@@ -34,7 +34,7 @@ export const NAV: NavItem[] = [
   { href: '/app/production', label: 'Production', icon: Factory, group: 'Stock', perms: [PERMS.bomManage] },
 
   { href: '/app/import', label: 'Import Data', icon: Upload, group: 'More', perms: [PERMS.importRun] },
-  { href: '/app/ai', label: 'Ask Taraju', icon: Sparkles, group: 'More', perms: [PERMS.aiUse] },
+  { href: '/app/ai', label: 'Ask Maapan', icon: Sparkles, group: 'More', perms: [PERMS.aiUse] },
   { href: '/app/settings', label: 'Settings', icon: Settings, group: 'More', perms: [PERMS.settingsManage, PERMS.userManage] },
 ]
 

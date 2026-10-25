@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/taraju/mool/money"
+	"github.com/maapan/mool/money"
 )
 
 // Tax categories of a line (Line.TaxCategory). Empty means taxable.

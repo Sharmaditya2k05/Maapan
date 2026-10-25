@@ -4,9 +4,9 @@
  */
 import type { CatalogItemFull, HeldBill, LastBill } from '../types.pos'
 
-const HELD = 'taraju.pos.held.v1'
-const LAST = 'taraju.pos.last.v1'
-const FREQ = 'taraju.pos.freq.v1'
+const HELD = 'maapan.pos.held.v1'
+const LAST = 'maapan.pos.last.v1'
+const FREQ = 'maapan.pos.freq.v1'
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback

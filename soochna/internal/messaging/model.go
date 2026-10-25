@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 // SendInput is the body of POST /internal/v1/messages (ARCHITECTURE.md §6).

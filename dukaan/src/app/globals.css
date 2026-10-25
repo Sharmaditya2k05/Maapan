@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Brand tokens (from the Taraju master artwork): navy, growth green, gold accent. */
+/* Brand tokens (from the Maapan master artwork): navy, growth green, gold accent. */
 @theme {
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;

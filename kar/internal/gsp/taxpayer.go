@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/mool/gst"
 )
 
 type taxpayerJSON struct {

@@ -17,11 +17,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/pehchaan/internal/tokens"
-	"github.com/taraju/pehchaan/migrations"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/pehchaan/internal/tokens"
+	"github.com/maapan/pehchaan/migrations"
 )
 
 const (

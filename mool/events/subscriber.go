@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // HandlerFunc processes one event. Return an error to have Pub/Sub retry it.

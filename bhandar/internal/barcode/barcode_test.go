@@ -521,7 +521,7 @@ func TestCode128BLength(t *testing.T) {
 }
 
 func TestCode128BChecksum(t *testing.T) {
-	inputs := []string{" ", "~", "A", "ABC", "Hello, World!", "TARAJU-0001", "sku_42/B", strings.Repeat(" ~", 40)}
+	inputs := []string{" ", "~", "A", "ABC", "Hello, World!", "MAAPAN-0001", "sku_42/B", strings.Repeat(" ~", 40)}
 	for _, s := range inputs {
 		m, err := Code128B(s)
 		if err != nil {

@@ -321,7 +321,7 @@ export interface RefundView {
   amount_paise: number
   gateway_ref?: string
   status: RefundStatus
-  source: 'taraju' | 'gateway'
+  source: 'maapan' | 'gateway'
   reason: string
   last_error?: string
   created_at: string

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/mool/logx"
 )
 
 // MaxBodyBytes caps JSON request bodies.

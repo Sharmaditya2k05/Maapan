@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taraju/aayaat/internal/mapping"
+	"github.com/maapan/aayaat/internal/mapping"
 )
 
 func idx(fields ...string) map[string]int {

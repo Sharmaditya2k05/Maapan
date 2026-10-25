@@ -6,9 +6,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/taraju/kar/internal/clients"
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/clients"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/gst"
 )
 
 func sampleInvoice() clients.Invoice {

@@ -1,4 +1,4 @@
-# Taraju monorepo — one command for every service.
+# Maapan monorepo — one command for every service.
 #
 #   make build        compile every Go service (workspace mode, fast)
 #   make test         unit tests for every Go service

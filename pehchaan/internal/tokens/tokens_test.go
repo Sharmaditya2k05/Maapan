@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/mool/auth"
+	"github.com/maapan/mool/auth"
 )
 
 type fakeKV map[string]string

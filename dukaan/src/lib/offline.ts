@@ -35,7 +35,7 @@ interface PosDB extends DBSchema {
 
 let dbp: Promise<IDBPDatabase<PosDB>> | null = null
 function db() {
-  dbp ??= openDB<PosDB>('taraju-pos', 1, {
+  dbp ??= openDB<PosDB>('maapan-pos', 1, {
     upgrade(d) {
       d.createObjectStore('catalog', { keyPath: 'id' }).createIndex('by_store', 'store_id')
       d.createObjectStore('blocks', { keyPath: 'key' })

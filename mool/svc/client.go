@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/gcp"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/gcp"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // Client calls one downstream service.

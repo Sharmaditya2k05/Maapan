@@ -14,7 +14,7 @@ export const SECTIONS: Section[] = [
   { id: 'period-lock', label: 'Period lock', hint: 'Close the books up to a date', icon: Lock, perms: [PERMS.settingsManage] },
   { id: 'gateways', label: 'Payment gateways', hint: 'Razorpay / Cashfree keys', icon: CreditCard, perms: [PERMS.settingsManage] },
   { id: 'gst', label: 'GST', hint: 'Scheme, e-invoice, thresholds', icon: FileText, perms: [PERMS.gstFile] },
-  { id: 'ai', label: 'AI', hint: 'Ask Taraju, budget, usage', icon: Bot, perms: [PERMS.settingsManage, PERMS.aiUse] },
+  { id: 'ai', label: 'AI', hint: 'Ask Maapan, budget, usage', icon: Bot, perms: [PERMS.settingsManage, PERMS.aiUse] },
   { id: 'device', label: 'Device & printer', hint: 'This counter only', icon: Printer, perms: [] },
   { id: 'about', label: 'About', hint: 'Version and connection', icon: Info, perms: [] },
 ]

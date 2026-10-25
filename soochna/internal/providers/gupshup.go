@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 // Gupshup sends WhatsApp messages through the Gupshup WhatsApp API.

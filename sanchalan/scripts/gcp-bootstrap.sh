@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup of a Taraju environment on Google Cloud.
+# One-time setup of a Maapan environment on Google Cloud.
 # Safe to re-run: every step tolerates "already exists".
 #
 #   ENV=dev ./scripts/gcp-bootstrap.sh
@@ -73,18 +73,18 @@ done
 echo "==> Per-service database, user, secret and service account"
 if [[ "$DB_PROVIDER" == cloudsql ]]; then
   for svc in "${DB_SERVICES[@]}"; do
-    ok gcloud sql databases create "taraju_${svc}" --instance="$SQL_INSTANCE"
+    ok gcloud sql databases create "maapan_${svc}" --instance="$SQL_INSTANCE"
     if ! have_secret "${svc}-database-url"; then
       pw="$(openssl rand -hex 16)"
       ok gcloud sql users create "$svc" --instance="$SQL_INSTANCE" --password="$pw"
-      secret "${svc}-database-url" "postgres://${svc}:${pw}@${SQL_IP}:5432/taraju_${svc}?sslmode=require"
+      secret "${svc}-database-url" "postgres://${svc}:${pw}@${SQL_IP}:5432/maapan_${svc}?sslmode=require"
     fi
   done
 else
   echo "  Supabase: run supabase/setup.sql, then scripts/supabase-secrets.sh (see sanchalan/README.md)"
 fi
 for svc in "${GO_SERVICES[@]}" dukaan; do
-  ok gcloud iam service-accounts create "$svc" --display-name="Taraju $svc"
+  ok gcloud iam service-accounts create "$svc" --display-name="Maapan $svc"
   sa="${svc}@${PROJECT_ID}.iam.gserviceaccount.com"
   ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/secretmanager.secretAccessor --condition=None
   ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/pubsub.publisher --condition=None

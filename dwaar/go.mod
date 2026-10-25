@@ -1,10 +1,10 @@
-module github.com/taraju/dwaar
+module github.com/maapan/dwaar
 
 go 1.25.0
 
 require (
 	github.com/redis/go-redis/v9 v9.7.3
-	github.com/taraju/mool v0.0.0
+	github.com/maapan/mool v0.0.0
 )
 
 require (
@@ -20,4 +20,4 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 )
 
-replace github.com/taraju/mool => ../mool
+replace github.com/maapan/mool => ../mool

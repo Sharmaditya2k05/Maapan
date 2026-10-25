@@ -8,12 +8,12 @@ const outfit = Outfit({ subsets: ['latin'], variable: '--font-outfit', weight: [
 const jetbrains = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: { default: 'Taraju', template: '%s · Taraju' },
+  title: { default: 'Maapan', template: '%s · Maapan' },
   description: 'GST billing, accounting and inventory for Indian retail.',
-  applicationName: 'Taraju',
+  applicationName: 'Maapan',
   manifest: '/manifest.webmanifest',
   icons: { icon: '/favicon-64.png', apple: '/apple-touch-icon.png' },
-  appleWebApp: { capable: true, title: 'Taraju', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'Maapan', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {

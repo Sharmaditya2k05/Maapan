@@ -13,11 +13,11 @@
 | | |
 |---|---|
 | Port (local) | `7001` |
-| Database | `taraju_pehchaan` + Redis |
+| Database | `maapan_pehchaan` + Redis |
 | Publishes | `pehchaan.tenant.created` (→ bahi, bhandar, kar seed defaults) |
 | Subscribes | – |
 | Calls | `soochna` `POST /internal/v1/messages` (OTP) |
-| Gateway prefix | `https://api.taraju.in/api/pehchaan/...` |
+| Gateway prefix | `https://api.maapan.in/api/pehchaan/...` |
 | First deployed | **Week 3** (OTP Auth & RBAC Security) |
 
 ## Run locally

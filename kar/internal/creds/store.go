@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/gst"
 )
 
 // Store keeps gsp_credentials: one row per (tenant, GSTIN) with the e-invoice

@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/cache"
-	"github.com/taraju/mool/db"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/cache"
+	"github.com/maapan/mool/db"
 )
 
 // Service verifies GSTINs with caching.

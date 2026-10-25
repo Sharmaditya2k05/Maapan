@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/taraju/bhandar/internal/barcode"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/bhandar/internal/barcode"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
 )
 
 // readPerms: anyone who bills, buys, manages stock or reads reports may read the item master and stock.

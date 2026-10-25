@@ -14,12 +14,12 @@
 | | |
 |---|---|
 | Port (local) | `7008` |
-| Database | `taraju_bhandar` |
+| Database | `maapan_bhandar` |
 | Publishes | `bhandar.stock.low`, `bhandar.batch.expiring`, `bhandar.stock.moved` (every costed movement of a document, for bahi's COGS / inventory vouchers) |
 | Subscribes | `aadesh.invoice.created`, `aadesh.invoice.cancelled`, `aadesh.note.created`, `nirmaan.production.completed`, `pehchaan.tenant.created` |
 | Calls | nothing synchronously |
 | Called by | aadesh (item lookup), aayaat (bulk items / opening stock), nirmaan (lookup, stock summary), buddhi (stock summary) |
-| Gateway prefix | `https://api.taraju.in/api/bhandar/...` |
+| Gateway prefix | `https://api.maapan.in/api/bhandar/...` |
 | First deployed | **Week 5** (item master lite for the POS); full stock engine Weeks 14–19 (W14 schema, W15 item master & barcodes, W16 movements & transfers, W17 re-order, W18 expiry, W19 dead stock) |
 
 ## How stock moves
@@ -133,7 +133,7 @@ migrations/                     *.up.sql, embedded and applied at startup
 ```
 
 Tests: `go test ./...` runs the pure rules and the barcode package; set
-`TEST_DATABASE_URL=postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable` to also run
+`TEST_DATABASE_URL=postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable` to also run
 the end-to-end stock engine and HTTP tests (they create and drop their own schema).
 
 ## Deploy (Cloud Run)

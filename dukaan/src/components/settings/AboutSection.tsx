@@ -23,7 +23,7 @@ export function AboutSection() {
     else setSw('no')
   }, [])
   return (
-    <Card title="About Taraju">
+    <Card title="About Maapan">
       <div className="divide-y divide-slate-100">
         <Row label="App">{pkg.name} <span className="font-mono">v{pkg.version}</span> <Badge tone={ENV === 'prod' ? 'green' : ENV === 'staging' ? 'amber' : 'gray'}>{ENV}</Badge></Row>
         <Row label="API gateway"><code className="font-mono text-xs">{API_URL}</code></Row>

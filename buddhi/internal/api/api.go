@@ -14,18 +14,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/buddhi/internal/anomaly"
-	"github.com/taraju/buddhi/internal/ask"
-	"github.com/taraju/buddhi/internal/clients"
-	"github.com/taraju/buddhi/internal/jobs"
-	"github.com/taraju/buddhi/internal/kpi"
-	"github.com/taraju/buddhi/internal/llm"
-	"github.com/taraju/buddhi/internal/scan"
-	"github.com/taraju/buddhi/internal/store"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/mool/logx"
+	"github.com/maapan/buddhi/internal/anomaly"
+	"github.com/maapan/buddhi/internal/ask"
+	"github.com/maapan/buddhi/internal/clients"
+	"github.com/maapan/buddhi/internal/jobs"
+	"github.com/maapan/buddhi/internal/kpi"
+	"github.com/maapan/buddhi/internal/llm"
+	"github.com/maapan/buddhi/internal/scan"
+	"github.com/maapan/buddhi/internal/store"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/logx"
 )
 
 // MaxUploadBytes caps scanned bill files.

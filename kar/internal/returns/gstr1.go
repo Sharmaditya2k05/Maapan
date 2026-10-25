@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/kar/internal/recon"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/recon"
+	"github.com/maapan/mool/gst"
 )
 
 // GSTNVersion is the offline-tool schema version written into GSTR-1 JSON.

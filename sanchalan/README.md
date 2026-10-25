@@ -1,6 +1,6 @@
 # sanchalan (संचालन) — Operations
 
-"Sanchalan" means *operation / running*. This repo holds everything needed to **run** Taraju
+"Sanchalan" means *operation / running*. This repo holds everything needed to **run** Maapan
 that does not belong to a single service: the local stack, Google Cloud setup scripts, the
 architecture contract and the deployment plan.
 
@@ -26,7 +26,7 @@ architecture contract and the deployment plan.
 All repos sit side by side in one folder:
 
 ```
-taraju/
+maapan/
   mool/       shared Go library         dwaar/     API gateway (middleware)
   pehchaan/   identity & OTP            soochna/   SMS & WhatsApp
   bahi/       ledger & accounts         kar/       GST engine & returns
@@ -60,7 +60,7 @@ Login locally with any phone number and OTP `123456` (pehchaan runs with `OTP_DE
 | dukaan (frontend) | http://localhost:3000 |
 | dwaar (gateway) | http://localhost:8000/api/... |
 | pehchaan … buddhi | http://localhost:7001 … 7010 |
-| Postgres | `postgres://taraju:taraju@localhost:5432/taraju_<service>` |
+| Postgres | `postgres://maapan:maapan@localhost:5432/maapan_<service>` |
 | Redis | `redis://localhost:6379/0` |
 
 Locally `EVENTS_DRIVER=direct`: a published event is POSTed straight to each subscriber's `/events`

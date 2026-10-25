@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/aayaat/internal/mapping"
-	"github.com/taraju/mool/auth"
+	"github.com/maapan/aayaat/internal/mapping"
+	"github.com/maapan/mool/auth"
 )
 
 func TestRoutesRegisterWithoutConflicts(t *testing.T) {

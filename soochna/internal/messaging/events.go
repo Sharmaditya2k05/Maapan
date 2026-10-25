@@ -8,11 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/taraju/mool/db"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/money"
-	"github.com/taraju/soochna/internal/clients"
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/mool/db"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/money"
+	"github.com/maapan/soochna/internal/clients"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 // EventRoutes are soochna's Pub/Sub subscriptions (ARCHITECTURE.md §5).

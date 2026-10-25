@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/env.sh
-: "${GITHUB_ORG:=taraju}"
+: "${GITHUB_ORG:=maapan}"
 : "${CONNECTION:=github}"
 
 for svc in "${GO_SERVICES[@]}" dukaan mool; do

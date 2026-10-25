@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taraju/mool/gst"
-	"github.com/taraju/mool/money"
+	"github.com/maapan/mool/gst"
+	"github.com/maapan/mool/money"
 )
 
 // System is the extraction instruction (stable text, prompt-cached).

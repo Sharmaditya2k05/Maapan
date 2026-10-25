@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/taraju/aayaat/internal/mapping"
-	"github.com/taraju/aayaat/internal/sheet"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/aayaat/internal/mapping"
+	"github.com/maapan/aayaat/internal/sheet"
+	"github.com/maapan/mool/gst"
 )
 
 // PartyRecord matches bahi POST /internal/v1/bulk/parties items.

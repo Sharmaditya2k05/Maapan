@@ -1,6 +1,6 @@
 # aadesh (आदेश) — Order & Billing Service
 
-"Aadesh" means *order*. It owns every billing document in Taraju:
+"Aadesh" means *order*. It owns every billing document in Maapan:
 
 - **POS sales invoices** (B2C walk-in and B2B with GSTIN)
 - **Purchase bills** from suppliers
@@ -21,11 +21,11 @@ GST maths comes from `mool/gst` in-process, so a bill is priced without a networ
 | | |
 |---|---|
 | Port (local) | `7004` |
-| Database | `taraju_aadesh` |
+| Database | `maapan_aadesh` |
 | Publishes | `aadesh.invoice.created`, `aadesh.invoice.cancelled`, `aadesh.note.created` |
 | Subscribes | `lenden.payment.captured`, `lenden.payment.refunded`, `kar.einvoice.generated`, `kar.eway.generated` |
 | Calls | `pehchaan` (store state/GSTIN/registration), `bahi` (party details, credit limit/days), `bhandar` (item lookup at billing), `lenden` (counter UPI QR / payment links) |
-| Gateway prefix | `https://api.taraju.in/api/aadesh/...` |
+| Gateway prefix | `https://api.maapan.in/api/aadesh/...` |
 | First deployed | Week 5 (POS Sales Billing Engine) |
 
 ## Run locally

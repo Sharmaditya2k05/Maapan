@@ -5,8 +5,8 @@ package gstin
 import (
 	"context"
 
-	"github.com/taraju/kar/internal/gsp"
-	"github.com/taraju/mool/gst"
+	"github.com/maapan/kar/internal/gsp"
+	"github.com/maapan/mool/gst"
 )
 
 // Sources of a Result.

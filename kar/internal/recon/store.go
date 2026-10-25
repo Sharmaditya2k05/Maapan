@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/taraju/mool/db"
+	"github.com/maapan/mool/db"
 )
 
 // Import describes a stored 2B statement.

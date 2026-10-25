@@ -13,12 +13,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taraju/lenden/internal/creds"
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/lenden/internal/payment"
-	"github.com/taraju/lenden/migrations"
-	"github.com/taraju/mool/boot"
-	"github.com/taraju/mool/config"
+	"github.com/maapan/lenden/internal/creds"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/lenden/internal/payment"
+	"github.com/maapan/lenden/migrations"
+	"github.com/maapan/mool/boot"
+	"github.com/maapan/mool/config"
 )
 
 func main() {
@@ -55,7 +55,7 @@ func run(ctx context.Context) error {
 	ledger := &payment.PGLedger{DB: app.DB, Relay: app.Relay}
 	svc := &payment.Service{
 		DB: app.DB, Gateways: gws, Ledger: ledger, Relay: app.Relay, Log: app.Log, Creds: store,
-		PayeeName: config.String("PAYEE_DISPLAY_NAME", "Taraju Store"), Now: time.Now,
+		PayeeName: config.String("PAYEE_DISPLAY_NAME", "Maapan Store"), Now: time.Now,
 	}
 	var hooks []*payment.Webhooks
 	for _, src := range gws.Webhooks() {
@@ -113,7 +113,7 @@ func buildGateways(prod bool, log *slog.Logger) (*gateway.Registry, error) {
 	reg.Enable("cashfree", gateway.CashfreeFactory(cfVersion, cfPhone, cfBase, nil), cfWebhook)
 
 	if !prod {
-		reg.Add(gateway.NewMock(config.String("MOCK_UPI_VPA", "taraju@mock")), nil)
+		reg.Add(gateway.NewMock(config.String("MOCK_UPI_VPA", "maapan@mock")), nil)
 	}
 
 	def := config.String("PAYMENT_GATEWAY", "mock")

@@ -17,12 +17,12 @@ vouchers, `aadesh` marks the invoice paid, `soochna` sends the receipt and `budd
 | | |
 |---|---|
 | Port (local) | `7005` |
-| Database | `taraju_lenden` |
+| Database | `maapan_lenden` |
 | Publishes | `lenden.payment.captured`, `lenden.payment.refunded` (payload: `mool/events.PaymentPayload`), `lenden.settlement.processed` (`mool/events.SettlementPayload`) |
 | Subscribes | none |
 | Calls | Razorpay and/or Cashfree PG API (`PAYMENT_GATEWAY=razorpay` or `cashfree` = default) |
 | Called by | `aadesh` → `POST /internal/v1/payment-requests`; Cloud Scheduler → reconcile |
-| Gateway prefix | `https://api.taraju.in/api/lenden/...` |
+| Gateway prefix | `https://api.maapan.in/api/lenden/...` |
 | First deployed | **Week 10** (Razorpay & WhatsApp alerts) |
 
 ## Run locally
@@ -213,7 +213,7 @@ migrations/                    *.up.sql, embedded and applied at startup (0002_p
 ```
 
 Tests: `GOWORK=off go test ./...`. The DB-backed tests in `internal/payment/integration_test.go` run when
-`TEST_DATABASE_URL` is set (e.g. `postgres://taraju:taraju@localhost:5432/taraju_test?sslmode=disable`),
+`TEST_DATABASE_URL` is set (e.g. `postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable`),
 each in a throw-away schema, and skip otherwise.
 
 ## Deploy (Cloud Run)

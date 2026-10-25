@@ -4,10 +4,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/events"
-	"github.com/taraju/mool/httpx"
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/httpx"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 // Routes registers soochna's HTTP API.

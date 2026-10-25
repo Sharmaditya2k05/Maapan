@@ -46,7 +46,7 @@ func TestGupshupTemplateAndText(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"submitted","messageId":"gs-1"}`)
 	}))
 	defer srv.Close()
-	g := NewGupshup(Config{GupshupAPIKey: "k", GupshupSource: "+919000000000", GupshupAppName: "taraju", GupshupBaseURL: srv.URL,
+	g := NewGupshup(Config{GupshupAPIKey: "k", GupshupSource: "+919000000000", GupshupAppName: "maapan", GupshupBaseURL: srv.URL,
 		GupshupTemplates: map[string]string{"otp": "wa-otp"}})
 
 	ref, err := g.Send(context.Background(), Message{To: "+919876543210", Template: "otp", Params: map[string]string{"otp": "1", "minutes": "5"}})

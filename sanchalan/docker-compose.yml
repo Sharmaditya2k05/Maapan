@@ -1,9 +1,9 @@
-# Taraju local stack.
+# Maapan local stack.
 #
 #   docker compose up -d postgres redis      # infra only, run services with `make run` in each repo
 #   docker compose --profile apps up -d --build   # everything in containers
 #
-# Expects all repos checked out side by side:  taraju/{sanchalan,mool,dwaar,pehchaan,...}
+# Expects all repos checked out side by side:  maapan/{sanchalan,mool,dwaar,pehchaan,...}
 
 x-go-service: &go-service
   restart: unless-stopped
@@ -36,23 +36,23 @@ x-go-service: &go-service
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: taraju-postgres
+    container_name: maapan-postgres
     environment:
-      POSTGRES_USER: taraju
-      POSTGRES_PASSWORD: taraju
-      POSTGRES_DB: taraju
+      POSTGRES_USER: maapan
+      POSTGRES_PASSWORD: maapan
+      POSTGRES_DB: maapan
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./local/init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U taraju"]
+      test: ["CMD-SHELL", "pg_isready -U maapan"]
       interval: 3s
       retries: 20
 
   redis:
     image: redis:7-alpine
-    container_name: taraju-redis
+    container_name: maapan-redis
     ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -70,7 +70,7 @@ services:
     ports: ["7001:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_pehchaan?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_pehchaan?sslmode=disable
       OTP_DEV_FIXED: "123456"
 
   bahi:
@@ -79,7 +79,7 @@ services:
     ports: ["7002:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_bahi?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_bahi?sslmode=disable
 
   kar:
     <<: *go-service
@@ -87,7 +87,7 @@ services:
     ports: ["7003:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_kar?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_kar?sslmode=disable
 
   aadesh:
     <<: *go-service
@@ -95,7 +95,7 @@ services:
     ports: ["7004:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_aadesh?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_aadesh?sslmode=disable
 
   lenden:
     <<: *go-service
@@ -103,7 +103,7 @@ services:
     ports: ["7005:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_lenden?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_lenden?sslmode=disable
 
   soochna:
     <<: *go-service
@@ -111,7 +111,7 @@ services:
     ports: ["7006:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_soochna?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_soochna?sslmode=disable
 
   aayaat:
     <<: *go-service
@@ -119,7 +119,7 @@ services:
     ports: ["7007:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_aayaat?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_aayaat?sslmode=disable
 
   bhandar:
     <<: *go-service
@@ -127,7 +127,7 @@ services:
     ports: ["7008:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_bhandar?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_bhandar?sslmode=disable
 
   nirmaan:
     <<: *go-service
@@ -135,7 +135,7 @@ services:
     ports: ["7009:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_nirmaan?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_nirmaan?sslmode=disable
 
   buddhi:
     <<: *go-service
@@ -143,7 +143,7 @@ services:
     ports: ["7010:8080"]
     environment:
       <<: *common-env
-      DATABASE_URL: postgres://taraju:taraju@postgres:5432/taraju_buddhi?sslmode=disable
+      DATABASE_URL: postgres://maapan:maapan@postgres:5432/maapan_buddhi?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
   dukaan:

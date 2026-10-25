@@ -6,9 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/taraju/bahi/internal/posting"
-	"github.com/taraju/mool/auth"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/bahi/internal/posting"
+	"github.com/maapan/mool/auth"
+	"github.com/maapan/mool/httpx"
 )
 
 // accountTotals holds debit/credit sums per leaf account.

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taraju/lenden/internal/gateway"
-	"github.com/taraju/mool/httpx"
+	"github.com/maapan/lenden/internal/gateway"
+	"github.com/maapan/mool/httpx"
 )
 
 // fakeLedger mimics PGLedger's idempotency rules in memory.

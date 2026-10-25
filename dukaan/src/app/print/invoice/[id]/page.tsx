@@ -58,7 +58,7 @@ function PrintInvoice() {
     return () => clearTimeout(t)
   }, [auto, inv.data, party.isLoading])
 
-  useEffect(() => { document.title = inv.data ? `${inv.data.number} · Taraju` : 'Print · Taraju' }, [inv.data])
+  useEffect(() => { document.title = inv.data ? `${inv.data.number} · Maapan` : 'Print · Maapan' }, [inv.data])
 
   if (sessionErr) return <div className="p-6"><ErrorBox message={sessionErr} /></div>
   if (inv.isLoading) return <div className="grid min-h-dvh place-items-center text-sm text-slate-500"><div className="flex items-center gap-2"><Spinner /> Preparing document…</div></div>

@@ -1,6 +1,6 @@
 // Package barcode encodes EAN-13 and Code 128 (subset B) barcodes and
 // renders them as SVG. It also implements the in-store EAN-13 conventions
-// used by Taraju: tenant-generated item codes in GS1's restricted-circulation
+// used by Maapan: tenant-generated item codes in GS1's restricted-circulation
 // range (prefix 20–29) and the price/weight-embedded labels printed by retail
 // weighing scales.
 //
@@ -14,7 +14,7 @@ import (
 
 const (
 	// internalPrefix is the two-digit prefix of tenant-generated in-store
-	// codes. GS1 reserves 20–29 for restricted circulation; Taraju uses 21
+	// codes. GS1 reserves 20–29 for restricted circulation; Maapan uses 21
 	// for its per-tenant sequence numbers.
 	internalPrefix = "21"
 	// maxInternalSeq is the largest sequence number that fits in the ten

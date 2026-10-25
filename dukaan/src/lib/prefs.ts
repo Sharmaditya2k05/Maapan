@@ -16,7 +16,7 @@ export interface Prefs {
   beep: boolean
 }
 
-const KEY = 'taraju.prefs.v1'
+const KEY = 'maapan.prefs.v1'
 const DEFAULTS: Prefs = { printer: 'thermal80', autoPrint: true, askPhone: false, defaultTender: 'cash', beep: true }
 const listeners = new Set<() => void>()
 let cache: Prefs | null = null

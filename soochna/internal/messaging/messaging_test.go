@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taraju/mool/events"
-	"github.com/taraju/soochna/internal/clients"
-	"github.com/taraju/soochna/internal/templates"
+	"github.com/maapan/mool/events"
+	"github.com/maapan/soochna/internal/clients"
+	"github.com/maapan/soochna/internal/templates"
 )
 
 func TestValidateNormalisesPhone(t *testing.T) {
