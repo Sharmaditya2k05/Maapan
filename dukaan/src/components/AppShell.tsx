@@ -12,7 +12,7 @@ import { session } from '@/lib/session'
 import { post } from '@/lib/api'
 import { listQueue, onQueueChange, startAutoSync, syncQueue } from '@/lib/offline'
 import { ROLE_LABEL } from '@/lib/rbac'
-import { DEMO, wakeServers } from '@/lib/wake'
+import { DEMO, pokeServices } from '@/lib/wake'
 
 function Sidebar({ onNavigate, rail = false }: { onNavigate?: () => void; rail?: boolean }) {
   const pathname = usePathname()
@@ -155,10 +155,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Demo: keep the sleeping-when-idle services awake while someone uses the app.
   useEffect(() => {
     if (!DEMO) return
-    const ping = () => { if (document.visibilityState === 'visible') void wakeServers().catch(() => undefined) }
+    const ping = () => { if (document.visibilityState === 'visible') pokeServices() }
     ping()
-    const t = setInterval(ping, 10 * 60 * 1000)
-    return () => clearInterval(t)
+    const t = setInterval(ping, 5 * 60 * 1000)
+    document.addEventListener('visibilitychange', ping)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', ping) }
   }, [])
   const [drawer, setDrawer] = useState(false)
   const pathname = usePathname()

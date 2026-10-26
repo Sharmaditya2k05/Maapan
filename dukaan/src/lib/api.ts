@@ -99,6 +99,10 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
  * reached a service and is safe to send again for any method. Network
  * failures are retried for reads only. Gives up after about 75 seconds.
  */
+let wakeHook: (() => void) | undefined
+/** Lets the demo build wake sleeping services while a request is being retried. */
+export function setWakeHook(fn: () => void) { wakeHook = fn }
+
 async function sendWaking(send: () => Promise<Response>, isRead: boolean): Promise<Response> {
   const deadline = Date.now() + 75_000
   let delay = 1500
@@ -112,8 +116,9 @@ async function sendWaking(send: () => Promise<Response>, isRead: boolean): Promi
     if (res) {
       if (![502, 503, 504].includes(res.status) || Date.now() + delay > deadline) return res
       const type = res.headers.get('Content-Type') || ''
-      if (type.includes('application/json')) return res // a service's own error: do not repeat
+      if (type.includes('application/json')) return res // a service's (or the gateway's) own error: do not repeat
     }
+    wakeHook?.()
     await new Promise((r) => setTimeout(r, delay))
     delay = Math.min(delay * 2, 8000)
   }
