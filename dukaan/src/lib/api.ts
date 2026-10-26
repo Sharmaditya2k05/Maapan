@@ -71,14 +71,8 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
 
   let res: Response
   try {
-    res = await send()
-    if (res.status === 401 && auth && (await refresh())) res = await send()
-    // A gateway error on a read usually means a service is still starting:
-    // retry once. Writes are never repeated here.
-    if ([502, 503, 504].includes(res.status) && (!rest.method || rest.method === 'GET')) {
-      await new Promise((r) => setTimeout(r, 3000))
-      res = await send()
-    }
+    res = await sendWaking(send, !rest.method || rest.method === 'GET')
+    if (res.status === 401 && auth && (await refresh())) res = await sendWaking(send, !rest.method || rest.method === 'GET')
   } catch (e) {
     throw new ApiError(0, 'network', (e as Error).message || 'Network error')
   }
@@ -95,6 +89,34 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
     throw new ApiError(res.status, err?.code ?? 'http_error', err?.message ?? `Request failed (${res.status})`, err?.details)
   }
   return data as T
+}
+
+/**
+ * Sends a request, retrying while the hosting edge says a service is still
+ * starting. Free hosting puts idle services to sleep and its edge proxy answers
+ * 502/503/504 with a plain-text or HTML page until the service is up. Maapan
+ * services always answer errors as JSON, so a non-JSON gateway error never
+ * reached a service and is safe to send again for any method. Network
+ * failures are retried for reads only. Gives up after about 75 seconds.
+ */
+async function sendWaking(send: () => Promise<Response>, isRead: boolean): Promise<Response> {
+  const deadline = Date.now() + 75_000
+  let delay = 1500
+  for (;;) {
+    let res: Response | undefined
+    try {
+      res = await send()
+    } catch (e) {
+      if (!isRead || Date.now() + delay > deadline) throw e
+    }
+    if (res) {
+      if (![502, 503, 504].includes(res.status) || Date.now() + delay > deadline) return res
+      const type = res.headers.get('Content-Type') || ''
+      if (type.includes('application/json')) return res // a service's own error: do not repeat
+    }
+    await new Promise((r) => setTimeout(r, delay))
+    delay = Math.min(delay * 2, 8000)
+  }
 }
 
 function safeJSON(t: string) {
