@@ -3,7 +3,10 @@
 //
 // Refresh tokens rotate on every use. All tokens descending from one login form
 // a family; presenting an already-rotated token means it was stolen (or the
-// client misbehaved), so the whole family is revoked.
+// client misbehaved), so the whole family is revoked. The exception is a short
+// grace window (ReuseGrace) right after rotation: two browser tabs refreshing
+// at the same moment both present the same token, and the second one gets a
+// fresh token in the same family instead of logging the user out.
 package tokens
 
 import (
@@ -22,6 +25,16 @@ import (
 
 // RefreshTTL is how long a refresh token lives.
 const RefreshTTL = 30 * 24 * time.Hour
+
+// ReuseGrace is how long after rotation the old token is still accepted
+// (concurrent refreshes from several tabs of the same login).
+const ReuseGrace = 30 * time.Second
+
+// usedRecord is stored under usedKey when a token is rotated.
+type usedRecord struct {
+	Session Session   `json:"s"`
+	UsedAt  time.Time `json:"at"`
+}
 
 var (
 	// ErrInvalid means the token is unknown, expired or its family was revoked.
@@ -106,8 +119,21 @@ func (st *Store) consume(ctx context.Context, tok string) (Session, error) {
 		return Session{}, err
 	}
 	if !ok {
-		if fam, used, err := st.KV.Get(ctx, usedKey(h)); err == nil && used {
-			_ = st.KV.Del(ctx, familyKey(fam))
+		if v, used, err := st.KV.Get(ctx, usedKey(h)); err == nil && used {
+			var rec usedRecord
+			if json.Unmarshal([]byte(v), &rec) == nil && rec.Session.Family != "" {
+				// A concurrent refresh moments ago: same login, hand out another token.
+				if st.Now().Sub(rec.UsedAt) <= ReuseGrace {
+					if alive, err := st.KV.Exists(ctx, familyKey(rec.Session.Family)); err == nil && alive {
+						return rec.Session, nil
+					}
+					return Session{}, ErrInvalid
+				}
+				_ = st.KV.Del(ctx, familyKey(rec.Session.Family))
+				return Session{}, ErrReuse
+			}
+			// Records written before the grace window existed hold just the family id.
+			_ = st.KV.Del(ctx, familyKey(v))
 			return Session{}, ErrReuse
 		}
 		return Session{}, ErrInvalid
@@ -123,7 +149,8 @@ func (st *Store) consume(ctx context.Context, tok string) (Session, error) {
 	if !alive {
 		return Session{}, ErrInvalid
 	}
-	if err := st.KV.Set(ctx, usedKey(h), s.Family, RefreshTTL); err != nil {
+	rec, _ := json.Marshal(usedRecord{Session: s, UsedAt: st.Now().UTC()})
+	if err := st.KV.Set(ctx, usedKey(h), string(rec), RefreshTTL); err != nil {
 		return Session{}, err
 	}
 	return s, nil

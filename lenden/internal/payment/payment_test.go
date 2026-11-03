@@ -206,3 +206,15 @@ func rzpHeader(sig, eventID string) http.Header {
 	}
 	return h
 }
+
+func TestNormalizePhone(t *testing.T) {
+	for in, want := range map[string]string{
+		"9800022222": "+919800022222", "98000 22222": "+919800022222", "09800022222": "+919800022222",
+		"919800022222": "+919800022222", "+91 98000-22222": "+919800022222", "+919800022222": "+919800022222",
+		"": "", "12345": "12345", "0201234567": "0201234567",
+	} {
+		if got := NormalizePhone(in); got != want {
+			t.Errorf("%q → %q, want %q", in, got, want)
+		}
+	}
+}

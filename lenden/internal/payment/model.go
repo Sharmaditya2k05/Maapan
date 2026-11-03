@@ -28,6 +28,7 @@ type RequestInput struct {
 
 // Validate checks the request shape.
 func (in *RequestInput) Validate() error {
+	in.PartyPhone = NormalizePhone(in.PartyPhone)
 	if in.AmountPaise <= 0 || in.AmountPaise > 100_00_000_00 { // ₹1 crore cap per request
 		return httpx.Validation("amount_paise must be between 1 and 10000000000")
 	}
@@ -339,4 +340,31 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// NormalizePhone turns the common ways an Indian mobile number is written
+// ("98765 43210", "098765-43210", "919876543210", "+91 98765 43210") into
+// +91XXXXXXXXXX. Anything it can't read is returned trimmed, so validation
+// still rejects it with a clear message.
+func NormalizePhone(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	var d strings.Builder
+	for _, c := range p {
+		if c >= '0' && c <= '9' {
+			d.WriteRune(c)
+		}
+	}
+	digits := d.String()
+	switch {
+	case len(digits) == 10 && digits[0] >= '6':
+		return "+91" + digits
+	case len(digits) == 11 && digits[0] == '0':
+		return "+91" + digits[1:]
+	case len(digits) == 12 && strings.HasPrefix(digits, "91"):
+		return "+" + digits
+	}
+	return p
 }

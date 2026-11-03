@@ -26,7 +26,7 @@ envVarGroups:
       - key: LOG_LEVEL
         value: info
       - key: RELEASE # bump to redeploy every service on a blueprint sync
-        value: batch2-2026-11-03
+        value: fixes1-2026-11-04
       - key: SVC_TIMEOUT        # services sleep when idle; waking takes up to a minute
         value: 75s
       - key: DWAAR_URL

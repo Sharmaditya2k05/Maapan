@@ -100,7 +100,7 @@ func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
 			serials = append(serials, serialMove{LineNo: l.LineNo, ItemID: l.ItemID, BatchNo: l.BatchNo, SerialNos: l.SerialNos})
 		}
 		ml := MoveLine{LineNo: l.LineNo, ItemID: l.ItemID, BatchNo: l.BatchNo, Qty: sign * l.Qty, Unit: l.Unit, Note: p.Number}
-		if sign > 0 {
+		if sign > 0 && p.DocType != "sale_return" {
 			ml.ValuePaise = l.TaxablePaise // cost per base unit = taxable ÷ base qty, computed in post
 		}
 		req.Lines = append(req.Lines, ml)
@@ -109,6 +109,17 @@ func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
 		return s.handle(ctx, e, func(pgx.Tx) (int, error) { return 0, nil })
 	}
 	return s.handle(ctx, e, func(tx pgx.Tx) (int, error) {
+		if p.DocType == "sale_return" {
+			// Returned goods come back at what they cost, not at the selling
+			// price: the original sale's cost, else today's average.
+			for i := range req.Lines {
+				c, err := saleReturnCost(ctx, tx, e.TenantID, storeID, p.RefInvoiceID, req.Lines[i].ItemID)
+				if err != nil {
+					return 0, err
+				}
+				req.Lines[i].UnitCostPaise = c
+			}
+		}
 		movs, err := s.post(ctx, tx, req)
 		if err != nil {
 			return 0, err
@@ -217,4 +228,36 @@ func (s *Service) onTenantCreated(ctx context.Context, e events.Envelope) error 
 		return errors.New("tenant.created without tenant id")
 	}
 	return s.handle(ctx, e, func(tx pgx.Tx) (int, error) { return 0, seedUnits(ctx, tx, tenantID) })
+}
+
+// saleReturnCost is the unit cost a sale return comes back in at: the cost
+// the original sale took the item out at, else the store's current average,
+// else the item's purchase price.
+func saleReturnCost(ctx context.Context, tx pgx.Tx, tenantID, storeID, refInvoiceID, itemID string) (int64, error) {
+	var c int64
+	if refInvoiceID != "" {
+		err := tx.QueryRow(ctx, `SELECT unit_cost_paise FROM stock_movements
+			WHERE tenant_id=$1 AND source=$2 AND source_id=$3 AND item_id=$4 AND qty < 0 AND unit_cost_paise > 0
+			ORDER BY line_no LIMIT 1`, tenantID, SourceInvoice, refInvoiceID, itemID).Scan(&c)
+		if err == nil && c > 0 {
+			return c, nil
+		}
+		if err != nil && !db.IsNotFound(err) {
+			return 0, err
+		}
+	}
+	err := tx.QueryRow(ctx, `SELECT avg_cost_paise FROM stock_balances
+		WHERE tenant_id=$1 AND store_id=$2 AND item_id=$3 AND avg_cost_paise > 0
+		ORDER BY qty DESC LIMIT 1`, tenantID, storeID, itemID).Scan(&c)
+	if err == nil && c > 0 {
+		return c, nil
+	}
+	if err != nil && !db.IsNotFound(err) {
+		return 0, err
+	}
+	err = tx.QueryRow(ctx, `SELECT purchase_price_paise FROM items WHERE tenant_id=$1 AND id=$2`, tenantID, itemID).Scan(&c)
+	if err != nil && !db.IsNotFound(err) {
+		return 0, err
+	}
+	return c, nil
 }

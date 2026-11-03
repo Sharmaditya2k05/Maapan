@@ -128,6 +128,9 @@ func New(opt Options) *Gateway {
 						res.Header.Del(k)
 					}
 				}
+				// dwaar already set X-Request-ID on the response (and passed the
+				// same id upstream); drop the service's copy so it appears once.
+				res.Header.Del(httpx.HeaderRequestID)
 				return nil
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

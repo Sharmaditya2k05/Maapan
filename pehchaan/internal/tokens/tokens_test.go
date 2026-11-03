@@ -31,7 +31,8 @@ func (f fakeKV) Del(_ context.Context, ks ...string) error {
 
 func TestRotationAndReuseDetection(t *testing.T) {
 	ctx := context.Background()
-	st := &Store{KV: fakeKV{}, Now: time.Now}
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	st := &Store{KV: fakeKV{}, Now: func() time.Time { return now }}
 	t1, err := st.Issue(ctx, Session{UserID: "u1", TenantID: "t1"})
 	if err != nil {
 		t.Fatal(err)
@@ -40,11 +41,23 @@ func TestRotationAndReuseDetection(t *testing.T) {
 	if err != nil || s.UserID != "u1" || t2 == t1 {
 		t.Fatalf("rotate: %v %+v", err, s)
 	}
-	// Replaying t1 is reuse: it must fail and kill the family, so t2 dies too.
+	// A second tab refreshing with t1 a few seconds later stays logged in,
+	// in the same family.
+	now = now.Add(5 * time.Second)
+	s2, t3, err := st.Rotate(ctx, t1)
+	if err != nil || s2.Family != s.Family || t3 == t2 {
+		t.Fatalf("concurrent refresh inside the grace window must succeed: %v %+v", err, s2)
+	}
+	// Replaying t1 after the grace window is reuse: it fails and kills the
+	// family, so the live tokens die too.
+	now = now.Add(ReuseGrace)
 	if _, _, err := st.Rotate(ctx, t1); !errors.Is(err, ErrReuse) {
 		t.Fatalf("want ErrReuse, got %v", err)
 	}
 	if _, _, err := st.Rotate(ctx, t2); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("family should be revoked, got %v", err)
+	}
+	if _, _, err := st.Rotate(ctx, t3); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("family should be revoked, got %v", err)
 	}
 	if _, _, err := st.Rotate(ctx, "garbage"); !errors.Is(err, ErrInvalid) {
