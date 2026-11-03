@@ -11,6 +11,7 @@ import (
 
 	"github.com/maapan/mool/db"
 	"github.com/maapan/mool/events"
+	"github.com/maapan/mool/logx"
 	"github.com/maapan/mool/money"
 	"github.com/maapan/soochna/internal/clients"
 	"github.com/maapan/soochna/internal/templates"
@@ -101,9 +102,21 @@ func istDate(s string) string {
 
 func fmtQty(q float64) string { return strconv.FormatFloat(q, 'f', -1, 64) }
 
-// invoicePDF fills the INVOICE_PDF_URL pattern ("" when not configured).
-func (s *Service) invoicePDF(tenantID string, p events.InvoicePayload) string {
-	if s.InvoicePDFURL == "" || p.InvoiceID == "" {
+// invoicePDF returns the invoice PDF link: a signed link from aadesh when
+// PDFLinks is set, else the INVOICE_PDF_URL pattern ("" when neither is
+// configured or aadesh is unreachable; the bill then goes out as text).
+func (s *Service) invoicePDF(ctx context.Context, tenantID string, p events.InvoicePayload) string {
+	if p.InvoiceID == "" {
+		return ""
+	}
+	if s.PDFLinks != nil {
+		u, _, err := s.PDFLinks.Link(ctx, tenantID, p.InvoiceID)
+		if err == nil && u != "" {
+			return u
+		}
+		logx.From(ctx).Warn("invoice pdf link unavailable; sending without attachment", "invoice_id", p.InvoiceID, "error", errString(err))
+	}
+	if s.InvoicePDFURL == "" {
 		return ""
 	}
 	return strings.NewReplacer("{tenant_id}", tenantID, "{invoice_id}", p.InvoiceID,
@@ -136,7 +149,7 @@ func (s *Service) invoiceMessages(ctx context.Context, e events.Envelope, t clie
 		"party_name": name, "business": t.BusinessName, "number": p.Number,
 		"amount": money.Format(p.GrandTotalPaise), "date": istDate(p.InvoiceDate),
 	}
-	pdf := s.invoicePDF(e.TenantID, p)
+	pdf := s.invoicePDF(ctx, e.TenantID, p)
 	var out []SendInput
 	if p.PartyPhone != "" {
 		out = append(out, SendInput{Channel: templates.WhatsApp, To: p.PartyPhone, Template: templates.Invoice, Params: params,
@@ -227,4 +240,11 @@ func importMessage(_ context.Context, e events.Envelope, t clients.Tenant) ([]Se
 		"kind": p.Kind, "imported": strconv.Itoa(p.Imported), "total": strconv.Itoa(p.Total),
 		"failed": fmt.Sprint(p.Failed),
 	}}}, nil
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

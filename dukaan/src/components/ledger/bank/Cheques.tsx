@@ -45,7 +45,7 @@ export function Cheques() {
         </div>
       </div>
       <QueryState isLoading={q.isLoading} error={q.error} data={q.data} retry={() => q.refetch()}>
-        {() => items.length === 0 ? <Empty icon={FileCheck2} title="No cheques" text="Record cheques you receive or issue; the ledger is posted when they clear." action={canDo(PERMS.paymentCollect) ? <Button icon={Plus} onClick={() => setAdd(true)}>Record cheque</Button> : undefined} /> : (
+        {() => items.length === 0 ? <Empty icon={FileCheck2} title="No cheques" text="Record cheques you receive or issue. The party is posted once the cheque date is reached; the bank when it clears." action={canDo(PERMS.paymentCollect) ? <Button icon={Plus} onClick={() => setAdd(true)}>Record cheque</Button> : undefined} /> : (
           <>
             <div className="divide-y divide-slate-100 md:hidden">
               {items.map((c) => (
@@ -67,7 +67,7 @@ export function Cheques() {
                         <td className="td capitalize text-slate-600">{c.direction}</td>
                         <td className="td text-slate-600"><div>{bankName(c.bank_account_id)}</div>{c.drawee_bank && <div className="text-xs text-slate-400">drawn on {c.drawee_bank}</div>}</td>
                         <td className="td num text-right font-semibold"><Money paise={c.amount_paise} /></td>
-                        <td className="td"><Badge tone={chequeTone(c.status)}>{c.status}</Badge>{c.status_date && <div className="text-[11px] text-slate-400">{fmtDate(c.status_date)}</div>}{c.voucher_id && <Link href={voucherHref(c.voucher_id)} className="link block text-[11px]">voucher</Link>}</td>
+                        <td className="td"><Badge tone={chequeTone(c.status)}>{c.status}</Badge>{c.post_dated && c.pending && <Badge tone="blue" className="ml-1">PDC</Badge>}{c.status_date && <div className="text-[11px] text-slate-400">{fmtDate(c.status_date)}</div>}{c.bounce_reason && <div className="text-[11px] text-rose-600">{c.bounce_reason}</div>}{c.voucher_id && <Link href={voucherHref(c.voucher_id)} className="link block text-[11px]">voucher</Link>}</td>
                         <td className="td text-right">{next.length > 0 && canDo(PERMS.ledgerWrite) && <Button size="sm" variant="secondary" onClick={() => setMove(c)}>Update</Button>}</td>
                       </tr>
                     )
@@ -133,21 +133,23 @@ function ChequeStatusModal({ cheque, onClose }: { cheque: Cheque | null; onClose
   const [status, setStatus] = useState<string>('')
   const [date, setDate] = useState(todayIST())
   const [notes, setNotes] = useState('')
+  const [reason, setReason] = useState('')
   const chosen = (status && next.includes(status) ? status : next[0]) as ChequeStatus | undefined
   const save = useAction<Cheque, { id: string; body: ChequeStatusInput }>((i) => post<Cheque>(`/bahi/v1/cheques/${i.id}/status`, i.body), {
     invalidate: ['/bahi/v1/cheques', '/bahi/v1/vouchers', '/bahi/v1/bankbook', '/bahi/v1/parties', '/bahi/v1/reports', '/bahi/v1/accounts'],
-    successMessage: 'Cheque updated', onSuccess: () => { setStatus(''); setNotes(''); onClose() },
+    successMessage: 'Cheque updated', onSuccess: () => { setStatus(''); setNotes(''); setReason(''); onClose() },
   })
   return (
     <Modal open={!!cheque} onClose={onClose} title={cheque ? `Cheque ${cheque.cheque_no}` : 'Cheque'}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={save.isPending} disabled={!chosen} onClick={() => cheque && chosen && save.mutate({ id: cheque.id, body: { status: chosen, date, notes: notes.trim() || undefined } })}>Mark {chosen}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={save.isPending} disabled={!chosen} onClick={() => cheque && chosen && save.mutate({ id: cheque.id, body: { status: chosen, date, notes: notes.trim() || undefined, reason: chosen === 'bounced' && reason.trim() ? reason.trim() : undefined } })}>Mark {chosen}</Button></>}>
       {cheque && (
         <div className="space-y-4">
           <p className="text-sm text-slate-600"><Money paise={cheque.amount_paise} className="font-semibold" /> {cheque.direction} · {cheque.party_name} · currently <Badge tone={chequeTone(cheque.status)}>{cheque.status}</Badge></p>
-          <Field label="New status" hint={chosen === 'cleared' ? (cheque.direction === 'received' ? 'Posts a receipt: Dr Bank · Cr Party' : 'Posts a payment: Dr Party · Cr Bank') : chosen === 'bounced' ? 'No ledger entry; follow up with the party.' : undefined}>
+          <Field label="New status" hint={chosen === 'cleared' ? (cheque.direction === 'received' ? 'Posts a receipt: Dr Bank · Cr Party' : 'Posts a payment: Dr Party · Cr Bank') : chosen === 'bounced' ? 'Reverses the party entry if one was posted; the party owes the amount again.' : undefined}>
             <Select value={chosen ?? ''} onChange={(e) => setStatus(e.target.value)}>{next.map((s) => <option key={s} value={s}>{s}</option>)}</Select>
           </Field>
-          <Field label="Date"><Input type="date" value={date} max={todayIST()} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Date" hint={cheque.post_dated && chosen === 'deposited' ? `Post-dated: deposit on or after ${fmtDate(cheque.cheque_date)}.` : undefined}><Input type="date" value={date} max={todayIST()} onChange={(e) => setDate(e.target.value)} /></Field>
+          {chosen === 'bounced' && <Field label="Bounce reason"><Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Funds insufficient" /></Field>}
           <Field label="Notes"><Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" /></Field>
         </div>
       )}

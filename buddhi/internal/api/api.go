@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,8 @@ func (a *API) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 		return v.User(auth.Require(httpx.H(h), perms...))
 	}
 	mux.Handle("POST /v1/scan/purchase-bill", user(a.scanBill, auth.PermAIUse, auth.PermPurchaseManage))
+	mux.Handle("POST /v1/scan/match-items", user(a.matchItems, auth.PermAIUse, auth.PermPurchaseManage))
+	mux.Handle("GET /v1/insights/gst", user(a.gstInsights, auth.PermAIUse, auth.PermReportRead))
 	mux.Handle("POST /v1/ask", user(a.ask, auth.PermAIUse))
 	mux.Handle("GET /v1/forecast/reorder", user(a.reorder, auth.PermAIUse))
 	mux.Handle("GET /v1/insights/anomalies", user(a.anomalies, auth.PermAIUse))
@@ -61,10 +64,12 @@ func (a *API) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 
 	mux.Handle("POST /internal/v1/jobs/forecast", v.Internal(httpx.H(a.jobForecast)))
 	mux.Handle("POST /internal/v1/jobs/weekly-summary", v.Internal(httpx.H(a.jobWeekly)))
+	mux.Handle("POST /internal/v1/jobs/gst-insights", v.Internal(httpx.H(a.jobGSTInsights)))
 
 	mux.Handle("POST /events", events.Handler(v, trustIAM, events.Router{
 		events.InvoiceCreated:   a.KPI.OnInvoiceCreated,
 		events.InvoiceCancelled: a.KPI.OnInvoiceCancelled,
+		events.NoteCreated:      a.KPI.OnNoteCreated,
 		events.PaymentCaptured:  a.KPI.OnPaymentCaptured,
 		events.StockLow:         a.KPI.OnStockLow,
 	}))
@@ -119,7 +124,7 @@ var allowedUploads = map[string]bool{
 
 func (a *API) scanBill(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
-	if err := a.Guard.Check(r.Context(), p.TenantID); err != nil {
+	if err := a.Guard.CheckFlag(r.Context(), p.TenantID); err != nil {
 		return err
 	}
 	if !a.LLM.Enabled() {
@@ -149,13 +154,17 @@ func (a *API) scanBill(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Validation("unsupported file type %s (use JPEG, PNG, WebP, GIF or PDF)", mt)
 	}
 
+	// Hold the call's tokens before spending them, so parallel scans cannot
+	// overshoot the monthly budget.
+	res, err := a.Guard.Reserve(r.Context(), p.TenantID, "scan", store.EstimateScan)
+	if err != nil {
+		return err
+	}
 	raw, usage, err := a.LLM.Extract(r.Context(), llm.ExtractRequest{
 		System: scan.System, Prompt: scan.Prompt, Schema: scan.Schema, Effort: "medium",
 		Attachment: llm.Attachment{MediaType: mt, Data: data},
 	})
-	if rerr := a.Guard.Record(r.Context(), p.TenantID, p.UserID(), "scan", usage, err == nil); rerr != nil {
-		logx.From(r.Context()).Warn("record usage", "error", rerr.Error())
-	}
+	a.settle(r, p, res, usage, err)
 	if err != nil {
 		return aiError(err)
 	}
@@ -164,24 +173,20 @@ func (a *API) scanBill(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Upstream("AI returned an unexpected shape")
 	}
 
-	var warnings []string
-	var catalog []scan.CatalogItem
-	if items, err := a.Clients.StockSummary(r.Context(), p.StoreID); err != nil {
-		warnings = append(warnings, "Item list unavailable — items were not matched.")
-	} else {
-		for _, it := range items {
-			catalog = append(catalog, scan.CatalogItem{ItemID: it.ItemID, Name: it.Name})
-		}
+	names := make([]string, 0, len(ext.Lines))
+	for _, l := range ext.Lines {
+		names = append(names, l.Name)
 	}
+	catalog, warnings := a.itemMaster(r, p.StoreID, names)
 	storeState := ""
 	if p.StoreID != "" {
 		if st, err := a.Clients.Store(r.Context(), p.StoreID); err == nil {
 			storeState = st.StateCode
 		}
 	}
-	res := scan.Build(ext, catalog, storeState)
-	res.Warnings = append(res.Warnings, warnings...)
-	return httpx.OK(w, map[string]any{"result": res, "usage": usage})
+	result := scan.Build(ext, catalog, storeState)
+	result.Warnings = append(result.Warnings, warnings...)
+	return httpx.OK(w, map[string]any{"result": result, "usage": usage})
 }
 
 type askInput struct {
@@ -202,11 +207,15 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	if err := a.Guard.Check(r.Context(), p.TenantID); err != nil {
+	if err := a.Guard.CheckFlag(r.Context(), p.TenantID); err != nil {
 		return err
 	}
 	if !a.LLM.Enabled() {
 		return aiError(llm.ErrDisabled)
+	}
+	res, err := a.Guard.Reserve(r.Context(), p.TenantID, "ask", store.EstimateAsk)
+	if err != nil {
+		return err
 	}
 	var stores []string
 	if p.Claims != nil && auth.StoreScoped(p.Claims.Role) {
@@ -215,12 +224,12 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) error {
 	x := &ask.Executor{Clients: a.Clients, KPI: a.KPI, Tenant: p.TenantID, Stores: stores}
 	req := llm.ChatRequest{
 		Tier: llm.Smart, Effort: "medium", System: ask.System, Prompt: ask.Prompt(in.Question, a.Now(), stores),
-		Tools: ask.Tools, Exec: x.Run, MaxToolCalls: ask.MaxToolCalls,
+		Tools: ask.Tools, Exec: x.Run, MaxToolCalls: ask.MaxToolCalls, TokenBudget: res.Tokens,
 	}
 
 	if r.URL.Query().Get("stream") != "true" {
 		answer, usage, err := a.LLM.Chat(r.Context(), req)
-		a.record(r, p, "ask", usage, err)
+		a.settle(r, p, res, usage, err)
 		if err != nil {
 			return aiError(err)
 		}
@@ -230,6 +239,7 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) error {
 	// Server-sent events: event "delta" per text chunk, then "done" or "error".
 	fl, ok := w.(http.Flusher)
 	if !ok {
+		a.settle(r, p, res, llm.Usage{}, nil)
 		return httpx.Internal("streaming unsupported")
 	}
 	h := w.Header()
@@ -244,7 +254,7 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) error {
 	}
 	req.OnText = func(t string) { send("delta", map[string]string{"text": t}) }
 	answer, usage, err := a.LLM.Chat(r.Context(), req)
-	a.record(r, p, "ask", usage, err)
+	a.settle(r, p, res, usage, err)
 	if err != nil {
 		e := httpx.AsError(aiError(err))
 		send("error", e)
@@ -254,14 +264,20 @@ func (a *API) ask(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *API) record(r *http.Request, p *auth.Principal, feature string, u llm.Usage, err error) {
-	if rerr := a.Guard.Record(r.Context(), p.TenantID, p.UserID(), feature, u, err == nil); rerr != nil {
-		logx.From(r.Context()).Warn("record usage", "error", rerr.Error())
+// settle logs real usage and frees the reservation. It runs on a context
+// detached from the request so a client that hung up is still billed.
+func (a *API) settle(r *http.Request, p *auth.Principal, res *store.Reservation, u llm.Usage, err error) {
+	ctx := context.WithoutCancel(r.Context())
+	if serr := a.Guard.Settle(ctx, res, p.UserID(), u, err == nil); serr != nil {
+		logx.From(ctx).Warn("record usage", "error", serr.Error())
 	}
 }
 
 func (a *API) reorder(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
+	if err := a.Guard.CheckFlag(r.Context(), p.TenantID); err != nil {
+		return err
+	}
 	st, err := storeScope(p, httpx.Query(r, "store_id"), false)
 	if err != nil {
 		return err
@@ -323,6 +339,9 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) error {
 	d, err := a.KPI.Dashboard(r.Context(), p.TenantID, st, httpx.Query(r, "date"))
 	if err != nil {
 		return err
+	}
+	if st == kpi.AllStores {
+		d.Cards = append(d.Cards, a.gstCard(r, p)...)
 	}
 	return httpx.OK(w, d)
 }

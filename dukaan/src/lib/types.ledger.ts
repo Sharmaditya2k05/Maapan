@@ -108,6 +108,8 @@ export interface ManualVoucherInput {
   narration: string
   reference?: string
   entries: VoucherEntryInput[]
+  /** Bills this voucher settles (against reference); the rest stays on account. */
+  allocations?: { bill_id: string; amount_paise: number }[]
 }
 
 /** bahi reverseInput (POST /v1/vouchers/{id}/reverse). */
@@ -159,6 +161,15 @@ export interface Cheque {
   voucher_id?: string
   status_date?: string
   notes?: string
+  pending?: boolean
+  post_dated?: boolean
+  clear_voucher_id?: string
+  bounce_voucher_id?: string
+  received_on?: string
+  deposited_on?: string
+  cleared_on?: string
+  bounced_on?: string
+  bounce_reason?: string
 }
 
 /** bahi chequeInput (POST /v1/cheques). */
@@ -174,7 +185,7 @@ export interface ChequeInput {
 }
 
 /** bahi chequeStatusInput (POST /v1/cheques/{id}/status). */
-export interface ChequeStatusInput { status: ChequeStatus; date?: string; notes?: string }
+export interface ChequeStatusInput { status: ChequeStatus; date?: string; notes?: string; reason?: string }
 
 /* ---------------- bahi: reports ---------------- */
 

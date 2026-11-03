@@ -17,10 +17,17 @@ import { PeriodLockSection } from '@/components/settings/PeriodLockSection'
 import { RegistrationsSection } from '@/components/settings/RegistrationsSection'
 import { StoresSection } from '@/components/settings/StoresSection'
 import { UsersSection } from '@/components/settings/UsersSection'
+import { PosDevicesSection } from '@/components/settings/PosDevicesSection'
+import { AuditSection } from '@/components/settings/AuditSection'
+import { YearEndSection } from '@/components/settings/YearEndSection'
+import { TallyExportSection } from '@/components/settings/TallyExportSection'
+import { MessagingSection } from '@/components/settings/MessagingSection'
+import { ConsentsSection } from '@/components/settings/ConsentsSection'
 
 const BODY: Record<SectionId, () => React.JSX.Element> = {
-  business: BusinessSection, registrations: RegistrationsSection, stores: StoresSection, users: UsersSection, numbering: NumberingSection, 'period-lock': PeriodLockSection,
-  gateways: GatewaysSection, gst: GstSection, ai: AiSection, device: DeviceSection, about: AboutSection,
+  business: BusinessSection, registrations: RegistrationsSection, stores: StoresSection, users: UsersSection, 'pos-devices': PosDevicesSection, audit: AuditSection,
+  numbering: NumberingSection, 'period-lock': PeriodLockSection, 'year-end': YearEndSection, tally: TallyExportSection,
+  gateways: GatewaysSection, gst: GstSection, messaging: MessagingSection, consents: ConsentsSection, ai: AiSection, device: DeviceSection, about: AboutSection,
 }
 
 /** /app/settings?tab=<section>: left section list on desktop, scrollable chips on mobile. */

@@ -11,6 +11,7 @@ import (
 	"github.com/maapan/mool/auth"
 	"github.com/maapan/mool/events"
 	"github.com/maapan/mool/httpx"
+	"github.com/maapan/mool/svc"
 )
 
 // Service holds bhandar's dependencies.
@@ -22,6 +23,10 @@ type Service struct {
 
 	// ExpiryAlertDays is how far ahead the expiry scan looks (EXPIRY_ALERT_DAYS).
 	ExpiryAlertDays int
+
+	// Kar is kar's internal API (KAR_URL), read for HSN suggestions. nil or an
+	// empty URL: suggestions come from the tenant's own item master only.
+	Kar *svc.Client
 }
 
 const source = "bhandar"

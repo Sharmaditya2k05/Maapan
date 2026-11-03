@@ -34,11 +34,18 @@ type fakes struct {
 	parties  map[string]clients.Party
 	stores   map[string]clients.Store
 	requests int
+	// batches per item id; noBatchRoute/noSerialRoute make the fake answer
+	// like an older bhandar without those internal routes (plain 404).
+	batches       map[string][]clients.Batch
+	serials       map[string]clients.SerialStatus
+	noBatchRoute  bool
+	noSerialRoute bool
 }
 
 func newFakes(t *testing.T) *fakes {
 	t.Helper()
-	f := &fakes{items: map[string]clients.Item{}, parties: map[string]clients.Party{}, stores: map[string]clients.Store{}}
+	f := &fakes{items: map[string]clients.Item{}, parties: map[string]clients.Party{}, stores: map[string]clients.Store{},
+		batches: map[string][]clients.Batch{}, serials: map[string]clients.SerialStatus{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /internal/v1/stores/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if st, ok := f.stores[r.PathValue("id")]; ok {
@@ -74,6 +81,34 @@ func newFakes(t *testing.T) *fakes {
 		var in clients.PaymentRequestInput
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		_ = json.NewEncoder(w).Encode(clients.PaymentRequest{ID: fmt.Sprintf("pr-%d", f.requests), Status: "created", UPIIntent: fmt.Sprintf("upi://pay?am=%d", in.AmountPaise)})
+	})
+	mux.HandleFunc("GET /internal/v1/items/{id}/batches", func(w http.ResponseWriter, r *http.Request) {
+		if f.noBatchRoute {
+			http.NotFound(w, r)
+			return
+		}
+		b := f.batches[r.PathValue("id")]
+		if b == nil {
+			b = []clients.Batch{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"batches": b})
+	})
+	mux.HandleFunc("POST /internal/v1/serials/check", func(w http.ResponseWriter, r *http.Request) {
+		if f.noSerialRoute {
+			http.NotFound(w, r)
+			return
+		}
+		var in struct {
+			Serials []string `json:"serials"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		out := []clients.SerialStatus{}
+		for _, sn := range in.Serials {
+			if st, ok := f.serials[sn]; ok {
+				out = append(out, st)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"serials": out})
 	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)

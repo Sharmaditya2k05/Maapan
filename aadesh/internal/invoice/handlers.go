@@ -27,6 +27,8 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /v1/settings/numbering", user(s.numbering, auth.PermInvoiceRead))
 	mux.Handle("PUT /v1/settings/numbering", user(s.setNumbering, auth.PermSettingsManage))
 
+	s.docRoutes(mux, v)
+
 	mux.Handle("GET /internal/v1/invoices/{id}", v.Internal(httpx.H(s.get)))
 	mux.Handle("GET /internal/v1/invoices", v.Internal(httpx.H(s.list)))
 
@@ -79,7 +81,7 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	opts := gst.Options{
-		StoreState: in.StoreState, PlaceOfSupply: in.PlaceOfSupply, RoundToRupee: in.RoundOff == nil || *in.RoundOff,
+		StoreState: in.StoreState, PlaceOfSupply: in.PlaceOfSupply,
 		SupplyCategory: in.SupplyCategory, ReverseCharge: in.ReverseCharge, InvoiceDiscountPaise: in.InvoiceDiscountPaise,
 		InvoiceDiscountBP: in.InvoiceDiscountBP, TCSBP: in.TCSBP,
 	}
@@ -94,6 +96,11 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return httpx.Validation("%s", err.Error())
 	}
+	bs, err := s.BillingSettings(r.Context(), auth.FromContext(r.Context()).TenantID)
+	if err != nil {
+		return err
+	}
+	applyRoundOff(&sum, bs, in.RoundOff != nil && !*in.RoundOff)
 	out := map[string]any{"summary": sum, "amount_in_words": gst.AmountInWords(sum.GrandPaise)}
 	if len(in.Tenders) > 0 {
 		paid, change, credit, err := Settle(sum.GrandPaise, in.Tenders)

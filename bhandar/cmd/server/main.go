@@ -16,6 +16,7 @@ import (
 	"github.com/maapan/bhandar/migrations"
 	"github.com/maapan/mool/boot"
 	"github.com/maapan/mool/config"
+	"github.com/maapan/mool/svc"
 )
 
 func main() {
@@ -37,6 +38,8 @@ func run(ctx context.Context) error {
 	svc := &inventory.Service{
 		DB: app.DB, Relay: app.Relay, Log: app.Log, Now: time.Now,
 		ExpiryAlertDays: config.Int("EXPIRY_ALERT_DAYS", 30),
+		// HSN suggestions read kar's master; empty KAR_URL = local item master only.
+		Kar: svc.New(config.String("KAR_URL", "http://localhost:7003"), app.Cfg.ServiceSecret, app.Cfg.UseIDTokens),
 	}
 	mux := http.NewServeMux()
 	svc.Routes(mux, app.Verifier, app.TrustIAMForEvents())

@@ -20,8 +20,9 @@ import { PartyModal } from '@/components/ledger/PartyModal'
 import { ReceiptModal } from '@/components/ledger/ReceiptModal'
 import { KV, MobileRow, NoPermission, useTabParam } from '@/components/ledger/bits'
 import { useAction } from '@/components/ledger/useAction'
+import { BillsTab } from '@/components/ledger/party/BillsTab'
 
-const TABS = ['statement', 'invoices', 'payments'] as const
+const TABS = ['statement', 'bills', 'invoices', 'payments'] as const
 type Tab = (typeof TABS)[number]
 
 export default function PartyDetailPage() {
@@ -122,7 +123,7 @@ function PartyDetailInner() {
 
                 <Card padded={false}>
                   <div className="no-print flex flex-col gap-3 border-b border-slate-100 p-3 sm:p-4 md:flex-row md:items-center md:justify-between">
-                    <Tabs value={tab} onChange={setTab} options={[{ value: 'statement', label: 'Statement' }, { value: 'invoices', label: 'Invoices' }, { value: 'payments', label: 'Payments' }]} />
+                    <Tabs value={tab} onChange={setTab} options={[{ value: 'statement', label: 'Statement' }, ...(canDo(PERMS.ledgerRead) ? [{ value: 'bills' as Tab, label: 'Bill-wise' }] : []), { value: 'invoices', label: 'Invoices' }, { value: 'payments', label: 'Payments' }]} />
                     {tab === 'statement' && canDo(PERMS.ledgerRead) && (
                       <div className="flex flex-wrap items-center gap-2">
                         <DateRangePicker value={range} onChange={setRange} presets={['today', 'this_month', 'last_month', 'this_fy', 'last_fy', 'custom']} />
@@ -151,6 +152,7 @@ function PartyDetailInner() {
                       </QueryState>
                     )
                   )}
+                  {tab === 'bills' && (canDo(PERMS.ledgerRead) ? <BillsTab partyId={pt.id} partyName={pt.name} /> : <NoPermission what="ledgers" />)}
                   {tab === 'invoices' && <InvoicesTab partyId={pt.id} isCustomer={isCustomer} onReceipt={() => setReceipt('receipt')} />}
                   {tab === 'payments' && <PaymentsTab partyId={pt.id} />}
                 </Card>

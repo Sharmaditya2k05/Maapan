@@ -87,6 +87,8 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /internal/v1/outbox/dead", v.Internal(httpx.H(s.outboxDead)))
 	mux.Handle("POST /internal/v1/outbox/replay", v.Internal(httpx.H(s.outboxReplay)))
 
+	s.marketRoutes(mux, v)
+
 	mux.Handle("POST /events", events.Handler(v, trustIAM, s.Router()))
 }
 

@@ -80,6 +80,9 @@ func run(ctx context.Context) error {
 	if u := config.String("BAHI_URL", ""); u != "" {
 		msgs.Bahi = &clients.BahiClient{C: svc.New(u, secret, idTok)}
 	}
+	if u := config.String("AADESH_URL", ""); u != "" {
+		msgs.PDFLinks = &clients.AadeshPDF{C: svc.New(u, secret, idTok), TTLSeconds: config.Int("INVOICE_PDF_TTL", 86400)}
+	}
 	oidc := &jobauth.OIDC{
 		Audience: config.String("JOBS_OIDC_AUDIENCE", ""),
 		Emails:   config.List("JOBS_OIDC_EMAILS", nil),

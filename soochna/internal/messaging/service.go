@@ -58,6 +58,11 @@ type Service struct {
 	// messages, e.g. https://files.maapan.in/invoices/{tenant_id}/{invoice_id}.pdf.
 	// Empty = no attachment. Placeholders: {tenant_id} {invoice_id} {number}.
 	InvoicePDFURL string
+	// PDFLinks, when set, asks aadesh for a signed, short-lived invoice-PDF link
+	// for each message (preferred over InvoicePDFURL).
+	PDFLinks interface {
+		Link(ctx context.Context, tenantID, invoiceID string) (url, fileName string, err error)
+	}
 
 	Now func() time.Time
 }

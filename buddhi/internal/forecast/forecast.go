@@ -124,3 +124,57 @@ func Reorder(m Model, from time.Time, onHand float64, leadDays, coverDays int) S
 }
 
 func round3(x float64) float64 { return math.Round(x*1000) / 1000 }
+
+// Stock is bhandar's view of one item at one store.
+type Stock struct {
+	OnHand       float64
+	ReorderLevel float64 // 0 = no rule set
+	ReorderQty   float64 // 0 = top up to twice the level
+}
+
+// Combined is a re-order suggestion from both signals.
+type Combined struct {
+	Needed         bool     `json:"needed"`
+	SuggestedQty   float64  `json:"suggested_qty"`
+	ForecastQty    float64  `json:"forecast_qty"`     // what demand over lead time + cover needs
+	RuleQty        float64  `json:"reorder_rule_qty"` // what bhandar's re-order rule asks for
+	DemandLead     float64  `json:"forecast_demand_over_lead_time"`
+	DaysOfCover    *float64 `json:"days_of_cover,omitempty"` // on hand ÷ forecast daily demand
+	StockoutRisk   bool     `json:"stockout_before_delivery"`
+	Reasons        []string `json:"reasons"` // forecast | below_reorder_level
+	ForecastActive bool     `json:"-"`
+}
+
+// Suggest combines buddhi's demand forecast (m, nil when the item has no
+// sales history) with bhandar's stock and re-order rule. The larger of the two
+// quantities wins, so a slow seller still respects its re-order level and a
+// fast seller is bought before it hits the level.
+func Suggest(m *Model, from time.Time, st Stock, leadDays, coverDays int) Combined {
+	c := Combined{Reasons: []string{}}
+	if m != nil && m.Level > 0 {
+		c.ForecastActive = true
+		f := Reorder(*m, from, st.OnHand, leadDays, coverDays)
+		c.DemandLead = f.DemandLead
+		if f.Needed {
+			c.ForecastQty = f.SuggestedQty
+			c.Reasons = append(c.Reasons, "forecast")
+		}
+		cover := math.Round(100*math.Max(st.OnHand, 0)/m.Level) / 100
+		c.DaysOfCover = &cover
+		c.StockoutRisk = cover < float64(leadDays)
+	}
+	if st.ReorderLevel > 0 && st.OnHand <= st.ReorderLevel {
+		q := st.ReorderQty
+		if q <= 0 {
+			q = 2*st.ReorderLevel - st.OnHand
+		}
+		c.RuleQty = math.Ceil(math.Max(q, 0))
+		c.Reasons = append(c.Reasons, "below_reorder_level")
+		if !c.ForecastActive && st.OnHand <= 0 {
+			c.StockoutRisk = true
+		}
+	}
+	c.SuggestedQty = math.Max(c.ForecastQty, c.RuleQty)
+	c.Needed = c.SuggestedQty > 0
+	return c
+}

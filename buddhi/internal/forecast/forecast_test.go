@@ -68,3 +68,36 @@ func TestEmptyAndZero(t *testing.T) {
 		t.Fatal("zero series")
 	}
 }
+
+func TestSuggestCombinesForecastAndRule(t *testing.T) {
+	from := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	flat := &Model{Level: 10}
+	for i := range flat.DOW {
+		flat.DOW[i] = 1
+	}
+	// Fast seller above its level: forecast alone triggers (70 over 7 days > 30).
+	c := Suggest(flat, from, Stock{OnHand: 30, ReorderLevel: 20, ReorderQty: 50}, 7, 7)
+	if !c.Needed || c.ForecastQty != 110 || c.RuleQty != 0 || c.SuggestedQty != 110 || !c.StockoutRisk {
+		t.Fatalf("forecast case %+v", c)
+	}
+	if c.DaysOfCover == nil || *c.DaysOfCover != 3 {
+		t.Fatalf("days of cover %+v", c.DaysOfCover)
+	}
+	// Slow seller at its level: the rule wins.
+	slow := &Model{Level: 0.1}
+	for i := range slow.DOW {
+		slow.DOW[i] = 1
+	}
+	c = Suggest(slow, from, Stock{OnHand: 5, ReorderLevel: 5, ReorderQty: 24}, 7, 7)
+	if !c.Needed || c.SuggestedQty != 24 || len(c.Reasons) != 1 || c.Reasons[0] != "below_reorder_level" {
+		t.Fatalf("rule case %+v", c)
+	}
+	// No history, no rule: nothing to say.
+	if c := Suggest(nil, from, Stock{OnHand: 0}, 7, 7); c.Needed {
+		t.Fatalf("%+v", c)
+	}
+	// No history, below level without a qty: top up to twice the level.
+	if c := Suggest(nil, from, Stock{OnHand: 2, ReorderLevel: 10}, 7, 7); c.SuggestedQty != 18 {
+		t.Fatalf("%+v", c)
+	}
+}

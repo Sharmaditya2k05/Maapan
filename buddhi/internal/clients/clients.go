@@ -17,15 +17,18 @@ type Clients struct {
 	Aadesh   *svc.Client
 	Soochna  *svc.Client
 	Pehchaan *svc.Client
+	Kar      *svc.Client
 }
 
 // StockItem is one row of bhandar's stock summary.
 type StockItem struct {
 	ItemID       string  `json:"item_id"`
 	Name         string  `json:"name"`
+	Unit         string  `json:"unit,omitempty"`
 	OnHand       float64 `json:"on_hand"`
 	ValuePaise   int64   `json:"value_paise"`
 	ReorderLevel float64 `json:"reorder_level"`
+	ReorderQty   float64 `json:"reorder_qty"`
 }
 
 // StockSummary calls bhandar GET /internal/v1/stock/summary.

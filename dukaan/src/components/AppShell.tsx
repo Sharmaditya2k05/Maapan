@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { ChevronDown, CloudOff, LogOut, Menu, RefreshCw, Store as StoreIcon, X } from 'lucide-react'
 import { Logo, LogoMark } from './Logo'
 import { NAV, NAV_GROUPS } from './nav'
+import { StatusBanner } from './StatusBanner'
 import { Avatar, Badge } from './ui'
 import { useOnline, usePerm, useSessionUser, useStore } from '@/lib/hooks'
 import { session } from '@/lib/session'
@@ -188,6 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {user && <Badge tone="brand" className="hidden sm:inline-flex">{ROLE_LABEL[user.role]}</Badge>}
           <UserMenu />
         </header>
+        <StatusBanner />
         <main className="flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-8">{children}</main>
       </div>
     </div>

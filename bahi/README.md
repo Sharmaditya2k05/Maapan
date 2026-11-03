@@ -258,6 +258,29 @@ TDS entries/challans/settings and GST set-offs, and every update/delete of vouch
 bank transactions, is written to `audit_log` by a Postgres trigger with before/after images and the actor
 (`bahi.actor`, set per transaction). `GET /v1/audit?entity=&entity_id=&actor=&action=&from=&to=` reads it.
 
+### Import support (aayaat)
+
+All `/internal/v1/bulk/*` calls answer `{created, updated, errors:[{index, message}], results:[{index, id, created}]}`;
+each record runs in its own transaction, so one bad row never sinks the batch, and `results` tells an importer which
+records this call created (rollback archives only those).
+
+| Endpoint | What is stored / posted | Key (re-delivery = no-op) |
+|---|---|---|
+| `bulk/parties` | party + ledger (`created_via='import'`); opening voucher `party:<id>` when `opening_balance_paise` > 0 | `external_ref` |
+| `bulk/opening-balances` | Opening voucher Dr/Cr target · Cr/Dr *Opening Balance Difference* 3900, dated `as_of` | `bulk:<as_of>:acct:<code>` / `…:party:<id>` |
+| `bulk/open-bills` | per bill: opening voucher Dr/Cr party · Cr/Dr 3900 dated `as_of` (exactly what a party-totals line posts, so the party balance is the same either way), raising one bill with the original `bill_no`, `bill_date`, `due_date` (else bill date + party credit days) and `bill_amount_paise` → due-date aging and outstanding match bill by bill. Refused when the party already has a party-level opening (party master or party totals): that would count the outstanding twice | `bill:<external_ref>` |
+| `bulk/invoice-history` | dated before `as_of`: an `invoice_history` row only (shown in `GET /v1/invoice-history` and as `history` in the party statement; the opening balances already hold its effect). On/after `as_of`: posted like aadesh's invoice/note (sales `SV`, purchase `PV`, credit note `CN`, debit note `DN`; a bill with `due_date`), period lock respected; a cash bill (no party) is settled to Cash-in-hand. Taxable + taxes + round off must equal the total. No stock is ever moved | `external_ref` (voucher `source=import`) |
+| `bulk/accounts` | ledger or group under `parent_code`, or under `group` by name — a bahi group, else a Tally group (*Duties & Taxes* → 2200, *Indirect Expenses* → 5500, *Bank Accounts* → Assets + `is_bank`, *Capital Account* → Capital & Equity …). Code generated after the parent's highest numeric child when not given | `external_ref`, then `code`, then name |
+
+**Rollback** (`kind`: `parties`, `opening_balances`, `open_bills`, `invoices`, `accounts`): imported vouchers are
+**reversed** on their own date (source `import.rollback`, the original becomes `reversed`, its bill cancelled) and
+their key is retired so the record can be imported again; history rows are deleted; a party is archived (its opening
+reversed, `external_ref` released) only if the import created it (`created: true`, or unknown and `created_via='import'`)
+and it has no other vouchers, imported invoices or cheques; an imported account is deleted only when nothing was posted
+to it. A record that was only *updated* by the import (`created: false`) is left as it is. Refusals are per record:
+bill settled since the import, voucher allocated against bills, TDS entries, the locked period (`books are locked up
+to …`), party activity. Records already undone, or never imported, succeed. Item kinds belong to bhandar (`422`).
+
 ### Period lock
 
 `PUT /v1/settings/period-lock {"locked_until":"YYYY-MM-DD"}` (`settings:manage`) locks the books up to and
@@ -327,8 +350,13 @@ Dates are `YYYY-MM-DD`; `from`/`to` default to the start of the current financia
 | `GET /internal/v1/parties/{id}/credit` | service secret | `{credit_limit_paise, credit_days, balance_paise, overdue_paise, available_paise (−1 = no limit), over_limit}` |
 | `GET /internal/v1/receivables/overdue` | service secret | `?as_of=` → `{rows:[{party_id, party_name, phone, email, overdue_paise, oldest_due_date, days_overdue}]}`: customers with bill-wise outstanding past due (for soochna reminders) |
 | `GET /internal/v1/parties/{id}` | service secret | Party for billing (ARCHITECTURE §6) + `credit_days` so aadesh can compute due dates and enforce credit |
-| `POST /internal/v1/bulk/parties` | service secret | Upsert by `external_ref`, optional opening balance |
-| `POST /internal/v1/bulk/opening-balances` | service secret | One opening voucher per line; re-runs are no-ops |
+| `POST /internal/v1/bulk/parties` | service secret | Upsert by `external_ref` (+ `pan`, `shipping_address`); a re-import also updates email, credit limit and days; optional opening balance (never re-posted) |
+| `POST /internal/v1/bulk/opening-balances` | service secret | One opening voucher per line (key `as_of` + account / party, optional `external_ref` kept on the voucher); re-runs are no-ops |
+| `POST /internal/v1/bulk/open-bills` | service secret | `{as_of, bills:[{party_external_ref, party_name, bill_no, bill_date, due_date, bill_amount_paise, amount_paise, type: dr\|cr, external_ref}]}` — one opening voucher + bill per row, idempotent by `external_ref` (see *Import support*) |
+| `POST /internal/v1/bulk/invoice-history` | service secret | `{as_of, invoices:[{doc_type, number, date, party_external_ref, …, total_paise, external_ref}]}` — before `as_of` history only, on/after posted (source `import`); never moves stock |
+| `POST /internal/v1/bulk/accounts` | service secret | `{accounts:[{code?, name, parent_code \| group, is_group, is_bank, is_cash, external_ref?}]}` — ledgers/groups under the chart (Tally group names accepted); idempotent by external_ref, code, name |
+| `POST /internal/v1/bulk/rollback` | service secret | `{kind, job_id, as_of, records:[{external_ref, account_code, party_external_ref, created}]}` — undo what an import created; per-record refusal reasons in `errors` |
+| `GET /v1/invoice-history` | `ledger:read` | Imported invoices `?party_id=&doc_type=&status=history\|posted&from=&to=&format=csv` (`from` defaults to 2000-01-01) |
 | `GET /internal/v1/reports/summary` | service secret | For buddhi dashboards |
 | `POST /events` | service secret / IAM | Pub/Sub push endpoint |
 
@@ -357,10 +385,12 @@ internal/ledger/gstsetoff.go   GSTR-3B set-off (+ kar.return.filed)
 internal/ledger/yearend.go     year-end close / reopen
 internal/ledger/tally.go       Tally Prime XML export
 internal/ledger/audit.go       audit trail reader
+internal/ledger/imports.go     aayaat import support: open bills, invoice history, accounts, rollback
 internal/posting/tds.go, setoff.go, bankmatch.go   pure TDS rules, set-off voucher, auto-match
 internal/bankstmt/             CSV/XLSX statement parser with bank presets
 migrations/                    schema + balance trigger; 0002 = phase-1 accounts, reversed_by, quarantine, period lock;
-                               0003 = phase-4 accounts, bills, bank statements, cheque columns, TDS, GST set-off, audit trail
+                               0003 = phase-4 accounts, bills, bank statements, cheque columns, TDS, GST set-off, audit trail;
+                               0004 = import support (party shipping address / origin, voucher external_ref, invoice_history)
 ```
 
 ### Chart of accounts added in phase 1

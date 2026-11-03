@@ -64,12 +64,18 @@ func itemKey(l invLine) string {
 
 // delta is what one invoice adds to (or, cancelled, removes from) the counters.
 type delta struct {
-	store, day          string
-	sales, taxable, tax int64
-	bills, cancelled    int64
-	margin, marginBase  int64
-	items               map[string]itemDelta
-	payments            map[string]int64
+	store, day            string
+	sales, taxable, tax   int64
+	bills, cancelled      int64
+	margin, marginBase    int64
+	returns, returnsPaise int64
+	items                 map[string]itemDelta
+	payments              map[string]int64
+
+	// Versions of the (store, day) and (all, day) rollups after this delta,
+	// set by bumpVersions inside the same transaction. The Redis mirror applies
+	// the delta only on top of version-1, so a missed mirror is never hidden.
+	seqStore, seqAll int64
 }
 
 type itemDelta struct {
@@ -110,13 +116,17 @@ func (s *Service) OnInvoiceCreated(ctx context.Context, e events.Envelope) error
 	return nil
 }
 
-// OnInvoiceCancelled handles aadesh.invoice.cancelled.
-func (s *Service) OnInvoiceCancelled(ctx context.Context, e events.Envelope) error {
+// OnNoteCreated handles aadesh.note.created. A sale return (credit note)
+// reduces net sales, GST, margin, item sales and — for refunds paid at the
+// counter — the payment mix on the note's date, and is counted as a return.
+// Purchase returns (debit notes) do not touch sales KPIs.
+func (s *Service) OnNoteCreated(ctx context.Context, e events.Envelope) error {
 	var inv invoiceEvent
 	if err := json.Unmarshal(e.Data, &inv); err != nil {
+		logx.From(ctx).Error("bad note payload", "error", err.Error())
 		return nil
 	}
-	if inv.DocType != "sale" {
+	if inv.DocType != "sale_return" || inv.StoreID == "" {
 		return nil
 	}
 	var d *delta
@@ -125,25 +135,59 @@ func (s *Service) OnInvoiceCancelled(ctx context.Context, e events.Envelope) err
 		if err != nil || !fresh {
 			return err
 		}
-		var store, day string
+		d, err = s.addReturn(ctx, tx, e.TenantID, inv)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	s.mirror(ctx, e.TenantID, d)
+	return nil
+}
+
+// OnInvoiceCancelled handles aadesh.invoice.cancelled for sales and sale returns.
+func (s *Service) OnInvoiceCancelled(ctx context.Context, e events.Envelope) error {
+	var inv invoiceEvent
+	if err := json.Unmarshal(e.Data, &inv); err != nil {
+		return nil
+	}
+	if inv.DocType != "sale" && inv.DocType != "sale_return" {
+		return nil
+	}
+	var d *delta
+	err := db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
+		fresh, err := db.MarkProcessed(ctx, tx, e.ID, e.Type)
+		if err != nil || !fresh {
+			return err
+		}
+		var docType, store, day string
 		var dd delta
 		err = tx.QueryRow(ctx, `UPDATE invoice_facts SET cancelled=true
 			WHERE tenant_id=$1 AND invoice_id=$2 AND NOT cancelled
-			RETURNING store_id::text, day::text, grand_total_paise, taxable_paise, tax_paise, margin_paise, margin_base_paise`,
-			e.TenantID, inv.InvoiceID).Scan(&store, &day, &dd.sales, &dd.taxable, &dd.tax, &dd.margin, &dd.marginBase)
+			RETURNING doc_type, store_id::text, day::text, grand_total_paise, taxable_paise, tax_paise, margin_paise, margin_base_paise`,
+			e.TenantID, inv.InvoiceID).Scan(&docType, &store, &day, &dd.sales, &dd.taxable, &dd.tax, &dd.margin, &dd.marginBase)
 		if db.IsNotFound(err) {
 			return nil // never counted (e.g. created before buddhi was deployed)
 		}
 		if err != nil {
 			return err
 		}
-		dd.store, dd.day, dd.bills, dd.cancelled = store, day, 1, -1 // negated below
-		dd.items, dd.payments = lineDeltas(inv), tenderDeltas(inv)
-		neg := dd.negate()
-		if err := applyDelta(ctx, tx, e.TenantID, neg); err != nil {
+		dd.store, dd.day = store, day
+		var rev delta
+		if docType == "sale_return" {
+			// Facts of a return are stored negative; cancelling it adds them back.
+			rev = dd.negate()
+			rev.returns, rev.returnsPaise = -1, dd.sales // dd.sales = -grand
+			rev.items, rev.payments = lineDeltas(inv), tenderDeltas(inv)
+		} else {
+			dd.bills, dd.cancelled = 1, -1 // negated below
+			dd.items, dd.payments = lineDeltas(inv), tenderDeltas(inv)
+			rev = dd.negate()
+		}
+		if err := applyDelta(ctx, tx, e.TenantID, &rev); err != nil {
 			return err
 		}
-		d = &neg
+		d = &rev
 		return nil
 	})
 	if err != nil {
@@ -178,7 +222,10 @@ func (s *Service) OnPaymentCaptured(ctx context.Context, e events.Envelope) erro
 			d = nil
 			return err
 		}
-		return upsertPayments(ctx, tx, e.TenantID, d)
+		if err := upsertPayments(ctx, tx, e.TenantID, d); err != nil {
+			return err
+		}
+		return bumpVersions(ctx, tx, e.TenantID, d)
 	})
 	if err != nil {
 		return err
@@ -205,6 +252,7 @@ func (d delta) negate() delta {
 	n := d
 	n.sales, n.taxable, n.tax, n.margin, n.marginBase = -d.sales, -d.taxable, -d.tax, -d.margin, -d.marginBase
 	n.bills, n.cancelled = -d.bills, -d.cancelled
+	n.returns, n.returnsPaise = -d.returns, -d.returnsPaise
 	n.items = map[string]itemDelta{}
 	for k, v := range d.items {
 		n.items[k] = itemDelta{name: v.name, qty: -v.qty, sales: -v.sales}
@@ -250,37 +298,12 @@ func (s *Service) addSale(ctx context.Context, tx pgx.Tx, tenantID string, inv i
 		day = s.Now().In(IST).Format(time.DateOnly)
 	}
 
-	// Gross margin over lines whose purchase cost we know.
-	var ids []string
-	for _, l := range inv.Lines {
-		if l.ItemID != "" {
-			ids = append(ids, l.ItemID)
-		}
+	margin, base, err := marginOf(ctx, tx, tenantID, inv)
+	if err != nil {
+		return nil, err
 	}
-	costs := map[string]int64{}
-	if len(ids) > 0 {
-		rows, err := tx.Query(ctx, `SELECT item_id::text, unit_cost_paise FROM item_costs WHERE tenant_id=$1 AND item_id = ANY($2::uuid[])`, tenantID, ids)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id string
-			var c int64
-			if err := rows.Scan(&id, &c); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			costs[id] = c
-		}
-		rows.Close()
-	}
-	var margin, base int64
 	alines := make([]anomaly.Line, 0, len(inv.Lines))
 	for _, l := range inv.Lines {
-		if c, ok := costs[l.ItemID]; ok {
-			margin += l.TaxablePaise - int64(math.Round(l.Qty*float64(c)))
-			base += l.TaxablePaise
-		}
 		alines = append(alines, anomaly.Line{Qty: l.Qty, UnitPricePaise: l.UnitPricePaise, TaxablePaise: l.TaxablePaise,
 			TotalPaise: l.TotalPaise, DiscountPaise: l.DiscountPaise, PriceIncludesTax: l.PriceIncludesTax})
 	}
@@ -299,7 +322,7 @@ func (s *Service) addSale(ctx context.Context, tx pgx.Tx, tenantID string, inv i
 	}
 	d := delta{store: inv.StoreID, day: day, sales: inv.GrandTotalPaise, taxable: inv.TaxablePaise, tax: tax,
 		bills: 1, margin: margin, marginBase: base, items: lineDeltas(inv), payments: tenderDeltas(inv)}
-	if err := applyDelta(ctx, tx, tenantID, d); err != nil {
+	if err := applyDelta(ctx, tx, tenantID, &d); err != nil {
 		return nil, err
 	}
 
@@ -315,14 +338,88 @@ func (s *Service) addSale(ctx context.Context, tx pgx.Tx, tenantID string, inv i
 	return &d, nil
 }
 
-func applyDelta(ctx context.Context, tx pgx.Tx, tenantID string, d delta) error {
-	_, err := tx.Exec(ctx, `INSERT INTO sales_daily (tenant_id, store_id, day, sales_paise, taxable_paise, tax_paise, bills, cancelled, margin_paise, margin_base_paise)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+// marginOf is the gross margin over lines whose purchase cost we know, and the
+// taxable value of those lines.
+func marginOf(ctx context.Context, tx pgx.Tx, tenantID string, inv invoiceEvent) (margin, base int64, err error) {
+	var ids []string
+	for _, l := range inv.Lines {
+		if l.ItemID != "" {
+			ids = append(ids, l.ItemID)
+		}
+	}
+	if len(ids) == 0 {
+		return 0, 0, nil
+	}
+	costs := map[string]int64{}
+	rows, err := tx.Query(ctx, `SELECT item_id::text, unit_cost_paise FROM item_costs WHERE tenant_id=$1 AND item_id = ANY($2::uuid[])`, tenantID, ids)
+	if err != nil {
+		return 0, 0, err
+	}
+	for rows.Next() {
+		var id string
+		var c int64
+		if err := rows.Scan(&id, &c); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		costs[id] = c
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	for _, l := range inv.Lines {
+		if c, ok := costs[l.ItemID]; ok {
+			margin += l.TaxablePaise - int64(math.Round(l.Qty*float64(c)))
+			base += l.TaxablePaise
+		}
+	}
+	return margin, base, nil
+}
+
+// addReturn books a sale return (credit note). Its facts are stored with
+// negative amounts so a later cancellation can reverse exactly what was taken off.
+func (s *Service) addReturn(ctx context.Context, tx pgx.Tx, tenantID string, inv invoiceEvent) (*delta, error) {
+	tax := inv.CGSTPaise + inv.SGSTPaise + inv.IGSTPaise + inv.CessPaise
+	day := inv.InvoiceDate
+	if day == "" {
+		day = s.Now().In(IST).Format(time.DateOnly)
+	}
+	margin, base, err := marginOf(ctx, tx, tenantID, inv)
+	if err != nil {
+		return nil, err
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO invoice_facts (tenant_id, invoice_id, store_id, doc_type, number, day, created_by,
+		party_id, party_gstin, grand_total_paise, taxable_paise, tax_paise, margin_paise, margin_base_paise)
+		VALUES ($1,$2,$3,'sale_return',$4,$5,$6,NULLIF($7,''),NULLIF($8,''),$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
+		tenantID, inv.InvoiceID, inv.StoreID, inv.Number, day, inv.CreatedBy, inv.PartyID, inv.PartyGSTIN,
+		-inv.GrandTotalPaise, -inv.TaxablePaise, -tax, -margin, -base)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, nil
+	}
+	up := delta{store: inv.StoreID, day: day, sales: inv.GrandTotalPaise, taxable: inv.TaxablePaise, tax: tax,
+		margin: margin, marginBase: base, items: lineDeltas(inv), payments: tenderDeltas(inv)}
+	d := up.negate()
+	d.returns, d.returnsPaise = 1, inv.GrandTotalPaise
+	if err := applyDelta(ctx, tx, tenantID, &d); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func applyDelta(ctx context.Context, tx pgx.Tx, tenantID string, d *delta) error {
+	_, err := tx.Exec(ctx, `INSERT INTO sales_daily (tenant_id, store_id, day, sales_paise, taxable_paise, tax_paise, bills, cancelled,
+			margin_paise, margin_base_paise, returns, returns_paise)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (tenant_id, store_id, day) DO UPDATE SET
 			sales_paise = sales_daily.sales_paise + $4, taxable_paise = sales_daily.taxable_paise + $5,
 			tax_paise = sales_daily.tax_paise + $6, bills = sales_daily.bills + $7, cancelled = sales_daily.cancelled + $8,
-			margin_paise = sales_daily.margin_paise + $9, margin_base_paise = sales_daily.margin_base_paise + $10`,
-		tenantID, d.store, d.day, d.sales, d.taxable, d.tax, d.bills, d.cancelled, d.margin, d.marginBase)
+			margin_paise = sales_daily.margin_paise + $9, margin_base_paise = sales_daily.margin_base_paise + $10,
+			returns = sales_daily.returns + $11, returns_paise = sales_daily.returns_paise + $12`,
+		tenantID, d.store, d.day, d.sales, d.taxable, d.tax, d.bills, d.cancelled, d.margin, d.marginBase, d.returns, d.returnsPaise)
 	if err != nil {
 		return err
 	}
@@ -341,7 +438,28 @@ func applyDelta(ctx context.Context, tx pgx.Tx, tenantID string, d delta) error 
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
 		return err
 	}
-	return upsertPayments(ctx, tx, tenantID, &d)
+	if err := upsertPayments(ctx, tx, tenantID, d); err != nil {
+		return err
+	}
+	return bumpVersions(ctx, tx, tenantID, d)
+}
+
+// bumpVersions increments the rollup versions of d's store and of the
+// tenant-wide aggregate for d's day, recording the new values on d.
+func bumpVersions(ctx context.Context, tx pgx.Tx, tenantID string, d *delta) error {
+	bump := func(store string) (int64, error) {
+		var seq int64
+		err := tx.QueryRow(ctx, `INSERT INTO kpi_versions (tenant_id, store_key, day, seq) VALUES ($1,$2,$3,1)
+			ON CONFLICT (tenant_id, store_key, day) DO UPDATE SET seq = kpi_versions.seq + 1 RETURNING seq`,
+			tenantID, store, d.day).Scan(&seq)
+		return seq, err
+	}
+	var err error
+	if d.seqStore, err = bump(d.store); err != nil {
+		return err
+	}
+	d.seqAll, err = bump(AllStores)
+	return err
 }
 
 func upsertPayments(ctx context.Context, tx pgx.Tx, tenantID string, d *delta) error {
@@ -472,56 +590,3 @@ func docLabel(docType string) string {
 }
 
 func round2(x float64) float64 { return math.Round(x*100) / 100 }
-
-// ---------- Redis mirror ----------
-
-func kpiKey(tenant, store, day string) string {
-	return "buddhi:kpi:" + tenant + ":" + store + ":" + day
-}
-func topKey(tenant, store, day string) string {
-	return "buddhi:top:" + tenant + ":" + store + ":" + day
-}
-func payKey(tenant, store, day string) string {
-	return "buddhi:pay:" + tenant + ":" + store + ":" + day
-}
-func nameKey(tenant string) string { return "buddhi:itemnames:" + tenant }
-
-// mirror applies d to Redis after the Postgres commit. Failures only log: the
-// dashboard falls back to Postgres when a key is missing, and keys expire.
-func (s *Service) mirror(ctx context.Context, tenant string, d *delta) {
-	if s.Redis == nil || d == nil {
-		return
-	}
-	p := s.Redis.TxPipeline()
-	for _, store := range []string{d.store, AllStores} {
-		if d.sales != 0 || d.bills != 0 || d.cancelled != 0 {
-			k := kpiKey(tenant, store, d.day)
-			p.HIncrBy(ctx, k, "sales_paise", d.sales)
-			p.HIncrBy(ctx, k, "taxable_paise", d.taxable)
-			p.HIncrBy(ctx, k, "tax_paise", d.tax)
-			p.HIncrBy(ctx, k, "bills", d.bills)
-			p.HIncrBy(ctx, k, "cancelled", d.cancelled)
-			p.HIncrBy(ctx, k, "margin_paise", d.margin)
-			p.HIncrBy(ctx, k, "margin_base_paise", d.marginBase)
-			p.Expire(ctx, k, redisTTL)
-		}
-		if len(d.items) > 0 {
-			k := topKey(tenant, store, d.day)
-			for key, it := range d.items {
-				p.ZIncrBy(ctx, k, float64(it.sales), key)
-				p.HSet(ctx, nameKey(tenant), key, it.name)
-			}
-			p.Expire(ctx, k, redisTTL)
-		}
-		if len(d.payments) > 0 {
-			k := payKey(tenant, store, d.day)
-			for mode, amt := range d.payments {
-				p.HIncrBy(ctx, k, mode, amt)
-			}
-			p.Expire(ctx, k, redisTTL)
-		}
-	}
-	if _, err := p.Exec(ctx); err != nil {
-		s.Log.Warn("redis kpi mirror failed", "error", err.Error())
-	}
-}

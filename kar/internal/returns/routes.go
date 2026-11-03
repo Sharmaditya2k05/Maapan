@@ -21,6 +21,7 @@ import (
 //	PUT  /v1/returns/itc-opening                                         gst:file
 //	POST /v1/returns/gstr2b/import?gstin=&period=                        gst:file
 //	GET  /v1/returns/gstr2b?gstin=&period=[&status=]                     report:read
+//	GET  /internal/v1/returns/gstr2b?gstin=&period=[&status=]            service secret
 //	POST /v1/returns/gstr2b/fetch?gstin=&period=                         gst:file
 //	PUT  /v1/returns/ims/{doc_key}?gstin=                                gst:file
 //	POST /v1/returns/ims/accept-matched?gstin=&period=                   gst:file
@@ -38,6 +39,9 @@ func Register(mux *http.ServeMux, v *auth.Verifier, d Deps) {
 
 	mux.Handle("POST /v1/returns/gstr2b/import", user(s.rc.Import, auth.PermGSTFile))
 	mux.Handle("GET /v1/returns/gstr2b", user(s.rc.List, auth.PermReportRead))
+	// The same reconciliation for services (buddhi's GST insights): tenant from
+	// X-Tenant-ID, empty gstin = primary registration.
+	mux.Handle("GET /internal/v1/returns/gstr2b", v.Internal(httpx.H(s.rc.List)))
 	mux.Handle("POST /v1/returns/gstr2b/fetch", user(s.rc.Fetch, auth.PermGSTFile))
 	mux.Handle("PUT /v1/returns/ims/{doc_key}", user(s.rc.SetAction, auth.PermGSTFile))
 	mux.Handle("POST /v1/returns/ims/accept-matched", user(s.rc.AcceptMatched, auth.PermGSTFile))

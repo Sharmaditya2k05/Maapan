@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Pencil, Plus, UserMinus, Users } from 'lucide-react'
 import { Avatar, Badge, Button, Card, Confirm, Empty, ErrorBox, Field, IconButton, Input, Modal, QueryState, Select, Table, Toggle, useToast } from '@/components/ui'
 import { fmtDate, useGet, usePerm, useSave, useSessionUser } from '@/lib/hooks'
-import { del, errorMessage } from '@/lib/api'
+import { api, del, errorMessage } from '@/lib/api'
 import { PERMS, ROLE_LABEL, type Role } from '@/lib/rbac'
 import { isStoreScoped } from '@/lib/stock/scope'
 import type { ListResponse, Store } from '@/lib/types'
@@ -110,6 +110,7 @@ export function UsersSection() {
   const [edit, setEdit] = useState<Member | null>(null)
   const [remove, setRemove] = useState<Member | null>(null)
   const removeAction = useAction<void, string>((id) => del(`/pehchaan/v1/users/${id}`), { invalidate: ['/pehchaan/v1/users'], onSuccess: () => { setRemove(null); toast('Access removed') } })
+  const reactivate = useAction<Member, string>((id) => api<Member>(`/pehchaan/v1/users/${id}`, { method: 'PATCH', body: { active: true } satisfies MemberUpdate }), { invalidate: ['/pehchaan/v1/users'], onSuccess: () => toast('Access restored with their previous role and stores') })
   const storeNames = (ids: string[]) => ids.map((id) => storeList.find((s) => s.id === id)?.name ?? id.slice(0, 6)).join(', ')
 
   return (
@@ -117,7 +118,7 @@ export function UsersSection() {
       <QueryState isLoading={users.isLoading} error={users.error} data={users.data} retry={() => users.refetch()}>
         {(d) => d.items.length === 0 ? <Empty icon={Users} title="Just you" text="Invite cashiers, managers and your accountant." /> : (
           <Table>
-            <thead className="bg-slate-50/60"><tr><th className="th">User</th><th className="th">Role</th><th className="th">Stores</th><th className="th">Last login</th><th className="th">Status</th><th className="th w-24" /></tr></thead>
+            <thead className="bg-slate-50/60"><tr><th className="th">User</th><th className="th">Role</th><th className="th">Stores</th><th className="th">Last login</th><th className="th">Status</th><th className="th w-32" /></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {d.items.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/60">
@@ -126,7 +127,7 @@ export function UsersSection() {
                   <td className="td text-xs text-slate-600">{isStoreScoped(m.role) ? storeNames(m.store_ids ?? []) || <span className="text-rose-600">no store</span> : 'All stores'}</td>
                   <td className="td text-xs text-slate-600">{m.last_login_at ? fmtDate(m.last_login_at, true) : 'never'}</td>
                   <td className="td"><Badge tone={m.active ? 'green' : 'red'}>{m.active ? 'active' : 'inactive'}</Badge></td>
-                  <td className="td"><div className="flex justify-end gap-1"><IconButton icon={Pencil} label={`Edit ${m.name || m.phone}`} onClick={() => setEdit(m)} />{m.active && m.id !== me?.id && <IconButton icon={UserMinus} label={`Remove ${m.name || m.phone}`} onClick={() => setRemove(m)} className="hover:text-rose-600" />}</div></td>
+                  <td className="td"><div className="flex justify-end gap-1"><IconButton icon={Pencil} label={`Edit ${m.name || m.phone}`} onClick={() => setEdit(m)} />{!m.active && <Button size="sm" variant="secondary" loading={reactivate.isPending && reactivate.variables === m.id} onClick={() => reactivate.mutate(m.id)}>Re-activate</Button>}{m.active && m.id !== me?.id && <IconButton icon={UserMinus} label={`Remove ${m.name || m.phone}`} onClick={() => setRemove(m)} className="hover:text-rose-600" />}</div></td>
                 </tr>
               ))}
             </tbody>

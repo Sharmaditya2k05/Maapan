@@ -48,6 +48,7 @@ func run(ctx context.Context) error {
 		Aadesh:   svc.New(config.String("AADESH_URL", "http://localhost:7004"), secret, idTok),
 		Soochna:  svc.New(config.String("SOOCHNA_URL", "http://localhost:7006"), secret, idTok),
 		Pehchaan: svc.New(config.String("PEHCHAAN_URL", "http://localhost:7001"), secret, idTok),
+		Kar:      svc.New(config.String("KAR_URL", "http://localhost:7003"), secret, idTok),
 	}
 	ai := llm.New(llm.Config{
 		APIKey:          config.String("ANTHROPIC_API_KEY", ""),

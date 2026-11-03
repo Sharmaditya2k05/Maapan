@@ -87,9 +87,6 @@ func (w *Weekly) Run(ctx context.Context) (*WeeklyResult, error) {
 
 func (w *Weekly) one(ctx context.Context, t store.Settings, ws, we, ps, pe time.Time) error {
 	ctx = auth.WithPrincipal(ctx, &auth.Principal{Internal: true, TenantID: t.TenantID})
-	if err := w.Guard.Check(ctx, t.TenantID); err != nil {
-		return err
-	}
 	d := func(x time.Time) string { return x.Format(time.DateOnly) }
 	cur, top, err := w.KPI.Range(ctx, t.TenantID, kpi.AllStores, d(ws), d(we))
 	if err != nil {
@@ -136,10 +133,16 @@ func (w *Weekly) one(ctx context.Context, t store.Settings, ws, we, ps, pe time.
 	}
 	fmt.Fprintf(&b, "Open issues flagged this week: %d\n", len(rep.Anomalies)+len(rep.Cancellations))
 
+	res, err := w.Guard.Reserve(ctx, t.TenantID, "weekly_summary", store.EstimateWeekly)
+	if err != nil {
+		return err
+	}
 	text, usage, err := w.LLM.Chat(ctx, llm.ChatRequest{
 		Tier: llm.Smart, Effort: "low", System: WeeklySystem, Prompt: b.String(), MaxTokens: 2000,
 	})
-	_ = w.Guard.Record(ctx, t.TenantID, "system", "weekly_summary", usage, err == nil)
+	if serr := w.Guard.Settle(ctx, res, "system", usage, err == nil); serr != nil {
+		w.Log.Warn("record usage", "tenant_id", t.TenantID, "error", serr.Error())
+	}
 	if err != nil {
 		return err
 	}

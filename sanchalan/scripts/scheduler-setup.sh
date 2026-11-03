@@ -47,3 +47,4 @@ job bhandar-reorder-scan       "0 8 * * *"     bhandar /internal/v1/jobs/reorder
 job bhandar-expiry-scan        "0 7 * * *"     bhandar /internal/v1/jobs/expiry-scan        # from W18
 job buddhi-forecast            "0 2 * * *"     buddhi  /internal/v1/jobs/forecast           # from W23
 job buddhi-weekly-summary      "0 9 * * MON"   buddhi  /internal/v1/jobs/weekly-summary     # from W23
+job buddhi-gst-insights        "0 6 * * *"     buddhi  /internal/v1/jobs/gst-insights       # refresh 2B mismatch insights daily

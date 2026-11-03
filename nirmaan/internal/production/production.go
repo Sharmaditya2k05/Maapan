@@ -1,23 +1,20 @@
-// Package production runs BOMs: plan → start → complete, consuming raw
-// material and producing finished goods in bhandar via nirmaan.production.completed.
+// Package production runs BOMs: plan → start (material issue, WIP) → one or
+// more completions (partial or final, good + rejected output, by-products,
+// unplanned consumption) or a failed batch. Each completion publishes
+// nirmaan.production.completed, so bhandar consumes raw material and receives
+// finished goods, and bahi books the transfer.
+//
+// Quantities on events are in each item's stock (base) unit; money is int64
+// paise computed with integer arithmetic.
 package production
 
 import (
-	"context"
-	"log/slog"
-	"math"
-	"strings"
+	"sort"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/maapan/mool/auth"
-	"github.com/maapan/mool/db"
-	"github.com/maapan/mool/events"
 	"github.com/maapan/mool/httpx"
 	"github.com/maapan/nirmaan/internal/bom"
-	"github.com/maapan/nirmaan/internal/clients"
+	"github.com/maapan/nirmaan/internal/units"
 )
 
 // Run statuses.
@@ -25,447 +22,319 @@ const (
 	StatusPlanned    = "planned"
 	StatusInProgress = "in_progress"
 	StatusCompleted  = "completed"
+	StatusFailed     = "failed"
 	StatusCancelled  = "cancelled"
 )
 
-// NextStatus validates a run state change for action (start | complete | cancel).
+// Line kinds.
+const (
+	KindConsume   = "consume"
+	KindProduce   = "produce"
+	KindByproduct = "byproduct"
+)
+
+// NextStatus validates a run state change for action
+// (start | issue | receive | complete | fail | cancel).
 func NextStatus(current, action string) (string, error) {
+	open := current == StatusPlanned || current == StatusInProgress
 	switch {
 	case action == "start" && current == StatusPlanned:
 		return StatusInProgress, nil
-	case action == "complete" && (current == StatusPlanned || current == StatusInProgress):
+	case action == "issue" && current == StatusInProgress:
+		return StatusInProgress, nil
+	case action == "receive" && open:
+		return StatusInProgress, nil
+	case action == "complete" && open:
 		return StatusCompleted, nil
-	case action == "cancel" && (current == StatusPlanned || current == StatusInProgress):
+	case action == "fail" && open:
+		return StatusFailed, nil
+	case action == "cancel" && open:
 		return StatusCancelled, nil
 	}
 	return "", httpx.Conflict("cannot %s a run that is %s", action, current)
 }
 
-// PlanLines turns a BOM into the direct component quantities (with scrap) for qty output.
+// Line is a planned/actual material line. PlannedQty is in Unit (as the BOM
+// says); PlannedBaseQty, IssuedQty and ActualQty are in BaseUnit (stock unit).
+type Line struct {
+	LineNo         int      `json:"line_no"`
+	Kind           string   `json:"kind"` // consume | produce | byproduct
+	ItemID         string   `json:"item_id"`
+	ItemName       string   `json:"item_name"`
+	Unit           string   `json:"unit"`
+	BaseUnit       string   `json:"base_unit"`
+	Factor         float64  `json:"factor"` // base units per Unit
+	IsSubAssembly  bool     `json:"is_sub_assembly"`
+	Unplanned      bool     `json:"unplanned"`
+	PlannedQty     float64  `json:"planned_qty"`
+	PlannedBaseQty float64  `json:"planned_base_qty"`
+	IssuedQty      float64  `json:"issued_qty"`
+	ActualQty      *float64 `json:"actual_qty,omitempty"`
+	UnitCostPaise  *int64   `json:"unit_cost_paise,omitempty"` // per base unit
+}
+
+func (l Line) actual() float64 {
+	if l.ActualQty == nil {
+		return 0
+	}
+	return *l.ActualQty
+}
+
+// PlanLines turns a BOM into the direct component quantities (yield and scrap
+// included) for qty output, converting each to its stock unit through cat.
 // Sub-assemblies are consumed as stock items; produce them in their own runs.
-func PlanLines(b *bom.BOM, qty float64) []Line {
+func PlanLines(b *bom.BOM, qty float64, cat units.Catalog) ([]Line, error) {
 	lines := make([]Line, 0, len(b.Components)+1)
 	for i, c := range b.Components {
+		f, base, err := cat.FactorFor(c.ItemID, c.Unit)
+		if err != nil {
+			return nil, httpx.Validation("%s: %s", c.ItemName, err.Error())
+		}
+		need := bom.GrossQty(c, b, qty)
 		lines = append(lines, Line{
-			LineNo: i + 1, Kind: "consume", ItemID: c.ItemID, ItemName: c.ItemName, Unit: c.Unit,
-			IsSubAssembly: c.IsSubAssembly,
-			PlannedQty:    bom.Round3(c.Qty / b.OutputQty * qty * (1 + c.ScrapPercent/100)),
+			LineNo: i + 1, Kind: KindConsume, ItemID: c.ItemID, ItemName: c.ItemName, Unit: units.Norm(c.Unit),
+			BaseUnit: base, Factor: f, IsSubAssembly: c.IsSubAssembly,
+			PlannedQty: units.Round3(need), PlannedBaseQty: units.Round3(need * f),
 		})
 	}
-	lines = append(lines, Line{LineNo: len(b.Components) + 1, Kind: "produce", ItemID: b.ItemID, ItemName: b.ItemName,
-		Unit: b.Unit, PlannedQty: bom.Round3(qty)})
-	return lines
+	f, base, err := cat.FactorFor(b.ItemID, b.Unit)
+	if err != nil {
+		return nil, httpx.Validation("%s: %s", b.ItemName, err.Error())
+	}
+	lines = append(lines, Line{LineNo: len(b.Components) + 1, Kind: KindProduce, ItemID: b.ItemID, ItemName: b.ItemName,
+		Unit: units.Norm(b.Unit), BaseUnit: base, Factor: f, PlannedQty: units.Round3(qty), PlannedBaseQty: units.Round3(qty * f)})
+	return lines, nil
 }
 
 // Shortage is a component the store does not have enough of.
 type Shortage struct {
 	ItemID   string  `json:"item_id"`
 	ItemName string  `json:"item_name"`
+	Unit     string  `json:"unit"`
 	Required float64 `json:"required"`
 	OnHand   float64 `json:"on_hand"`
+	Reserved float64 `json:"reserved,omitempty"` // issued to other open runs, not yet consumed
 	Short    float64 `json:"short"`
 }
 
-// Shortages compares consume lines with on-hand stock.
-func Shortages(lines []Line, onHand map[string]float64) []Shortage {
+// Shortages compares the still-to-consume base quantity of consume lines with
+// on-hand stock less what other open runs have been issued.
+func Shortages(lines []Line, onHand, reserved map[string]float64) []Shortage {
 	out := []Shortage{}
 	for _, l := range lines {
-		if l.Kind != "consume" {
+		if l.Kind != KindConsume {
 			continue
 		}
-		if have := onHand[l.ItemID]; have < l.PlannedQty {
-			out = append(out, Shortage{ItemID: l.ItemID, ItemName: l.ItemName, Required: l.PlannedQty, OnHand: have,
-				Short: bom.Round3(l.PlannedQty - have)})
+		need := units.Round3(l.PlannedBaseQty - l.actual())
+		if need <= 0 {
+			continue
+		}
+		have := units.Round3(onHand[l.ItemID] - reserved[l.ItemID])
+		if have < need {
+			out = append(out, Shortage{ItemID: l.ItemID, ItemName: l.ItemName, Unit: l.BaseUnit, Required: need,
+				OnHand: onHand[l.ItemID], Reserved: reserved[l.ItemID], Short: units.Round3(need - have)})
 		}
 	}
 	return out
 }
 
-// Run is a production run.
-type Run struct {
-	ID             string     `json:"id"`
-	BOMID          string     `json:"bom_id"`
-	ItemID         string     `json:"item_id"`
-	ItemName       string     `json:"item_name"`
-	StoreID        string     `json:"store_id"`
-	Qty            float64    `json:"qty"`
-	OutputQty      *float64   `json:"output_qty,omitempty"`
-	PlannedDate    string     `json:"planned_date"`
-	Status         string     `json:"status"`
-	OutputBatchNo  *string    `json:"output_batch_no,omitempty"`
-	TotalCostPaise *int64     `json:"total_cost_paise,omitempty"`
-	Notes          *string    `json:"notes,omitempty"`
-	CreatedBy      string     `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
-	CancelledAt    *time.Time `json:"cancelled_at,omitempty"`
-	Lines          []Line     `json:"lines,omitempty"`
-	Shortages      []Shortage `json:"shortages,omitempty"`
+// Price is a cost per base unit with its source (see clients.Source*).
+type Price struct {
+	Paise  int64
+	Source string
 }
 
-// Line is a planned/actual material line.
-type Line struct {
-	LineNo        int      `json:"line_no"`
-	Kind          string   `json:"kind"` // consume | produce
-	ItemID        string   `json:"item_id"`
-	ItemName      string   `json:"item_name"`
-	Unit          string   `json:"unit"`
-	IsSubAssembly bool     `json:"is_sub_assembly"`
-	PlannedQty    float64  `json:"planned_qty"`
-	ActualQty     *float64 `json:"actual_qty,omitempty"`
-	UnitCostPaise *int64   `json:"unit_cost_paise,omitempty"`
+// ReceiptInput is everything CalcReceipt needs about one completion.
+type ReceiptInput struct {
+	BOM          *bom.BOM
+	Lines        []Line // run lines, ActualQty = consumed/produced so far
+	RunQty       float64
+	PriorPortion float64 // good + rejected of earlier receipts (BOM unit)
+	Good         float64 // good output this receipt (BOM unit)
+	Rejected     float64 // rejected/failed output this receipt (BOM unit)
+	Final        bool
+	Overrides    map[int]float64 // run line no → consumed base qty this receipt
+	ByProducts   []ByProductLine
+	LabourHours  *float64
+	Prices       map[string]Price
 }
 
-// Service implements production runs.
-type Service struct {
-	DB      *pgxpool.Pool
-	BOMs    *bom.Service
-	Bhandar *clients.Bhandar
-	Relay   *events.Relay
-	Log     *slog.Logger
-	Now     func() time.Time
+// ByProductLine is a by-product (base unit) at a value per base unit.
+type ByProductLine struct {
+	LineNo   int
+	ItemID   string
+	ItemName string
+	BaseUnit string
+	Qty      float64
+	Rate     Price
 }
 
-// CreateInput is the body of POST /v1/production-runs.
-type CreateInput struct {
-	BOMID       string  `json:"bom_id"`
-	Qty         float64 `json:"qty"`
-	StoreID     string  `json:"store_id,omitempty"`
-	PlannedDate string  `json:"planned_date,omitempty"`
-	Notes       string  `json:"notes,omitempty"`
+// CalcLine is one costed line of a receipt.
+type CalcLine struct {
+	LineNo        int     `json:"line_no"`
+	Kind          string  `json:"kind"`
+	ItemID        string  `json:"item_id"`
+	ItemName      string  `json:"item_name"`
+	BaseUnit      string  `json:"unit"`
+	Qty           float64 `json:"qty"`
+	UnitCostPaise int64   `json:"unit_cost_paise"`
+	ExtendedPaise int64   `json:"extended_paise"`
+	PriceSource   string  `json:"price_source,omitempty"`
 }
 
-// Validate checks the body.
-func (in *CreateInput) Validate() error {
-	if in.BOMID == "" || in.Qty <= 0 {
-		return httpx.Validation("bom_id and a positive qty are required")
-	}
-	if in.PlannedDate != "" {
-		if _, err := time.Parse(time.DateOnly, in.PlannedDate); err != nil {
-			return httpx.Validation("planned_date must be YYYY-MM-DD")
-		}
-	}
-	return nil
+// ReceiptCalc is the costed result of one completion.
+type ReceiptCalc struct {
+	Lines            []CalcLine `json:"lines"`
+	MaterialPaise    int64      `json:"material_paise"`
+	OperationsPaise  int64      `json:"operations_paise"`
+	ByproductPaise   int64      `json:"byproduct_paise"`
+	TotalPaise       int64      `json:"total_paise"`     // material + operations (gross)
+	MainCostPaise    int64      `json:"main_cost_paise"` // total − by-products, carried by good output
+	UnitCostPaise    int64      `json:"unit_cost_paise"` // per base unit of good output
+	GoodBaseQty      float64    `json:"good_base_qty"`
+	LabourHours      float64    `json:"labour_hours"`
+	EffectivePortion float64    `json:"effective_portion"` // cumulative BOM-unit output the material is settled to
+	Missing          []string   `json:"missing_prices,omitempty"`
 }
 
-func canStore(p *auth.Principal, storeID string) bool {
-	return p.Claims == nil || p.Claims.CanAccessStore(storeID)
-}
-
-var ist = time.FixedZone("IST", 5*3600+1800)
-
-// Create plans a run from an active BOM and reports material availability.
-func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput) (*Run, error) {
-	store := in.StoreID
-	if store == "" {
-		store = p.StoreID
+// CalcReceipt costs one completion.
+//
+// Default consumption of a planned line settles material up to the cumulative
+// portion made so far: planned × portion ÷ run qty − already consumed, where
+// portion = good + rejected; a final completion settles at least the whole run
+// (so shortfall and wastage raise the unit cost, as before). Overrides replace
+// the default; unplanned lines consume only what is entered. Operations are
+// charged the same way; LabourHours replaces the planned hours for the portion.
+func CalcReceipt(in ReceiptInput) (ReceiptCalc, error) {
+	if in.Good < 0 || in.Rejected < 0 {
+		return ReceiptCalc{}, httpx.Validation("quantities cannot be negative")
 	}
-	if store == "" || !canStore(p, store) {
-		return nil, httpx.Forbidden("store_id missing or not accessible")
+	cum := in.PriorPortion + in.Good + in.Rejected
+	if in.Final && cum < in.RunQty {
+		cum = in.RunQty
 	}
-	b, err := bom.Load(ctx, s.DB, p.TenantID, in.BOMID)
-	if err != nil {
-		return nil, err
+	if !in.Final && in.Good+in.Rejected <= 0 {
+		return ReceiptCalc{}, httpx.Validation("a partial completion needs good or rejected output")
 	}
-	if b.Status != bom.StatusActive {
-		return nil, httpx.Validation("only an active BOM can be produced")
-	}
-	date := in.PlannedDate
-	if date == "" {
-		date = s.Now().In(ist).Format(time.DateOnly)
-	}
-	var id string
-	err = db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `INSERT INTO production_runs (tenant_id, bom_id, item_id, item_name, store_id, qty,
-			planned_date, notes, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-			p.TenantID, b.ID, b.ItemID, b.ItemName, store, bom.Round3(in.Qty), date, nilIfEmpty(in.Notes), p.UserID()).Scan(&id); err != nil {
-			return err
-		}
-		for _, l := range PlanLines(b, in.Qty) {
-			if _, err := tx.Exec(ctx, `INSERT INTO production_run_lines (run_id, line_no, kind, item_id, item_name, unit,
-				is_sub_assembly, planned_qty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-				id, l.LineNo, l.Kind, l.ItemID, l.ItemName, l.Unit, l.IsSubAssembly, l.PlannedQty); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s.Get(ctx, p, id, true)
-}
-
-const runCols = `id, bom_id, item_id, item_name, store_id, qty::float8, output_qty::float8, to_char(planned_date,'YYYY-MM-DD'),
-	status, output_batch_no, total_cost_paise, notes, created_by, created_at, started_at, completed_at, cancelled_at`
-
-func scanRun(row pgx.Row) (*Run, error) {
-	var r Run
-	err := row.Scan(&r.ID, &r.BOMID, &r.ItemID, &r.ItemName, &r.StoreID, &r.Qty, &r.OutputQty, &r.PlannedDate,
-		&r.Status, &r.OutputBatchNo, &r.TotalCostPaise, &r.Notes, &r.CreatedBy, &r.CreatedAt, &r.StartedAt,
-		&r.CompletedAt, &r.CancelledAt)
-	return &r, err
-}
-
-func loadLines(ctx context.Context, q db.Querier, runID string) ([]Line, error) {
-	rows, err := q.Query(ctx, `SELECT line_no, kind, item_id, item_name, unit, is_sub_assembly, planned_qty::float8,
-		actual_qty::float8, unit_cost_paise FROM production_run_lines WHERE run_id=$1 ORDER BY line_no`, runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Line
-	for rows.Next() {
-		var l Line
-		if err := rows.Scan(&l.LineNo, &l.Kind, &l.ItemID, &l.ItemName, &l.Unit, &l.IsSubAssembly, &l.PlannedQty,
-			&l.ActualQty, &l.UnitCostPaise); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
-	}
-	return out, rows.Err()
-}
-
-// Get loads a run; withAvailability adds shortages from bhandar for open runs.
-func (s *Service) Get(ctx context.Context, p *auth.Principal, id string, withAvailability bool) (*Run, error) {
-	r, err := scanRun(s.DB.QueryRow(ctx, `SELECT `+runCols+` FROM production_runs WHERE tenant_id=$1 AND id=$2`, p.TenantID, id))
-	if db.IsNotFound(err) {
-		return nil, httpx.NotFound("production run not found")
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !canStore(p, r.StoreID) {
-		return nil, httpx.NotFound("production run not found")
-	}
-	if r.Lines, err = loadLines(ctx, s.DB, id); err != nil {
-		return nil, err
-	}
-	if withAvailability && (r.Status == StatusPlanned || r.Status == StatusInProgress) {
-		onHand, err := s.Bhandar.OnHand(ctx, r.StoreID)
-		if err != nil {
-			s.Log.Warn("availability check failed", "error", err.Error())
-		} else {
-			r.Shortages = Shortages(r.Lines, onHand)
-		}
-	}
-	return r, nil
-}
-
-// List lists runs.
-func (s *Service) List(ctx context.Context, p *auth.Principal, storeID, status string, page httpx.Page) ([]Run, error) {
-	if p.Claims != nil && auth.StoreScoped(p.Claims.Role) && storeID == "" {
-		storeID = p.StoreID
-	}
-	if storeID != "" && !canStore(p, storeID) {
-		return nil, httpx.Forbidden("no access to store")
-	}
-	rows, err := s.DB.Query(ctx, `SELECT `+runCols+` FROM production_runs WHERE tenant_id=$1
-		AND ($2 = '' OR store_id::text=$2) AND ($3 = '' OR status=$3)
-		ORDER BY planned_date DESC, created_at DESC LIMIT $4 OFFSET $5`, p.TenantID, storeID, status, page.Limit, page.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Run{}
-	for rows.Next() {
-		r, err := scanRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *r)
-	}
-	return out, rows.Err()
-}
-
-// Start moves a planned run to in_progress, refusing when material is short unless force.
-func (s *Service) Start(ctx context.Context, p *auth.Principal, id string, force bool) (*Run, error) {
-	r, err := s.Get(ctx, p, id, false)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := NextStatus(r.Status, "start"); err != nil {
-		return nil, err
-	}
-	if !force {
-		onHand, err := s.Bhandar.OnHand(ctx, r.StoreID)
-		if err != nil {
-			return nil, err
-		}
-		if sh := Shortages(r.Lines, onHand); len(sh) > 0 {
-			return nil, httpx.Conflict("not enough material to start; pass force=true to override").
-				WithDetails(map[string]any{"shortages": sh})
-		}
-	}
-	tag, err := s.DB.Exec(ctx, `UPDATE production_runs SET status='in_progress', started_at=now()
-		WHERE tenant_id=$1 AND id=$2 AND status='planned'`, p.TenantID, id)
-	if err != nil {
-		return nil, err
-	}
-	if tag.RowsAffected() == 0 {
-		return nil, httpx.Conflict("run changed concurrently")
-	}
-	return s.Get(ctx, p, id, false)
-}
-
-// Cancel cancels an open run (no stock has moved yet).
-func (s *Service) Cancel(ctx context.Context, p *auth.Principal, id string) (*Run, error) {
-	r, err := s.Get(ctx, p, id, false)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := NextStatus(r.Status, "cancel"); err != nil {
-		return nil, err
-	}
-	if _, err := s.DB.Exec(ctx, `UPDATE production_runs SET status='cancelled', cancelled_at=now()
-		WHERE tenant_id=$1 AND id=$2 AND status IN ('planned','in_progress')`, p.TenantID, id); err != nil {
-		return nil, err
-	}
-	return s.Get(ctx, p, id, false)
-}
-
-// Actual overrides the consumed quantity of one item.
-type Actual struct {
-	ItemID string  `json:"item_id"`
-	Qty    float64 `json:"qty"`
-}
-
-// CompleteInput is the body of POST /v1/production-runs/{id}/complete.
-type CompleteInput struct {
-	OutputQty     float64  `json:"output_qty,omitempty"` // default: planned qty
-	OutputBatchNo string   `json:"output_batch_no,omitempty"`
-	Consumed      []Actual `json:"consumed,omitempty"` // default: planned quantities
-}
-
-// Validate checks the body.
-func (in *CompleteInput) Validate() error {
-	if in.OutputQty < 0 {
-		return httpx.Validation("output_qty cannot be negative")
-	}
-	for _, a := range in.Consumed {
-		if a.ItemID == "" || a.Qty < 0 {
-			return httpx.Validation("consumed lines need item_id and non-negative qty")
-		}
-	}
-	return nil
-}
-
-// CostRun prices consumption: rawCost is paise/unit per consumed item; ops are
-// the BOM's operation costs per OutputQty batch. Returns per-line costs, total and unit cost.
-func CostRun(lines []Line, actual map[string]float64, unitCost map[string]int64, opsPerBatch int64,
-	bomOutput, plannedQty, outputQty float64) (consumeCost map[string]int64, total int64, unit int64) {
-	consumeCost = map[string]int64{}
-	var sum float64
-	for _, l := range lines {
-		if l.Kind != "consume" {
+	res := ReceiptCalc{EffectivePortion: units.Round3(cum)}
+	missing := map[string]bool{}
+	var produce *Line
+	for i := range in.Lines {
+		l := in.Lines[i]
+		switch l.Kind {
+		case KindProduce:
+			produce = &in.Lines[i]
+			continue
+		case KindByproduct:
 			continue
 		}
-		q := l.PlannedQty
-		if a, ok := actual[l.ItemID]; ok {
-			q = a
-		}
-		consumeCost[l.ItemID] = unitCost[l.ItemID]
-		sum += q * float64(unitCost[l.ItemID])
-	}
-	sum += float64(opsPerBatch) * plannedQty / bomOutput
-	total = int64(math.Round(sum))
-	if outputQty > 0 {
-		unit = int64(math.Round(sum / outputQty))
-	}
-	return consumeCost, total, unit
-}
-
-// Complete records actuals, costs the run and publishes nirmaan.production.completed
-// so bhandar consumes raw material and receives finished goods.
-func (s *Service) Complete(ctx context.Context, p *auth.Principal, id string, in CompleteInput) (*Run, error) {
-	r, err := s.Get(ctx, p, id, false)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := NextStatus(r.Status, "complete"); err != nil {
-		return nil, err
-	}
-	b, err := bom.Load(ctx, s.DB, p.TenantID, r.BOMID)
-	if err != nil {
-		return nil, err
-	}
-	// Unit costs: raw materials at bhandar purchase price, sub-assemblies at rolled-up cost.
-	res, err := s.BOMs.CostByID(ctx, p.TenantID, b.ID, b.OutputQty)
-	if err != nil {
-		return nil, err
-	}
-	unitCost := map[string]int64{}
-	for _, cl := range res.Lines {
-		unitCost[cl.ItemID] = cl.UnitCostPaise
-	}
-	actual := map[string]float64{}
-	for _, a := range in.Consumed {
-		actual[a.ItemID] = bom.Round3(a.Qty)
-	}
-	outputQty := r.Qty
-	if in.OutputQty > 0 {
-		outputQty = bom.Round3(in.OutputQty)
-	}
-	var ops int64
-	for _, o := range b.Operations {
-		ops += o.CostPaise
-	}
-	costs, total, unit := CostRun(r.Lines, actual, unitCost, ops, b.OutputQty, r.Qty, outputQty)
-
-	pl := events.ProductionCompletedPayload{
-		ProductionRunID: r.ID, StoreID: r.StoreID, BOMID: r.BOMID, TotalCostPaise: total,
-		CompletedAt: s.Now().UTC().Format(time.RFC3339),
-	}
-	err = db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE production_runs SET status='completed', completed_at=now(), output_qty=$3,
-			output_batch_no=$4, total_cost_paise=$5, started_at=COALESCE(started_at, now())
-			WHERE tenant_id=$1 AND id=$2 AND status IN ('planned','in_progress')`,
-			p.TenantID, id, outputQty, nilIfEmpty(in.OutputBatchNo), total)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return httpx.Conflict("run changed concurrently")
-		}
-		for _, l := range r.Lines {
-			q, c := l.PlannedQty, costs[l.ItemID]
-			if l.Kind == "produce" {
-				q, c = outputQty, unit
-				pl.Produced = append(pl.Produced, events.ProductionLine{ItemID: l.ItemID, Qty: q, UnitCostPaise: c,
-					BatchNo: strings.TrimSpace(in.OutputBatchNo)})
-			} else {
-				if a, ok := actual[l.ItemID]; ok {
-					q = a
-				}
-				if q > 0 {
-					pl.Consumed = append(pl.Consumed, events.ProductionLine{ItemID: l.ItemID, Qty: q, UnitCostPaise: c})
-				}
-			}
-			if _, err := tx.Exec(ctx, `UPDATE production_run_lines SET actual_qty=$3, unit_cost_paise=$4
-				WHERE run_id=$1 AND line_no=$2`, id, l.LineNo, q, c); err != nil {
-				return err
+		q := 0.0
+		if !l.Unplanned && in.RunQty > 0 {
+			q = units.Round3(l.PlannedBaseQty*cum/in.RunQty - l.actual())
+			if q < 0 {
+				q = 0
 			}
 		}
-		ev, err := events.New(events.ProductionCompleted, "nirmaan", p.TenantID, r.StoreID, pl)
-		if err != nil {
-			return err
+		if o, ok := in.Overrides[l.LineNo]; ok {
+			q = units.Round3(o)
 		}
-		return events.Enqueue(ctx, tx, ev)
-	})
-	if err != nil {
-		return nil, err
+		if q <= 0 {
+			continue
+		}
+		p, ok := in.Prices[l.ItemID]
+		if !ok || p.Paise <= 0 {
+			missing[l.ItemID] = true
+		}
+		ext := units.Extend(q, p.Paise)
+		res.MaterialPaise += ext
+		res.Lines = append(res.Lines, CalcLine{LineNo: l.LineNo, Kind: KindConsume, ItemID: l.ItemID, ItemName: l.ItemName,
+			BaseUnit: l.BaseUnit, Qty: q, UnitCostPaise: p.Paise, ExtendedPaise: ext, PriceSource: p.Source})
 	}
-	if s.Relay != nil {
-		s.Relay.Kick()
+	for id := range missing {
+		res.Missing = append(res.Missing, id)
 	}
-	return s.Get(ctx, p, id, false)
+	sort.Strings(res.Missing)
+
+	// operations: fixed cost pro-rata, labour by planned or actual hours
+	fixedFor := func(q float64) int64 {
+		var t int64
+		for _, o := range in.BOM.Operations {
+			t += units.MulDiv(o.CostPaise, units.Milli(q), units.Milli(in.BOM.OutputQty))
+		}
+		return t
+	}
+	labourFor := func(q float64) (int64, float64) {
+		var t int64
+		var h float64
+		for _, o := range in.BOM.Operations {
+			t += units.MulDiv(units.Extend(o.Hours, o.RatePaisePerHour), units.Milli(q), units.Milli(in.BOM.OutputQty))
+			h += o.Hours * q / in.BOM.OutputQty
+		}
+		return t, h
+	}
+	ops := fixedFor(cum) - fixedFor(in.PriorPortion)
+	lc, lh := labourFor(cum)
+	pc, ph := labourFor(in.PriorPortion)
+	labour, hours := lc-pc, lh-ph
+	if in.LabourHours != nil {
+		batchLabour, batchHours := labourFor(in.BOM.OutputQty)
+		hours = *in.LabourHours
+		labour = 0
+		if batchHours > 0 {
+			labour = units.MulDiv(batchLabour, units.Milli(hours), units.Milli(batchHours)) // at the routing's average rate
+		}
+	}
+	if ops < 0 {
+		ops = 0
+	}
+	if labour < 0 {
+		labour = 0
+	}
+	res.OperationsPaise = ops + labour
+	res.LabourHours = units.Round3(hours)
+
+	var byLines []CalcLine
+	for _, bp := range in.ByProducts {
+		if bp.Qty <= 0 {
+			continue
+		}
+		if bp.Rate.Paise <= 0 {
+			return ReceiptCalc{}, httpx.Validation("by-product %s needs a value (unit_cost_paise)", bp.ItemName)
+		}
+		ext := units.Extend(bp.Qty, bp.Rate.Paise)
+		res.ByproductPaise += ext
+		byLines = append(byLines, CalcLine{LineNo: bp.LineNo, Kind: KindByproduct, ItemID: bp.ItemID, ItemName: bp.ItemName,
+			BaseUnit: bp.BaseUnit, Qty: units.Round3(bp.Qty), UnitCostPaise: bp.Rate.Paise, ExtendedPaise: ext, PriceSource: bp.Rate.Source})
+	}
+	res.TotalPaise = res.MaterialPaise + res.OperationsPaise
+	res.MainCostPaise = res.TotalPaise - res.ByproductPaise
+	if res.MainCostPaise < 0 {
+		return ReceiptCalc{}, httpx.Validation("by-products (%d paise) are worth more than the run's cost (%d paise)", res.ByproductPaise, res.TotalPaise)
+	}
+	if produce != nil && in.Good > 0 {
+		res.GoodBaseQty = units.Round3(in.Good * produce.Factor)
+		res.UnitCostPaise = units.Rate(res.MainCostPaise, res.GoodBaseQty)
+		res.Lines = append(res.Lines, CalcLine{LineNo: produce.LineNo, Kind: KindProduce, ItemID: produce.ItemID,
+			ItemName: produce.ItemName, BaseUnit: produce.BaseUnit, Qty: res.GoodBaseQty, UnitCostPaise: res.UnitCostPaise,
+			ExtendedPaise: res.MainCostPaise})
+	}
+	res.Lines = append(res.Lines, byLines...)
+	return res, nil
 }
 
-func nilIfEmpty(s string) *string {
-	if strings.TrimSpace(s) == "" {
-		return nil
+// Yield is good ÷ (good + rejected) × 100, and good ÷ planned × 100.
+func Yield(good, rejected, planned float64) (actual, vsPlan *float64) {
+	if t := good + rejected; t > 0 {
+		v := units.Round3(good / t * 100)
+		actual = &v
 	}
-	s = strings.TrimSpace(s)
-	return &s
+	if planned > 0 && good+rejected > 0 {
+		v := units.Round3(good / planned * 100)
+		vsPlan = &v
+	}
+	return
 }
+
+var ist = bom.IST
+
+func today(now time.Time) string { return bom.Today(now) }

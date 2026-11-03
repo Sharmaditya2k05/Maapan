@@ -100,10 +100,19 @@ type ExtractedLine struct {
 	Amount         float64 `json:"amount"`
 }
 
-// CatalogItem is an item from bhandar's stock summary.
+// CatalogItem is an item from bhandar's item master. Name and ItemID come from
+// the stock summary; the rest is filled for shortlisted items from bhandar's
+// item lookup (Enriched) and sharpens the match.
 type CatalogItem struct {
-	ItemID string `json:"item_id"`
-	Name   string `json:"name"`
+	ItemID             string `json:"item_id"`
+	Name               string `json:"name"`
+	SKU                string `json:"sku,omitempty"`
+	Barcode            string `json:"barcode,omitempty"`
+	HSN                string `json:"hsn,omitempty"`
+	Unit               string `json:"unit,omitempty"`
+	TaxRateBP          int    `json:"tax_rate_bp,omitempty"`
+	PurchasePricePaise int64  `json:"purchase_price_paise,omitempty"`
+	Enriched           bool   `json:"-"`
 }
 
 // DraftLine matches aadesh CreateInput.lines (plus match info the UI shows).
@@ -119,12 +128,25 @@ type DraftLine struct {
 	PriceIncludesTax bool    `json:"price_includes_tax"`
 }
 
-// LineMatch explains how a draft line was matched to the catalog.
+// LineMatch explains how a draft line was matched to the item master.
 type LineMatch struct {
-	LineNo      int     `json:"line_no"`
-	BilledName  string  `json:"billed_name"`
-	MatchedName string  `json:"matched_name,omitempty"`
-	Score       float64 `json:"score"`
+	LineNo       int         `json:"line_no"`
+	BilledName   string      `json:"billed_name"`
+	ItemID       string      `json:"item_id,omitempty"`
+	MatchedName  string      `json:"matched_name,omitempty"`
+	Score        float64     `json:"score"`
+	Method       string      `json:"method"` // identifier | name | none
+	Reasons      []string    `json:"reasons,omitempty"`
+	Alternatives []Candidate `json:"alternatives"` // next best items for the picker
+}
+
+// Candidate is one possible item for a billed line.
+type Candidate struct {
+	ItemID  string   `json:"item_id"`
+	Name    string   `json:"name"`
+	Score   float64  `json:"score"`
+	Reasons []string `json:"reasons,omitempty"`
+	item    CatalogItem
 }
 
 // DraftBody is the body to send to aadesh POST /v1/invoices once a person has
@@ -178,12 +200,20 @@ func Build(ext Extracted, catalog []CatalogItem, storeState string) Result {
 	}
 
 	r.Draft = DraftBody{DocType: "purchase", SupplierInvoiceNo: strings.TrimSpace(ext.InvoiceNumber), Notes: "Scanned bill (AI draft)"}
+	// GST slabs are effective-dated (e.g. 12 % ended on 21 Sep 2025): validate
+	// each line against the slabs in force on the bill's date, today if unreadable.
+	var billDate time.Time
 	if d := strings.TrimSpace(ext.InvoiceDate); d != "" {
-		if _, err := time.Parse(time.DateOnly, d); err == nil {
+		if t, err := time.ParseInLocation(time.DateOnly, d, gst.IST); err == nil {
 			r.Draft.InvoiceDate = d
+			billDate = t
 		} else {
 			r.Warnings = append(r.Warnings, "Invoice date unreadable: "+d)
 		}
+	}
+	rateDay := "today"
+	if !billDate.IsZero() {
+		rateDay = billDate.Format("2 Jan 2006")
 	}
 	if r.Draft.SupplierInvoiceNo == "" {
 		r.Warnings = append(r.Warnings, "Supplier invoice number not found.")
@@ -196,8 +226,8 @@ func Build(ext Extracted, catalog []CatalogItem, storeState string) Result {
 	gstLines := make([]gst.Line, 0, len(ext.Lines))
 	for i, l := range ext.Lines {
 		bp := int(math.Round(l.GSTRatePercent * 100))
-		if !slices.Contains(gst.StandardRatesBP, bp) {
-			r.Warnings = append(r.Warnings, fmt.Sprintf("Line %d: GST rate %.2f%% is not a standard slab.", i+1, l.GSTRatePercent))
+		if !gst.ValidRate(bp, billDate) {
+			r.Warnings = append(r.Warnings, fmt.Sprintf("Line %d: GST rate %.2f%% is not a standard slab on %s.", i+1, l.GSTRatePercent, rateDay))
 		}
 		if l.Qty <= 0 {
 			r.Warnings = append(r.Warnings, fmt.Sprintf("Line %d: quantity missing.", i+1))
@@ -207,11 +237,25 @@ func Build(ext Extracted, catalog []CatalogItem, storeState string) Result {
 			Qty: l.Qty, UnitPricePaise: money.FromRupees(l.Rate), DiscountPaise: money.FromRupees(l.Discount),
 			TaxRateBP: bp, PriceIncludesTax: ext.PricesIncludeTax,
 		}
-		m := LineMatch{LineNo: i + 1, BilledName: dl.Name}
-		if it, score := BestMatch(dl.Name, catalog); score >= MatchThreshold {
-			dl.ItemID, m.MatchedName, m.Score = it.ItemID, it.Name, round2(score)
+		m, best := matchLine(i+1, l, ext.PricesIncludeTax, catalog)
+		if best != nil {
+			dl.ItemID = best.ItemID
+			if dl.HSN == "" && best.HSN != "" {
+				dl.HSN = best.HSN
+			}
+			if dl.Unit == "" && best.Unit != "" {
+				dl.Unit = strings.ToUpper(best.Unit)
+			}
+			if best.Enriched && best.TaxRateBP != bp {
+				msg := fmt.Sprintf("Line %d: bill charges %g%% GST but your item master has %g%% for %q — check the rate.",
+					i+1, float64(bp)/100, float64(best.TaxRateBP)/100, best.Name)
+				if !gst.ValidRate(best.TaxRateBP, billDate) {
+					msg = fmt.Sprintf("Line %d: bill charges %g%% GST; your item master still has %g%% for %q, which is not a GST slab on %s — update the item.",
+						i+1, float64(bp)/100, float64(best.TaxRateBP)/100, best.Name, rateDay)
+				}
+				r.Warnings = append(r.Warnings, msg)
+			}
 		} else {
-			m.Score = round2(score)
 			r.Warnings = append(r.Warnings, fmt.Sprintf("Line %d: %q is not in your item list — pick or create the item.", i+1, dl.Name))
 		}
 		r.Draft.Lines = append(r.Draft.Lines, dl)

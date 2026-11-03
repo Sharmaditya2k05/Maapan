@@ -447,12 +447,27 @@ func Production(p events.ProductionCompletedPayload, date string) (Voucher, erro
 	if total == 0 {
 		total = consumed
 	}
+	// A failed batch produced nothing: its cost is a loss, not finished stock.
+	target, narration := StockFinished, "Production run "+p.ProductionRunID
+	if p.Failed {
+		target, narration = StockLoss, "Failed production run "+p.ProductionRunID
+	}
 	x := &b{store: p.StoreID}
-	x.dr(StockFinished, "", total)
-	x.cr(StockRaw, "", consumed)
-	x.cr(WorkInProgress, "", total-consumed)
+	switch absorbed := total - consumed; {
+	case absorbed >= 0:
+		// Labour and overheads absorbed into the product come out of WIP.
+		x.dr(target, "", total)
+		x.cr(StockRaw, "", consumed)
+		x.cr(WorkInProgress, "", absorbed)
+	default:
+		// By-products took part of the material cost: the main product carries
+		// total, the by-products' share stays in stock (finished goods).
+		x.dr(target, "", total)
+		x.dr(StockFinished, "", -absorbed)
+		x.cr(StockRaw, "", consumed)
+	}
 	v := Voucher{Type: VProduction, Date: date, Source: SrcProduction, SourceID: p.ProductionRunID,
-		Narration: "Production run " + p.ProductionRunID, Entries: x.es}
+		Narration: narration, Entries: x.es}
 	return v, v.Validate()
 }
 

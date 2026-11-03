@@ -38,12 +38,17 @@ type ItemInput struct {
 	TaxCategory         string    `json:"tax_category,omitempty"`
 	PriceIncludesTax    *bool     `json:"price_includes_tax,omitempty"` // default true (MRP pricing)
 	TrackBatches        bool      `json:"track_batches,omitempty"`
+	TrackSerials        bool      `json:"track_serials,omitempty"`
 	ReorderLevel        float64   `json:"reorder_level,omitempty"`
 	ReorderQty          float64   `json:"reorder_qty,omitempty"`
 	PreferredSupplierID string    `json:"preferred_supplier_id,omitempty"`
 	ExternalRef         string    `json:"external_ref,omitempty"`
 	AltUnits            []AltUnit `json:"alt_units,omitempty"`
 	GenerateBarcode     *bool     `json:"generate_barcode,omitempty"` // default true when barcode is empty
+	// AutoHSN fills an empty hsn from the suggestions (the tenant's own items,
+	// then kar's HSN master) and, for a taxable item sent with tax_rate_bp 0,
+	// the rate kar has for that code.
+	AutoHSN bool `json:"auto_hsn,omitempty"`
 }
 
 var hsnPattern = regexp.MustCompile(`^[0-9]{4}([0-9]{2}([0-9]{2})?)?$`)
@@ -138,19 +143,20 @@ func isDigits(s string) bool {
 const itemCols = `id, name, sku, barcode, plu, hsn, unit, category, brand, sale_price_paise, mrp_paise,
 	purchase_price_paise, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, tax_category, price_includes_tax,
 	track_batches, reorder_level::float8, reorder_qty::float8, preferred_supplier_id, status, external_ref,
-	created_at, updated_at`
+	created_at, updated_at, track_serials, parent_id, variant_attrs`
 
 func scanItem(row pgx.Row) (*Item, error) {
 	var it Item
-	var sku, bc, plu, hsn, cat, brand, sup, ext *string
+	var sku, bc, plu, hsn, cat, brand, sup, ext, parent *string
 	err := row.Scan(&it.ID, &it.Name, &sku, &bc, &plu, &hsn, &it.Unit, &cat, &brand, &it.SalePricePaise, &it.MRPPaise,
 		&it.PurchasePricePaise, &it.TaxRateBP, &it.CessRateBP, &it.CessPerUnitPaise, &it.TaxCategory, &it.PriceIncludesTax,
-		&it.TrackBatches, &it.ReorderLevel, &it.ReorderQty, &sup, &it.Status, &ext, &it.CreatedAt, &it.UpdatedAt)
+		&it.TrackBatches, &it.ReorderLevel, &it.ReorderQty, &sup, &it.Status, &ext, &it.CreatedAt, &it.UpdatedAt,
+		&it.TrackSerials, &parent, &it.VariantAttrs)
 	if err != nil {
 		return nil, err
 	}
 	it.SKU, it.Barcode, it.PLU, it.HSN, it.Category, it.Brand = deref(sku), deref(bc), deref(plu), deref(hsn), deref(cat), deref(brand)
-	it.PreferredSupplierID, it.ExternalRef = deref(sup), deref(ext)
+	it.PreferredSupplierID, it.ExternalRef, it.ParentID = deref(sup), deref(ext), deref(parent)
 	it.AltUnits = []AltUnit{}
 	return &it, nil
 }
@@ -191,6 +197,9 @@ func (s *Service) CreateItem(ctx context.Context, tenantID string, in ItemInput)
 	if err := in.validate(s.Now()); err != nil {
 		return nil, err
 	}
+	if in.AutoHSN {
+		s.autoHSN(ctx, tenantID, &in)
+	}
 	var out *Item
 	err := db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
 		if in.Barcode == "" && (in.GenerateBarcode == nil || *in.GenerateBarcode) {
@@ -204,12 +213,12 @@ func (s *Service) CreateItem(ctx context.Context, tenantID string, in ItemInput)
 		var id string
 		err := tx.QueryRow(ctx, `INSERT INTO items (tenant_id, name, sku, barcode, plu, hsn, unit, category, brand,
 			sale_price_paise, mrp_paise, purchase_price_paise, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, tax_category,
-			price_includes_tax, track_batches, reorder_level, reorder_qty, preferred_supplier_id, external_ref)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING id`,
+			price_includes_tax, track_batches, reorder_level, reorder_qty, preferred_supplier_id, external_ref, track_serials, edited_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,now()) RETURNING id`,
 			tenantID, in.Name, nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode), nilIfEmpty(in.PLU), nilIfEmpty(in.HSN), in.Unit,
 			nilIfEmpty(in.Category), nilIfEmpty(in.Brand), in.SalePricePaise, in.MRPPaise, in.PurchasePricePaise,
 			in.TaxRateBP, in.CessRateBP, in.CessPerUnitPaise, in.TaxCategory, incl, in.TrackBatches, in.ReorderLevel,
-			in.ReorderQty, nilIfEmpty(in.PreferredSupplierID), nilIfEmpty(in.ExternalRef)).Scan(&id)
+			in.ReorderQty, nilIfEmpty(in.PreferredSupplierID), nilIfEmpty(in.ExternalRef), in.TrackSerials).Scan(&id)
 		if err != nil {
 			return conflict(err)
 		}
@@ -254,12 +263,13 @@ func (s *Service) UpdateItem(ctx context.Context, tenantID, id string, in ItemIn
 		tag, err := tx.Exec(ctx, `UPDATE items SET name=$3, sku=$4, barcode=$5, plu=$6, hsn=$7, unit=$8, category=$9, brand=$10,
 			sale_price_paise=$11, mrp_paise=$12, purchase_price_paise=$13, tax_rate_bp=$14, cess_rate_bp=$15,
 			cess_per_unit_paise=$16, tax_category=$17, price_includes_tax=$18, track_batches=$19, reorder_level=$20,
-			reorder_qty=$21, preferred_supplier_id=$22, external_ref=COALESCE($23, external_ref), updated_at=now()
+			reorder_qty=$21, preferred_supplier_id=$22, external_ref=COALESCE($23, external_ref), track_serials=$24,
+			updated_at=now(), edited_at=now()
 			WHERE tenant_id=$1 AND id=$2`,
 			tenantID, id, in.Name, nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode), nilIfEmpty(in.PLU), nilIfEmpty(in.HSN), in.Unit,
 			nilIfEmpty(in.Category), nilIfEmpty(in.Brand), in.SalePricePaise, in.MRPPaise, in.PurchasePricePaise,
 			in.TaxRateBP, in.CessRateBP, in.CessPerUnitPaise, in.TaxCategory, incl, in.TrackBatches, in.ReorderLevel,
-			in.ReorderQty, nilIfEmpty(in.PreferredSupplierID), nilIfEmpty(in.ExternalRef))
+			in.ReorderQty, nilIfEmpty(in.PreferredSupplierID), nilIfEmpty(in.ExternalRef), in.TrackSerials)
 		if err != nil {
 			return conflict(err)
 		}
@@ -277,7 +287,8 @@ func (s *Service) UpdateItem(ctx context.Context, tenantID, id string, in ItemIn
 
 // SetStatus activates or deactivates an item (soft delete).
 func (s *Service) SetStatus(ctx context.Context, tenantID, id, status string) error {
-	tag, err := s.DB.Exec(ctx, `UPDATE items SET status=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2`, tenantID, id, status)
+	tag, err := s.DB.Exec(ctx, `UPDATE items SET status=$3, updated_at=now(), edited_at=now(),
+		archived_at=CASE WHEN $3='active' THEN NULL ELSE archived_at END WHERE tenant_id=$1 AND id=$2`, tenantID, id, status)
 	if err != nil {
 		return err
 	}
@@ -304,7 +315,7 @@ func (in *ReorderInput) Validate() error {
 
 // SetReorder updates an item's re-order rule.
 func (s *Service) SetReorder(ctx context.Context, tenantID, id string, in ReorderInput) (*Item, error) {
-	tag, err := s.DB.Exec(ctx, `UPDATE items SET reorder_level=$3, reorder_qty=$4, preferred_supplier_id=$5, updated_at=now()
+	tag, err := s.DB.Exec(ctx, `UPDATE items SET reorder_level=$3, reorder_qty=$4, preferred_supplier_id=$5, updated_at=now(), edited_at=now()
 		WHERE tenant_id=$1 AND id=$2`, tenantID, id, in.ReorderLevel, in.ReorderQty, nilIfEmpty(in.PreferredSupplierID))
 	if err != nil {
 		return nil, err
@@ -426,8 +437,9 @@ func (s *Service) ListItems(ctx context.Context, tenantID string, f ItemFilter) 
 
 // ScaleRead is what a weighing-scale barcode encoded.
 type ScaleRead struct {
-	Kind  string `json:"kind"`  // price | weight
-	Value int64  `json:"value"` // paise, or grams
+	Kind  string  `json:"kind"`          // price | weight
+	Value int64   `json:"value"`         // paise, or grams
+	Qty   float64 `json:"qty,omitempty"` // in the item's unit, when it can be derived
 }
 
 // CodeLookup is the response of GET /v1/barcodes/{code}.
@@ -454,20 +466,44 @@ func (s *Service) LookupByCode(ctx context.Context, tenantID, code string) (*Cod
 	if !db.IsNotFound(err) {
 		return nil, err
 	}
-	if plu, value, kind, ok := barcode.ParseWeighingScale(code); ok {
-		it, err := scanItem(s.DB.QueryRow(ctx, `SELECT `+itemCols+` FROM items WHERE tenant_id=$1 AND status='active' AND (plu=$2 OR sku=$2) LIMIT 1`, tenantID, plu))
-		if err == nil {
-			items := []Item{*it}
-			if err := attachAltUnits(ctx, s.DB, tenantID, items); err != nil {
+	if barcode.IsInternal(code) {
+		f, err := s.scaleFormat(ctx, s.DB, tenantID, code[:2])
+		if err != nil {
+			return nil, err
+		}
+		if plu, value, kind, ok := barcode.ParseScale(code, f); ok {
+			// A scale may print the PLU with leading zeros the item master does not carry.
+			trimmed := strings.TrimLeft(plu, "0")
+			it, err := scanItem(s.DB.QueryRow(ctx, `SELECT `+itemCols+` FROM items WHERE tenant_id=$1 AND status='active'
+				AND (plu=$2 OR sku=$2 OR ($3 <> '' AND (plu=$3 OR sku=$3))) ORDER BY (plu=$2 OR sku=$2) DESC LIMIT 1`, tenantID, plu, trimmed))
+			if err == nil {
+				items := []Item{*it}
+				if err := attachAltUnits(ctx, s.DB, tenantID, items); err != nil {
+					return nil, err
+				}
+				return &CodeLookup{Item: &items[0], Scale: scaleRead(&items[0], kind, value)}, nil
+			}
+			if !db.IsNotFound(err) {
 				return nil, err
 			}
-			return &CodeLookup{Item: &items[0], Scale: &ScaleRead{Kind: kind, Value: value}}, nil
-		}
-		if !db.IsNotFound(err) {
-			return nil, err
 		}
 	}
 	return nil, httpx.NotFound("no item with code %s", code)
+}
+
+// scaleRead turns a scale value into the quantity to bill in the item's unit:
+// a weight in grams becomes KG / GM; a price becomes price ÷ sale price.
+func scaleRead(it *Item, kind string, value int64) *ScaleRead {
+	r := &ScaleRead{Kind: kind, Value: value}
+	switch {
+	case kind == "weight" && it.Unit == "KG":
+		r.Qty = Q3(float64(value) / 1000)
+	case kind == "weight" && it.Unit == "GM":
+		r.Qty = float64(value)
+	case kind == "price" && it.SalePricePaise > 0:
+		r.Qty = Q3(float64(value) / float64(it.SalePricePaise))
+	}
+	return r
 }
 
 // CatalogItem is the compact POS catalog row cached by the PWA.
@@ -665,6 +701,9 @@ type BulkItem struct {
 	ReorderLevel       float64 `json:"reorder_level,omitempty"`
 	ReorderQty         float64 `json:"reorder_qty,omitempty"`
 	ExternalRef        string  `json:"external_ref,omitempty"`
+	// AltUnits replaces the item's alternate units when non-empty (an update
+	// that sends none keeps the existing ones).
+	AltUnits []AltUnit `json:"alt_units,omitempty"`
 }
 
 // BulkError reports one failed record.
@@ -673,11 +712,21 @@ type BulkError struct {
 	Message string `json:"message"`
 }
 
+// BulkRecordResult is the outcome of one accepted record: the id it maps to
+// (item id, or the opening movement's item id) and whether this call created
+// it, so an import rollback can tell created records from updated ones.
+type BulkRecordResult struct {
+	Index   int    `json:"index"`
+	ID      string `json:"id,omitempty"`
+	Created bool   `json:"created"`
+}
+
 // BulkResult is the shape every bulk endpoint returns.
 type BulkResult struct {
-	Created int         `json:"created"`
-	Updated int         `json:"updated"`
-	Errors  []BulkError `json:"errors"`
+	Created int                `json:"created"`
+	Updated int                `json:"updated"`
+	Errors  []BulkError        `json:"errors"`
+	Results []BulkRecordResult `json:"results,omitempty"`
 }
 
 // BulkItems upserts items, matching existing ones by external_ref, then SKU,
@@ -694,7 +743,7 @@ func (s *Service) BulkItems(ctx context.Context, tenantID string, recs []BulkIte
 			Name: r.Name, SKU: r.SKU, Barcode: r.Barcode, HSN: r.HSN, Unit: r.Unit, Category: r.Category, Brand: r.Brand,
 			SalePricePaise: r.SalePricePaise, MRPPaise: r.MRPPaise, PurchasePricePaise: r.PurchasePricePaise,
 			TaxRateBP: r.TaxRateBP, CessRateBP: r.CessRateBP, TrackBatches: r.TrackBatches,
-			ReorderLevel: r.ReorderLevel, ReorderQty: r.ReorderQty, ExternalRef: r.ExternalRef,
+			ReorderLevel: r.ReorderLevel, ReorderQty: r.ReorderQty, ExternalRef: r.ExternalRef, AltUnits: r.AltUnits,
 		}
 		if r.MRPPaise > 0 && r.SalePricePaise > r.MRPPaise {
 			in.SalePricePaise = r.MRPPaise // legacy exports often carry a stale MRP; never reject a migration for it
@@ -703,11 +752,12 @@ func (s *Service) BulkItems(ctx context.Context, tenantID string, recs []BulkIte
 			res.Errors = append(res.Errors, BulkError{Index: i, Message: httpx.AsError(err).Message})
 			continue
 		}
-		created, err := s.upsertItem(ctx, tenantID, in)
+		id, created, err := s.upsertItem(ctx, tenantID, in)
 		if err != nil {
 			res.Errors = append(res.Errors, BulkError{Index: i, Message: httpx.AsError(err).Message})
 			continue
 		}
+		res.Results = append(res.Results, BulkRecordResult{Index: i, ID: id, Created: created})
 		if created {
 			res.Created++
 		} else {
@@ -717,13 +767,16 @@ func (s *Service) BulkItems(ctx context.Context, tenantID string, recs []BulkIte
 	return res, nil
 }
 
-func (s *Service) upsertItem(ctx context.Context, tenantID string, in ItemInput) (created bool, err error) {
+// upsertItem creates or updates one imported item and returns its id. An item
+// archived by an earlier import rollback is revived and reported as created
+// (it belongs to the import again, so a later rollback may archive it again).
+func (s *Service) upsertItem(ctx context.Context, tenantID string, in ItemInput) (id string, created bool, err error) {
 	err = db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
-		var id string
-		err := tx.QueryRow(ctx, `SELECT id FROM items WHERE tenant_id=$1 AND (
+		var archived bool
+		err := tx.QueryRow(ctx, `SELECT id, archived_at IS NOT NULL FROM items WHERE tenant_id=$1 AND (
 			($2::text IS NOT NULL AND external_ref=$2) OR ($3::text IS NOT NULL AND sku=$3) OR ($4::text IS NOT NULL AND barcode=$4))
 			ORDER BY (external_ref=$2) DESC NULLS LAST, (sku=$3) DESC NULLS LAST LIMIT 1`,
-			tenantID, nilIfEmpty(in.ExternalRef), nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode)).Scan(&id)
+			tenantID, nilIfEmpty(in.ExternalRef), nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode)).Scan(&id, &archived)
 		switch {
 		case db.IsNotFound(err):
 			if in.Barcode == "" {
@@ -733,29 +786,40 @@ func (s *Service) upsertItem(ctx context.Context, tenantID string, in ItemInput)
 				}
 				in.Barcode = bc
 			}
-			_, err = tx.Exec(ctx, `INSERT INTO items (tenant_id, name, sku, barcode, hsn, unit, category, brand, sale_price_paise,
+			err = tx.QueryRow(ctx, `INSERT INTO items (tenant_id, name, sku, barcode, hsn, unit, category, brand, sale_price_paise,
 				mrp_paise, purchase_price_paise, tax_rate_bp, cess_rate_bp, tax_category, track_batches, reorder_level, reorder_qty, external_ref)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
 				tenantID, in.Name, nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode), nilIfEmpty(in.HSN), in.Unit, nilIfEmpty(in.Category),
 				nilIfEmpty(in.Brand), in.SalePricePaise, in.MRPPaise, in.PurchasePricePaise, in.TaxRateBP, in.CessRateBP,
-				in.TaxCategory, in.TrackBatches, in.ReorderLevel, in.ReorderQty, nilIfEmpty(in.ExternalRef))
+				in.TaxCategory, in.TrackBatches, in.ReorderLevel, in.ReorderQty, nilIfEmpty(in.ExternalRef)).Scan(&id)
+			if err != nil {
+				return conflict(err)
+			}
 			created = true
-			return conflict(err)
+			return replaceAltUnits(ctx, tx, tenantID, id, in.AltUnits)
 		case err != nil:
 			return err
 		}
+		created = archived
 		_, err = tx.Exec(ctx, `UPDATE items SET name=$3, sku=COALESCE($4, sku), barcode=COALESCE($5, barcode), hsn=COALESCE($6, hsn),
 			unit=$7, category=COALESCE($8, category), brand=COALESCE($9, brand), sale_price_paise=$10, mrp_paise=$11,
 			purchase_price_paise=$12, tax_rate_bp=$13, cess_rate_bp=$14, track_batches=track_batches OR $15,
 			reorder_level=CASE WHEN $16 > 0 THEN $16 ELSE reorder_level END, reorder_qty=CASE WHEN $17 > 0 THEN $17 ELSE reorder_qty END,
-			external_ref=COALESCE($18, external_ref), status='active', updated_at=now()
+			external_ref=COALESCE($18, external_ref), status='active', updated_at=now(),
+			edited_at=CASE WHEN archived_at IS NOT NULL THEN NULL ELSE edited_at END, archived_at=NULL, archived_job_id=NULL
 			WHERE tenant_id=$1 AND id=$2`,
 			tenantID, id, in.Name, nilIfEmpty(in.SKU), nilIfEmpty(in.Barcode), nilIfEmpty(in.HSN), in.Unit, nilIfEmpty(in.Category),
 			nilIfEmpty(in.Brand), in.SalePricePaise, in.MRPPaise, in.PurchasePricePaise, in.TaxRateBP, in.CessRateBP,
 			in.TrackBatches, in.ReorderLevel, in.ReorderQty, nilIfEmpty(in.ExternalRef))
-		return conflict(err)
+		if err != nil {
+			return conflict(err)
+		}
+		if len(in.AltUnits) > 0 {
+			return replaceAltUnits(ctx, tx, tenantID, id, in.AltUnits)
+		}
+		return nil
 	})
-	return created, err
+	return id, created, err
 }
 
 // resolveItemRef finds an item by id or external_ref (bulk opening stock).

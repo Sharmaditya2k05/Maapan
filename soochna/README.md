@@ -3,7 +3,7 @@
 "Soochna" means *information / notice*. Every SMS, WhatsApp message and e-mail Maapan sends goes through here:
 
 - **OTP** for login (called synchronously by `pehchaan`)
-- **WhatsApp bill** to the customer after a POS sale — as a **PDF document message** when `INVOICE_PDF_URL` is set — and the same bill by **e-mail** when the party has an e-mail in bahi
+- **WhatsApp bill** to the customer after a POS sale — as a **PDF document message** (signed link from aadesh) — and the same bill by **e-mail** when the party has an e-mail in bahi
 - **Payment receipts**, **ledger statements**, **payment reminders** on and after the due date
 - **Owner alerts**: low stock, batch expiry, migration finished, weekly summary
 - **Consent**: STOP/START keywords from WhatsApp and SMS, store-level "do not message", DND list; TRAI quiet hours for promotional messages
@@ -138,9 +138,12 @@ that fails again goes through the normal retry cycle. Runbook: `sanchalan/docs/r
   fails and is retried, so a bill never goes out without its PDF.
 - WhatsApp documents: with a template id the PDF is sent as the template's DOCUMENT header (register the
   template with a document header); without one as a free-form `file` message (24 h session window only).
-- **Invoice PDF**: aadesh has **no PDF endpoint yet**. Set `INVOICE_PDF_URL` (for example
-  `https://files.maapan.in/invoices/{tenant_id}/{invoice_id}.pdf`, a signed or public URL Gupshup can fetch)
-  once one exists. Until then bills go as text, and any caller can attach a document through `media_url`.
+- **Invoice PDF**: with `AADESH_URL` set, soochna asks aadesh for a signed, short-lived link
+  (`GET /internal/v1/invoices/{id}/pdf-link?ttl=`, `INVOICE_PDF_TTL` seconds, default 86400 = aadesh's maximum)
+  and attaches it to the WhatsApp bill and e-mail. The link goes out through dwaar
+  (`/api/aadesh/public/v1/invoices/{id}/pdf?exp=&sig=`), so aadesh's `PUBLIC_BASE_URL` must be the gateway
+  address. If aadesh can't be reached the bill goes as text. `INVOICE_PDF_URL` (a static pattern with
+  `{tenant_id}`, `{invoice_id}`, `{number}`) is only a fallback for an external file store.
 - Bill and receipt e-mails go to the party's e-mail from bahi (`GET /internal/v1/parties/{id}`, needs
   `BAHI_URL`; the event payload carries no e-mail).
 

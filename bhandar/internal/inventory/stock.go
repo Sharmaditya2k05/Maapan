@@ -47,6 +47,7 @@ type postRequest struct {
 type itemLite struct {
 	ID, Name, Unit      string
 	TrackBatches        bool
+	TrackSerials        bool
 	ReorderLevel        float64
 	ReorderQty          float64
 	PreferredSupplierID string
@@ -58,8 +59,8 @@ func loadItemLite(ctx context.Context, q db.Querier, tenantID, id string) (*item
 	var it itemLite
 	var sup *string
 	err := q.QueryRow(ctx, `SELECT id, name, unit, track_batches, reorder_level::float8, reorder_qty::float8, preferred_supplier_id,
-		purchase_price_paise FROM items WHERE tenant_id=$1 AND id=$2`, tenantID, id).
-		Scan(&it.ID, &it.Name, &it.Unit, &it.TrackBatches, &it.ReorderLevel, &it.ReorderQty, &sup, &it.PurchasePricePaise)
+		purchase_price_paise, track_serials FROM items WHERE tenant_id=$1 AND id=$2`, tenantID, id).
+		Scan(&it.ID, &it.Name, &it.Unit, &it.TrackBatches, &it.ReorderLevel, &it.ReorderQty, &sup, &it.PurchasePricePaise, &it.TrackSerials)
 	if err != nil {
 		if db.IsNotFound(err) {
 			return nil, httpx.NotFound("item %s not found", id)
@@ -308,6 +309,9 @@ type AdjustmentLine struct {
 	Qty           float64 `json:"qty"` // signed
 	Unit          string  `json:"unit,omitempty"`
 	UnitCostPaise int64   `json:"unit_cost_paise,omitempty"` // for positive adjustments
+	// SerialNos of a serial-tracked item: found units come into stock (qty > 0),
+	// lost ones are written off (qty < 0).
+	SerialNos []string `json:"serial_nos,omitempty"`
 }
 
 // AdjustmentInput is the body of POST /v1/stock/adjustments.
@@ -364,13 +368,36 @@ func (s *Service) Adjust(ctx context.Context, tenantID, storeID, userID string, 
 	}
 	id := uuid.NewString()
 	req := postRequest{TenantID: tenantID, StoreID: storeID, Source: SourceAdjustment, SourceID: id, Reason: in.Reason, CreatedBy: userID}
+	var in_, out_ []serialMove
 	for i, l := range in.Lines {
 		req.Lines = append(req.Lines, MoveLine{LineNo: i + 1, ItemID: l.ItemID, BatchNo: l.BatchNo, ExpiryDate: l.ExpiryDate,
 			Qty: l.Qty, Unit: l.Unit, UnitCostPaise: l.UnitCostPaise, Note: in.Note})
+		if len(l.SerialNos) > 0 {
+			m := serialMove{LineNo: i + 1, ItemID: l.ItemID, BatchNo: l.BatchNo, SerialNos: l.SerialNos}
+			if l.Qty > 0 {
+				in_ = append(in_, m)
+			} else {
+				out_ = append(out_, m)
+			}
+		}
 	}
-	movs, err := s.Post(ctx, req)
+	var movs []Movement
+	err := db.WithTx(ctx, s.DB, func(tx pgx.Tx) error {
+		var err error
+		if movs, err = s.post(ctx, tx, req); err != nil {
+			return err
+		}
+		if _, err := applySerials(ctx, tx, tenantID, storeID, SourceAdjustment, id, "adjust_in", "", in_); err != nil {
+			return err
+		}
+		_, err = applySerials(ctx, tx, tenantID, storeID, SourceAdjustment, id, "adjust_out", "", out_)
+		return err
+	})
 	if err != nil {
 		return nil, err
+	}
+	if len(movs) > 0 {
+		s.kick()
 	}
 	return &Adjustment{ID: id, StoreID: storeID, Reason: in.Reason, Note: in.Note, Movements: movs}, nil
 }
@@ -383,6 +410,23 @@ type OpeningLine struct {
 	UnitCostPaise   int64   `json:"unit_cost_paise"`
 	BatchNo         string  `json:"batch_no,omitempty"`
 	ExpiryDate      string  `json:"expiry_date,omitempty"`
+	MfgDate         string  `json:"mfg_date,omitempty"`
+	MRPPaise        *int64  `json:"mrp_paise,omitempty"` // batch MRP
+}
+
+// openingKey is the source_id of an opening movement: one per store/item/batch.
+func openingKey(storeID, itemID, batchNo string) string {
+	return fmt.Sprintf("%s|%s|%s", storeID, itemID, strings.TrimSpace(batchNo))
+}
+
+// openingGeneration is the line_no the next opening of key uses: the number
+// of times an import rollback has reversed it, so a rolled-back opening can
+// be imported again while a plain re-send stays a no-op.
+func openingGeneration(ctx context.Context, q db.Querier, tenantID, key string) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `SELECT count(*) FROM stock_movements WHERE tenant_id=$1 AND source=$2 AND source_id=$3`,
+		tenantID, SourceOpeningRollback, key).Scan(&n)
+	return n, err
 }
 
 // OpeningInput is the body of POST /internal/v1/bulk/opening-stock.
@@ -408,6 +452,10 @@ func (s *Service) OpeningStock(ctx context.Context, tenantID string, in OpeningI
 			res.Errors = append(res.Errors, BulkError{Index: i, Message: "qty must be positive"})
 			continue
 		}
+		if l.MRPPaise != nil && *l.MRPPaise < 0 {
+			res.Errors = append(res.Errors, BulkError{Index: i, Message: "mrp_paise cannot be negative"})
+			continue
+		}
 		it, err := resolveItemRef(ctx, s.DB, tenantID, l.ItemID, l.ItemExternalRef)
 		if err != nil {
 			res.Errors = append(res.Errors, BulkError{Index: i, Message: httpx.AsError(err).Message})
@@ -417,15 +465,25 @@ func (s *Service) OpeningStock(ctx context.Context, tenantID string, in OpeningI
 		if cost == 0 {
 			cost = it.PurchasePricePaise
 		}
-		key := fmt.Sprintf("%s|%s|%s", in.StoreID, it.ID, strings.TrimSpace(l.BatchNo))
+		if (l.MfgDate != "" || l.ExpiryDate != "" || l.MRPPaise != nil) && strings.TrimSpace(l.BatchNo) == "" {
+			res.Errors = append(res.Errors, BulkError{Index: i, Message: "mfg_date, expiry_date and mrp_paise need a batch_no"})
+			continue
+		}
+		key := openingKey(in.StoreID, it.ID, l.BatchNo)
+		gen, err := openingGeneration(ctx, s.DB, tenantID, key)
+		if err != nil {
+			return res, err
+		}
 		movs, err := s.Post(ctx, postRequest{
 			TenantID: tenantID, StoreID: in.StoreID, Source: SourceOpening, SourceID: key, Reason: ReasonOpening, CreatedBy: "import",
-			Lines: []MoveLine{{LineNo: 0, ItemID: it.ID, BatchNo: l.BatchNo, ExpiryDate: l.ExpiryDate, Qty: l.Qty, UnitCostPaise: cost, Note: "opening stock " + in.AsOf}},
+			Lines: []MoveLine{{LineNo: gen, ItemID: it.ID, BatchNo: l.BatchNo, MfgDate: l.MfgDate, ExpiryDate: l.ExpiryDate,
+				BatchMRPPaise: l.MRPPaise, Qty: l.Qty, UnitCostPaise: cost, Note: "opening stock " + in.AsOf}},
 		})
 		if err != nil {
 			res.Errors = append(res.Errors, BulkError{Index: i, Message: httpx.AsError(err).Message})
 			continue
 		}
+		res.Results = append(res.Results, BulkRecordResult{Index: i, ID: it.ID, Created: len(movs) > 0})
 		if len(movs) > 0 {
 			res.Created++
 		} else {

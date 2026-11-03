@@ -102,7 +102,7 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Service) archive(w http.ResponseWriter, r *http.Request) error {
-	b, err := s.Archive(r.Context(), tenant(r), r.PathValue("id"))
+	b, err := s.Archive(r.Context(), tenant(r), r.PathValue("id"), httpx.Query(r, "force") == "true")
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (s *Service) newVersion(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Service) explode(w http.ResponseWriter, r *http.Request) error {
-	tree, flat, err := s.ExplodeByID(r.Context(), tenant(r), r.PathValue("id"), qtyParam(r))
+	tree, flat, err := s.ExplodeByID(r.Context(), tenant(r), r.PathValue("id"), qtyParam(r), httpx.Query(r, "date"))
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,9 @@ func (s *Service) explode(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Service) cost(w http.ResponseWriter, r *http.Request) error {
-	res, err := s.CostByID(r.Context(), tenant(r), r.PathValue("id"), qtyParam(r))
+	res, err := s.CostByID(r.Context(), tenant(r), r.PathValue("id"), qtyParam(r), CostOptions{
+		StoreID: httpx.Query(r, "store_id"), Basis: httpx.Query(r, "basis"), Date: httpx.Query(r, "date"),
+	})
 	if err != nil {
 		return err
 	}

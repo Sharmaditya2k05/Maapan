@@ -33,8 +33,10 @@ type Suggestion struct {
 
 // Suggestions lists active items at or below their re-order level at a store.
 func (s *Service) Suggestions(ctx context.Context, tenantID, storeID string) ([]Suggestion, error) {
+	// Price: the preferred supplier's last purchase price when known, else the item's purchase price.
 	rows, err := s.DB.Query(ctx, `SELECT i.id, i.name, i.sku, i.hsn, i.unit, i.reorder_level::float8, i.reorder_qty::float8, i.preferred_supplier_id,
-		i.purchase_price_paise, i.tax_rate_bp, i.cess_rate_bp, i.tax_category,
+		COALESCE((SELECT si.last_price_paise FROM supplier_items si WHERE si.tenant_id=i.tenant_id AND si.item_id=i.id
+			AND si.supplier_id=i.preferred_supplier_id), i.purchase_price_paise), i.tax_rate_bp, i.cess_rate_bp, i.tax_category,
 		COALESCE((SELECT sum(b.qty) FROM stock_balances b WHERE b.tenant_id=i.tenant_id AND b.item_id=i.id AND b.store_id=$2),0)::float8 AS on_hand
 		FROM items i WHERE i.tenant_id=$1 AND i.status='active' AND i.reorder_level > 0 ORDER BY lower(i.name)`, tenantID, storeID)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maapan/buddhi/internal/llm"
@@ -76,38 +77,130 @@ func (g *Guard) Budget(s Settings) int64 {
 	return g.DefaultBudget
 }
 
-// Check returns an API error if the tenant may not use AI right now.
-func (g *Guard) Check(ctx context.Context, tenantID string) error {
+// CheckFlag enforces only the pilot flag. Non-LLM AI features (GST insights,
+// re-order suggestions, item matching) use it: they cost no tokens.
+func (g *Guard) CheckFlag(ctx context.Context, tenantID string) error {
 	s, err := g.Settings(ctx, tenantID)
 	if err != nil {
 		return err
 	}
+	return g.flag(s)
+}
+
+func (g *Guard) flag(s Settings) error {
 	if g.RequireFlag && !s.AIEnabled {
 		return httpx.Forbidden("AI features are not enabled for this business yet (pilot flag ai_enabled)")
-	}
-	budget := g.Budget(s)
-	if budget <= 0 {
-		return nil
-	}
-	used, err := g.MonthUsage(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-	if used >= budget {
-		return httpx.TooMany("monthly AI token budget used up (%d of %d tokens); it resets on the 1st", used, budget)
 	}
 	return nil
 }
 
-// Record logs one feature call's usage. Failed calls are recorded too (they still cost tokens).
+// Token estimates reserved before each kind of call. A call that ends up
+// cheaper frees the difference when it settles; the ask agent loop also stops
+// calling tools once it has spent its reservation (llm.ChatRequest.TokenBudget).
+const (
+	EstimateScan   int64 = 40_000 // one image/PDF + ≤16k output
+	EstimateAsk    int64 = 80_000 // up to 6 tool turns re-sending the context
+	EstimateWeekly int64 = 8_000
+)
+
+// ReservationTTL bounds how long a crashed call's reservation keeps counting.
+const ReservationTTL = 15 * time.Minute
+
+// Reservation holds tokens for one AI call until Settle.
+type Reservation struct {
+	ID       int64 // 0 = nothing held (unlimited budget)
+	TenantID string
+	Feature  string
+	Tokens   int64
+}
+
+// Reserve checks the pilot flag and holds estimate tokens against the monthly
+// budget before an AI call. Concurrent calls serialise per tenant on an
+// advisory lock, so used + in-flight reservations can never pass the budget.
+func (g *Guard) Reserve(ctx context.Context, tenantID, feature string, estimate int64) (*Reservation, error) {
+	s, err := g.Settings(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := g.flag(s); err != nil {
+		return nil, err
+	}
+	r := &Reservation{TenantID: tenantID, Feature: feature, Tokens: max(estimate, 0)}
+	budget := g.Budget(s)
+	if budget <= 0 {
+		return r, nil
+	}
+	err = db.WithTx(ctx, g.DB, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('buddhi:ai-budget:' || $1::text, 0))`, tenantID); err != nil {
+			return err
+		}
+		now := g.Now()
+		if _, err := tx.Exec(ctx, `DELETE FROM ai_reservations WHERE tenant_id=$1 AND expires_at <= $2`, tenantID, now); err != nil {
+			return err
+		}
+		var used, held int64
+		if err := tx.QueryRow(ctx, `SELECT
+				COALESCE((SELECT sum(input_tokens+output_tokens+cache_read_tokens+cache_write_tokens)
+					FROM ai_usage WHERE tenant_id=$1 AND created_at >= $2),0)::bigint,
+				COALESCE((SELECT sum(tokens) FROM ai_reservations WHERE tenant_id=$1 AND expires_at > $3),0)::bigint`,
+			tenantID, g.MonthStart(), now).Scan(&used, &held); err != nil {
+			return err
+		}
+		if used >= budget {
+			return httpx.TooMany("monthly AI token budget used up (%d of %d tokens); it resets on the 1st", used, budget)
+		}
+		if left := budget - used - held; r.Tokens > left {
+			return httpx.TooMany("not enough AI token budget left for this request (about %d needed, %d free of %d this month; %d held by requests in progress); it resets on the 1st",
+				r.Tokens, max(left, 0), budget, held).WithDetails(map[string]any{
+				"needed": r.Tokens, "free": max(left, 0), "used": used, "in_progress": held, "budget": budget})
+		}
+		return tx.QueryRow(ctx, `INSERT INTO ai_reservations (tenant_id, feature, tokens, expires_at) VALUES ($1,$2,$3,$4) RETURNING id`,
+			tenantID, feature, r.Tokens, now.Add(ReservationTTL)).Scan(&r.ID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// Settle logs the call's real usage and releases its reservation in one
+// transaction. Failed calls are logged too (they still cost tokens). A nil
+// reservation only records.
+func (g *Guard) Settle(ctx context.Context, r *Reservation, userID string, u llm.Usage, ok bool) error {
+	if r == nil {
+		return nil
+	}
+	return db.WithTx(ctx, g.DB, func(tx pgx.Tx) error {
+		if r.ID != 0 {
+			if _, err := tx.Exec(ctx, `DELETE FROM ai_reservations WHERE id=$1`, r.ID); err != nil {
+				return err
+			}
+		}
+		return record(ctx, tx, r.TenantID, userID, r.Feature, u, ok)
+	})
+}
+
+// Record logs one feature call's usage without a reservation.
 func (g *Guard) Record(ctx context.Context, tenantID, userID, feature string, u llm.Usage, ok bool) error {
+	return record(ctx, g.DB, tenantID, userID, feature, u, ok)
+}
+
+func record(ctx context.Context, q db.Querier, tenantID, userID, feature string, u llm.Usage, ok bool) error {
 	if u.Total() == 0 && u.Model == "" {
 		return nil
 	}
-	_, err := g.DB.Exec(ctx, `INSERT INTO ai_usage (tenant_id, user_id, feature, model, input_tokens, output_tokens,
+	_, err := q.Exec(ctx, `INSERT INTO ai_usage (tenant_id, user_id, feature, model, input_tokens, output_tokens,
 		cache_read_tokens, cache_write_tokens, ok) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		tenantID, userID, feature, u.Model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, ok)
 	return err
+}
+
+// Held returns tokens currently reserved by calls in progress.
+func (g *Guard) Held(ctx context.Context, tenantID string) (int64, error) {
+	var held int64
+	err := g.DB.QueryRow(ctx, `SELECT COALESCE(sum(tokens),0)::bigint FROM ai_reservations WHERE tenant_id=$1 AND expires_at > $2`,
+		tenantID, g.Now()).Scan(&held)
+	return held, err
 }
 
 // FeatureUsage is one row of the usage report.

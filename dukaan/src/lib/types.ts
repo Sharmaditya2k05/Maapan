@@ -249,6 +249,10 @@ export interface Party {
   gst_verified: boolean
   legal_name?: string
   archived: boolean
+  pan?: string
+  /** Default TDS section for bills / payments to this party (bahi phase 4). */
+  tds_section?: string
+  deductee_type?: string
   /** + receivable (party owes us), − payable. */
   balance_paise: number
 }

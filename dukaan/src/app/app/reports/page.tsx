@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQueries } from '@tanstack/react-query'
-import { AlertTriangle, ArrowRight, BookOpen, Hourglass, Landmark, ListTree, Lock, LockOpen, Scale, TrendingUp, Wallet, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowRight, BookOpen, Hourglass, Store, Landmark, ListTree, Lock, LockOpen, Scale, TrendingUp, Wallet, type LucideIcon } from 'lucide-react'
 import { Badge, Button, Card, Field, Input, Modal, PageHeader } from '@/components/ui'
 import { api, get } from '@/lib/api'
 import { fmtDate, todayIST, useGet, usePerm } from '@/lib/hooks'
@@ -20,8 +20,9 @@ const CARDS: ReportCard[] = [
   { href: '/app/reports/daybook', title: 'Day book', text: 'Every voucher posted on a day, with its entries.', icon: BookOpen, perm: PERMS.reportRead },
   { href: '/app/reports/trial-balance', title: 'Trial balance', text: 'Closing balance of every account; debits must equal credits.', icon: Scale, perm: PERMS.reportRead },
   { href: '/app/reports/profit-loss', title: 'Profit & loss', text: 'Gross profit after cost of goods sold, then net profit.', icon: TrendingUp, perm: PERMS.reportRead },
+  { href: '/app/reports/stores', title: 'Store-wise P&L', text: 'Income, gross and net profit side by side for every store.', icon: Store, perm: PERMS.reportRead },
   { href: '/app/reports/balance-sheet', title: 'Balance sheet', text: 'Assets against liabilities and capital as of a date.', icon: Landmark, perm: PERMS.reportRead },
-  { href: '/app/reports/aging', title: 'Receivables & payables aging', text: 'Who owes what, and for how long — 0-30 / 31-60 / 61-90 / 90+ days.', icon: Hourglass, perm: PERMS.reportRead },
+  { href: '/app/reports/aging', title: 'Receivables & payables aging', text: 'Who owes what and how far past the due date — bill-wise, or by bill date.', icon: Hourglass, perm: PERMS.reportRead },
   { href: '/app/reports/cash-flow', title: 'Cash flow', text: 'Money in and out of cash and bank by voucher type.', icon: Wallet, perm: PERMS.reportRead },
   { href: '/app/reports/accounts', title: 'Chart of accounts', text: 'The account tree with balances; drill into any ledger.', icon: ListTree, perm: PERMS.ledgerRead },
   { href: '/app/reports/quarantine', title: 'Quarantined events', text: 'Documents the ledger could not post, waiting for review and retry.', icon: AlertTriangle, perm: PERMS.ledgerWrite },

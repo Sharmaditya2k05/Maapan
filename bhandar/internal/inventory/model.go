@@ -30,6 +30,9 @@ const (
 	ReasonExpiryWriteoff    = "expiry_writeoff"
 )
 
+// Attrs are a variant's attributes (size, colour, …).
+type Attrs map[string]string
+
 // Movement sources (stock_movements.source).
 const (
 	SourceInvoice    = "aadesh.invoice"
@@ -39,6 +42,9 @@ const (
 	SourceAdjustment = "adjustment"
 	SourceTransfer   = "transfer"
 	SourceOpening    = "opening"
+	// SourceOpeningRollback reverses an opening movement undone by an import rollback.
+	SourceOpeningRollback = "opening.rollback"
+	SourceStockCount      = "stock_count"
 )
 
 // Transfer states and actions.
@@ -98,6 +104,9 @@ type Item struct {
 	Status              string    `json:"status"`
 	ExternalRef         string    `json:"external_ref,omitempty"`
 	AltUnits            []AltUnit `json:"alt_units"`
+	TrackSerials        bool      `json:"track_serials"`
+	ParentID            string    `json:"parent_id,omitempty"`     // set on a variant
+	VariantAttrs        Attrs     `json:"variant_attrs,omitempty"` // {"size":"M","colour":"Red"}
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }

@@ -18,8 +18,10 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
 	}
 	mux.Handle("GET /v1/production-runs", read(s.list))
 	mux.Handle("POST /v1/production-runs", write(s.create))
+	mux.Handle("GET /v1/production-runs/wip", read(s.wip))
 	mux.Handle("GET /v1/production-runs/{id}", read(s.get))
 	mux.Handle("POST /v1/production-runs/{id}/start", write(s.start))
+	mux.Handle("POST /v1/production-runs/{id}/issue", write(s.issue))
 	mux.Handle("POST /v1/production-runs/{id}/complete", write(s.complete))
 	mux.Handle("POST /v1/production-runs/{id}/cancel", write(s.cancel))
 }
@@ -27,11 +29,20 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
 func principal(r *http.Request) *auth.Principal { return auth.FromContext(r.Context()) }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
-	runs, err := s.List(r.Context(), principal(r), httpx.Query(r, "store_id"), httpx.Query(r, "status"), httpx.ParsePage(r))
+	page := httpx.ParsePage(r)
+	runs, err := s.List(r.Context(), principal(r), httpx.Query(r, "store_id"), httpx.Query(r, "status"), httpx.Query(r, "q"), page)
 	if err != nil {
 		return err
 	}
-	return httpx.OK(w, map[string]any{"items": runs})
+	return httpx.OK(w, map[string]any{"items": runs, "limit": page.Limit, "offset": page.Offset})
+}
+
+func (s *Service) wip(w http.ResponseWriter, r *http.Request) error {
+	runs, total, err := s.WIP(r.Context(), principal(r), httpx.Query(r, "store_id"))
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, map[string]any{"items": runs, "wip_paise": total})
 }
 
 func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
@@ -54,18 +65,26 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	return httpx.OK(w, run)
 }
 
-type startInput struct {
-	Force bool `json:"force"`
-}
-
 func (s *Service) start(w http.ResponseWriter, r *http.Request) error {
-	var in startInput
+	var in StartInput
 	if r.ContentLength > 0 {
 		if err := httpx.Decode(r, &in); err != nil {
 			return err
 		}
 	}
-	run, err := s.Start(r.Context(), principal(r), r.PathValue("id"), in.Force)
+	run, err := s.Start(r.Context(), principal(r), r.PathValue("id"), in)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(w, run)
+}
+
+func (s *Service) issue(w http.ResponseWriter, r *http.Request) error {
+	var in IssueInput
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	run, err := s.Issue(r.Context(), principal(r), r.PathValue("id"), in)
 	if err != nil {
 		return err
 	}

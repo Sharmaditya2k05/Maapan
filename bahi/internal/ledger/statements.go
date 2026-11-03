@@ -36,6 +36,9 @@ type Statement struct {
 	TotalCredit  int64           `json:"total_credit_paise"`
 	ClosingPaise int64           `json:"closing_balance_paise"`
 	Lines        []StatementLine `json:"lines"`
+	// History lists imported invoices dated in the period that were stored
+	// as history only (before the import's as_of): shown, never posted.
+	History []HistoryInvoice `json:"history,omitempty"`
 }
 
 // statement builds a running-balance ledger for the given accounts.
@@ -140,6 +143,9 @@ func (s *Service) handlePartyStatement(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 	st.AccountID, st.AccountName = party.AccountID, party.Name
+	if st.History, err = s.listHistory(r.Context(), p.TenantID, party.ID, "", "history", from, to); err != nil {
+		return err
+	}
 	return s.writeStatement(w, r, st, "party-"+party.Name)
 }
 

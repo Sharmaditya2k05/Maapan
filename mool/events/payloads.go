@@ -27,6 +27,8 @@ type InvoiceLine struct {
 	CessPaise        int64   `json:"cess_paise"`
 	TotalPaise       int64   `json:"total_paise"`
 	ITCEligibility   string  `json:"itc_eligibility,omitempty"` // purchase lines: eligible | ineligible_17_5 | ineligible_other
+	// SerialNos lists the serial numbers on a serial-tracked line (one per base unit).
+	SerialNos []string `json:"serial_nos,omitempty"`
 }
 
 // Tender is a counter payment recorded on the invoice.
@@ -174,6 +176,9 @@ type ProductionCompletedPayload struct {
 	Produced        []ProductionLine `json:"produced"`
 	TotalCostPaise  int64            `json:"total_cost_paise"`
 	CompletedAt     string           `json:"completed_at"`
+	// Failed marks a batch that consumed material but produced nothing good;
+	// the cost is a production loss, not finished stock.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // ImportCompletedPayload is the data of aayaat.import.completed.

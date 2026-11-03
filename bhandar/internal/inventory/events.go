@@ -44,12 +44,25 @@ func (s *Service) handle(ctx context.Context, e events.Envelope, fn func(tx pgx.
 	return err
 }
 
+// invoiceEvent is events.InvoicePayload with per-line serial numbers
+// (serial_nos), which aadesh sends for serial-tracked items. The field is read
+// here until mool's events.InvoiceLine carries it.
+type invoiceEvent struct {
+	events.InvoicePayload
+	Lines []invoiceLine `json:"lines"`
+}
+
+type invoiceLine struct {
+	events.InvoiceLine
+	SerialNos []string `json:"serial_nos,omitempty"`
+}
+
 // onInvoice moves stock for sales, purchases and returns. Lines without an
 // item_id (free-text lines) do not touch stock. Sales go out at the current
 // average cost; purchases come in at taxable value ÷ quantity (GST is input
 // credit, not cost); returns mirror them.
 func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
-	var p events.InvoicePayload
+	var p invoiceEvent
 	if err := e.Decode(&p); err != nil {
 		return err
 	}
@@ -78,9 +91,13 @@ func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
 	}
 	req := postRequest{TenantID: e.TenantID, StoreID: storeID, Source: src, SourceID: p.InvoiceID, Reason: reason,
 		CreatedBy: p.CreatedBy, OccurredAt: e.OccurredAt}
+	var serials []serialMove
 	for _, l := range p.Lines {
 		if l.ItemID == "" || l.Qty <= 0 {
 			continue
+		}
+		if len(l.SerialNos) > 0 {
+			serials = append(serials, serialMove{LineNo: l.LineNo, ItemID: l.ItemID, BatchNo: l.BatchNo, SerialNos: l.SerialNos})
 		}
 		ml := MoveLine{LineNo: l.LineNo, ItemID: l.ItemID, BatchNo: l.BatchNo, Qty: sign * l.Qty, Unit: l.Unit, Note: p.Number}
 		if sign > 0 {
@@ -93,7 +110,24 @@ func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
 	}
 	return s.handle(ctx, e, func(tx pgx.Tx) (int, error) {
 		movs, err := s.post(ctx, tx, req)
-		return len(movs), err
+		if err != nil {
+			return 0, err
+		}
+		if _, err := applySerials(ctx, tx, e.TenantID, storeID, src, p.InvoiceID, p.DocType, p.PartyID, serials); err != nil {
+			return 0, err
+		}
+		if p.DocType == "purchase" {
+			date := p.SupplierInvoiceDate
+			if date == "" {
+				date = p.InvoiceDate
+			}
+			for _, m := range movs {
+				if err := recordPurchase(ctx, tx, e.TenantID, p.PartyID, m.ItemID, p.InvoiceID, p.Number, date, m.Qty, m.ValuePaise); err != nil {
+					return 0, err
+				}
+			}
+		}
+		return len(movs), nil
 	})
 }
 
@@ -106,6 +140,9 @@ func (s *Service) onInvoiceCancelled(ctx context.Context, e events.Envelope) err
 	return s.handle(ctx, e, func(tx pgx.Tx) (int, error) {
 		orig, err := movementsOf(ctx, tx, e.TenantID, []string{SourceInvoice, SourceNote}, p.InvoiceID)
 		if err != nil {
+			return 0, err
+		}
+		if _, err := revertSerials(ctx, tx, e.TenantID, []string{SourceInvoice, SourceNote}, p.InvoiceID); err != nil {
 			return 0, err
 		}
 		if len(orig) == 0 {

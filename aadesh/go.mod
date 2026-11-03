@@ -3,8 +3,11 @@ module github.com/maapan/aadesh
 go 1.25.0
 
 require (
+	github.com/boombuler/barcode v1.1.0
+	github.com/go-pdf/fpdf v0.9.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
 	github.com/maapan/mool v0.0.0
 )
 

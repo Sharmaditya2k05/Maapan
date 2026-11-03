@@ -21,6 +21,7 @@ import { SectionTitle, WarningList } from '../bits'
 import { useAction } from '../useAction'
 import { Rup, TAX_HEADS, TaxCells } from './shared'
 import { ItcSummaryTable } from './Gstr2bView'
+import { SetOffAction } from './SetOffAction'
 
 const ROWS_31: { key: keyof GSTR3B['sup_details']; label: string }[] = [
   { key: 'osup_det', label: '(a) Outward taxable supplies (other than zero rated, nil rated and exempted)' },
@@ -188,6 +189,7 @@ export function Gstr3bView({ period, gstin }: { period: string; gstin?: string }
                 </tr>
               ))}
             </Tbl>
+            <SetOffAction gstin={g.gstin} period={fp} cashTotal={totalCash} />
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="min-w-0">
                 <div className="mb-1 text-xs font-semibold text-slate-500">How the credit was used</div>

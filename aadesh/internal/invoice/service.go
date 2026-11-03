@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
@@ -26,6 +25,11 @@ type Service struct {
 	Relay *events.Relay
 	Log   *slog.Logger
 	Now   func() time.Time
+
+	// PDFKey signs public invoice PDF links (PDFLinkKey(SERVICE_SECRET));
+	// PublicBaseURL is where those links point (the gateway's aadesh prefix).
+	PDFKey        []byte
+	PublicBaseURL string
 }
 
 // Block sizes a device may reserve for offline billing, by role.
@@ -86,7 +90,11 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		return nil, false, err
 	}
 
-	if err := s.validateItems(ctx, &in); err != nil {
+	if err := s.validateItems(ctx, &in, storeID, date); err != nil {
+		return nil, false, err
+	}
+	bs, err := s.BillingSettings(ctx, p.TenantID)
+	if err != nil {
 		return nil, false, err
 	}
 
@@ -95,13 +103,14 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		lines[i] = l.Line
 	}
 	sum, err := gst.ComputeWith(lines, gst.Options{
-		StoreState: store.StateCode, PlaceOfSupply: pos, RoundToRupee: in.RoundOff == nil || *in.RoundOff,
+		StoreState: store.StateCode, PlaceOfSupply: pos,
 		SupplyCategory: in.SupplyCategory, ReverseCharge: in.ReverseCharge,
 		InvoiceDiscountPaise: in.InvoiceDiscountPaise, InvoiceDiscountBP: in.InvoiceDiscountBP, TCSBP: in.TCSBP, On: date,
 	})
 	if err != nil {
 		return nil, false, httpx.Validation("%s", err.Error())
 	}
+	applyRoundOff(&sum, bs, in.RoundOff != nil && !*in.RoundOff) // the tenant's rule; "round_off": false bills to the paisa
 
 	paid, change, credit, err := Settle(sum.GrandPaise, in.Tenders)
 	if err != nil {
@@ -135,6 +144,9 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		SupplierInvoiceDate: nilIfEmpty(in.SupplierInvoiceDate), RefInvoiceID: nilIfEmpty(in.RefInvoiceID),
 		Notes: nilIfEmpty(in.Notes), ClientUUID: nilIfEmpty(in.ClientUUID), Tenders: in.Tenders,
 	}
+	if in.link != nil {
+		inv.SourceOrderID = &in.link.OrderID
+	}
 	inv.BalancePaise = balance(inv.GrandTotalPaise, 0, paid)
 	for i, l := range in.Lines {
 		lt := sum.Lines[i]
@@ -156,6 +168,8 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 			CessPerUnitPaise: l.CessPerUnitPaise, TaxCategory: lt.TaxCategory, ITCEligibility: itc, PriceIncludesTax: l.PriceIncludesTax,
 			TaxablePaise: lt.TaxablePaise, CGSTPaise: lt.CGSTPaise, SGSTPaise: lt.SGSTPaise, IGSTPaise: lt.IGSTPaise,
 			CessPaise: lt.CessPaise, TotalPaise: lt.TotalPaise,
+			UnitFactor: l.factor, BaseUnit: l.baseUnit, BaseQty: l.Qty * l.factor, Serials: l.Serials,
+			SourceLineID: nilIfEmpty(l.sourceLine),
 		})
 	}
 
@@ -177,6 +191,14 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		if err := insertInvoice(ctx, tx, p.TenantID, seq, regKey, in, inv); err != nil {
 			return err
 		}
+		if err := s.postSerials(ctx, tx, p.TenantID, inv, orig); err != nil {
+			return err
+		}
+		if in.link != nil {
+			if err := consumeOrderLines(ctx, tx, p.TenantID, in.link, inv.DocType, "", inv.ID); err != nil {
+				return err
+			}
+		}
 		if orig != nil {
 			if err := creditOriginal(ctx, tx, p.TenantID, orig.ID, inv.GrandTotalPaise); err != nil {
 				return err
@@ -186,7 +208,7 @@ func (s *Service) Create(ctx context.Context, p *auth.Principal, in CreateInput)
 		if IsNote(in.DocType) {
 			evType = events.NoteCreated
 		}
-		ev, err := events.New(evType, "aadesh", p.TenantID, storeID, toPayload(inv))
+		ev, err := events.New(evType, "aadesh", p.TenantID, storeID, eventPayload(inv))
 		if err != nil {
 			return err
 		}
@@ -257,77 +279,6 @@ func (s *Service) resolveParty(ctx context.Context, in CreateInput) (clients.Par
 	return clients.Party{Name: "Cash Sale"}, nil
 }
 
-// validateItems resolves every item line against bhandar: the item must exist
-// and be active, HSN and unit are filled from the master when missing, a sale
-// must carry the item's tax classification, and a sale price may not exceed
-// the MRP. Free-text lines (no item_id) are left alone.
-func (s *Service) validateItems(ctx context.Context, in *CreateInput) error {
-	var ids []string
-	seen := map[string]bool{}
-	for _, l := range in.Lines {
-		if l.ItemID != "" && !seen[l.ItemID] {
-			seen[l.ItemID] = true
-			ids = append(ids, l.ItemID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	items, err := s.Dir.Items(ctx, ids)
-	if err != nil {
-		return err
-	}
-	for i := range in.Lines {
-		l := &in.Lines[i]
-		if l.ItemID == "" {
-			continue
-		}
-		it, ok := items[l.ItemID]
-		if !ok {
-			return httpx.Validation("line %d: item %s not found", i+1, l.ItemID)
-		}
-		if it.Status != "" && it.Status != "active" {
-			return httpx.Validation("line %d: item %s is inactive", i+1, it.Name)
-		}
-		if l.HSN == "" {
-			l.HSN = it.HSN
-		}
-		if l.Unit == "" {
-			l.Unit = it.Unit
-		}
-		cat := l.TaxCategory
-		if cat == "" {
-			cat = gst.CatTaxable
-		}
-		itemCat := it.TaxCategory
-		if itemCat == "" {
-			itemCat = gst.CatTaxable
-		}
-		sameTax := l.TaxRateBP == it.TaxRateBP && l.CessRateBP == it.CessRateBP && l.CessPerUnitPaise == it.CessPerUnitPaise && cat == itemCat
-		if !sameTax {
-			if in.DocType == DocSale || in.DocType == DocSaleReturn {
-				return httpx.Validation("line %d: tax must match the item master (%s, %d bp)", i+1, it.Name, it.TaxRateBP)
-			}
-			// A supplier's bill may legitimately carry a different rate (rate change, wrong master); keep it but say so.
-			s.Log.Warn("purchase line tax differs from item master", "item_id", it.ID, "line_rate_bp", l.TaxRateBP, "item_rate_bp", it.TaxRateBP)
-		}
-		if (in.DocType == DocSale || in.DocType == DocSaleReturn) && it.MRPPaise > 0 {
-			perBase := l.UnitPricePaise
-			if l.Unit != "" && !strings.EqualFold(l.Unit, it.Unit) {
-				for _, a := range it.AltUnits {
-					if strings.EqualFold(a.Unit, l.Unit) && a.Factor > 0 {
-						perBase = int64(math.Round(float64(l.UnitPricePaise) / a.Factor))
-					}
-				}
-			}
-			if perBase > it.MRPPaise {
-				return httpx.Validation("line %d: price exceeds MRP of %s", i+1, it.Name)
-			}
-		}
-	}
-	return nil
-}
-
 // loadOriginal loads the document a note refers to, checks it can be
 // returned against, defaults the note's party and store from it, and copies
 // rates and prices onto the note lines so a return never re-prices goods.
@@ -396,6 +347,9 @@ func (s *Service) loadOriginal(ctx context.Context, tenantID, storeID string, in
 		}
 		if l.Unit == "" {
 			l.Unit = ol.Unit
+		}
+		if l.BatchNo == "" {
+			l.BatchNo = deref(ol.BatchNo)
 		}
 		if l.ItemID == "" {
 			l.ItemID = deref(ol.ItemID)
@@ -774,8 +728,12 @@ func (s *Service) Cancel(ctx context.Context, p *auth.Principal, id, reason stri
 				return err
 			}
 		}
+		// Quantities this invoice took from an order (challan, sales order, GRN, ...) are open again.
+		if err := reverseLinks(ctx, tx, p.TenantID, "to_invoice_id", id); err != nil {
+			return err
+		}
 		inv.Status = "cancelled"
-		ev, err := events.New(events.InvoiceCancelled, "aadesh", p.TenantID, inv.StoreID, toPayload(inv))
+		ev, err := events.New(events.InvoiceCancelled, "aadesh", p.TenantID, inv.StoreID, eventPayload(inv))
 		if err != nil {
 			return err
 		}
@@ -923,6 +881,31 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// invoiceEventPayload is events.InvoicePayload with each line's serial numbers
+// (serial_nos), which bhandar reads for serial-tracked items until mool's
+// events.InvoiceLine carries the field. Other subscribers ignore it.
+type invoiceEventPayload struct {
+	events.InvoicePayload
+	Lines []invoiceEventLine `json:"lines"`
+}
+
+type invoiceEventLine struct {
+	events.InvoiceLine
+	SerialNos []string `json:"serial_nos,omitempty"`
+}
+
+func eventPayload(inv *Invoice) invoiceEventPayload {
+	base := toPayload(inv)
+	out := invoiceEventPayload{InvoicePayload: base, Lines: make([]invoiceEventLine, len(base.Lines))}
+	for i, l := range base.Lines {
+		out.Lines[i] = invoiceEventLine{InvoiceLine: l}
+		if i < len(inv.Lines) && len(inv.Lines[i].Serials) > 0 {
+			out.Lines[i].SerialNos = inv.Lines[i].Serials
+		}
+	}
+	return out
 }
 
 func toPayload(inv *Invoice) events.InvoicePayload {

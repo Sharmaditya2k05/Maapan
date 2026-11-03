@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { TrendingUp } from 'lucide-react'
-import { Card, Empty, Money, QueryState } from '@/components/ui'
-import { downloadFile, todayIST, useGet, usePerm } from '@/lib/hooks'
+import Link from 'next/link'
+import { Card, Empty, Money, QueryState, Select } from '@/components/ui'
+import { downloadFile, todayIST, useGet, usePerm, useStore } from '@/lib/hooks'
 import { PERMS } from '@/lib/rbac'
 import { formatINR } from '@/lib/money'
 import type { PLLine, ProfitLoss } from '@/lib/types.ledger'
@@ -18,9 +19,12 @@ const LABEL: Record<string, string> = { '5150': 'Cost of goods sold', '5160': 'S
 
 export default function ProfitLossPage() {
   const canDo = usePerm()
+  const { stores } = useStore()
   const [range, setRange] = useState<DateRange>(() => presetRange('this_fy', todayIST()))
-  const q = useGet<ProfitLoss>(canDo(PERMS.reportRead) ? '/bahi/v1/reports/profit-loss' : null, { from: range.from, to: range.to })
-  const onCSV = () => q.data && downloadFile(`profit-loss-${range.from}-${range.to}.csv`, toCSV(['Section', 'Code', 'Account', 'Amount'], [
+  const [storeId, setStoreId] = useState('')
+  const q = useGet<ProfitLoss>(canDo(PERMS.reportRead) ? '/bahi/v1/reports/profit-loss' : null, { from: range.from, to: range.to, store_id: storeId || undefined })
+  const storeName = stores.find((s) => s.id === storeId)?.name
+  const onCSV = () => q.data && downloadFile(`profit-loss-${storeName ? `${storeName}-` : ''}${range.from}-${range.to}.csv`, toCSV(['Section', 'Code', 'Account', 'Amount'], [
     ...q.data.income.map((l) => ['Income', l.code, l.name, csvRupees(l.amount_paise)]),
     ...q.data.expenses.map((l) => ['Expense', l.code, l.name, csvRupees(l.amount_paise)]),
     ['', '', 'Gross profit', csvRupees(q.data.gross_profit_paise)], ['', '', 'Net profit', csvRupees(q.data.net_profit_paise)],
@@ -28,7 +32,12 @@ export default function ProfitLossPage() {
   if (!canDo(PERMS.reportRead)) return <Card><NoPermission what="reports" /></Card>
 
   return (
-    <ReportShell title="Profit & loss" range={{ value: range, onChange: setRange, presets: ['this_month', 'last_month', 'this_quarter', 'this_fy', 'last_fy', 'custom'] }} onCSV={q.data ? onCSV : undefined}>
+    <ReportShell title="Profit & loss" range={{ value: range, onChange: setRange, presets: ['this_month', 'last_month', 'this_quarter', 'this_fy', 'last_fy', 'custom'] }} onCSV={q.data ? onCSV : undefined}
+      printNote={storeName ? `Store: ${storeName}` : undefined}
+      filters={stores.length > 1 ? <>
+        <Select value={storeId} onChange={(e) => setStoreId(e.target.value)} className="input-sm w-auto" aria-label="Store"><option value="">All stores</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
+        <Link href="/app/reports/stores" className="link text-xs">Compare stores</Link>
+      </> : undefined}>
       <QueryState isLoading={q.isLoading} error={q.error} data={q.data} retry={() => q.refetch()}>
         {(d) => {
           const tradingIncome = d.income.filter(isTrading)

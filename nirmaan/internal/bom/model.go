@@ -1,16 +1,19 @@
 // Package bom holds Bills of Materials: multi-level explosion with cycle
 // detection and cost roll-up (pure functions), plus storage and HTTP.
+//
+// Quantities are float64 kept to 3 decimals; money is always int64 paise,
+// computed with exact integer arithmetic (units.MulDiv), never float.
 package bom
 
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/maapan/mool/httpx"
+	"github.com/maapan/nirmaan/internal/units"
 )
 
 // BOM statuses.
@@ -20,24 +23,39 @@ const (
 	StatusArchived = "archived"
 )
 
+// Scrap methods. Divide is the market convention (Tally, SAP: a 2% scrap means
+// 2% of what is issued is lost, so issue = net ÷ 0.98). Multiply is the old
+// nirmaan behaviour (net × 1.02), kept for BOMs created before the switch.
+const (
+	ScrapDivide   = "divide"
+	ScrapMultiply = "multiply"
+)
+
 // BOM is a recipe: OutputQty of ItemID is made from Components (+ Operations cost).
 type BOM struct {
-	ID         string      `json:"id"`
-	ItemID     string      `json:"item_id"`
-	ItemName   string      `json:"item_name"`
-	Version    int         `json:"version"`
-	OutputQty  float64     `json:"output_qty"`
-	Unit       string      `json:"unit"`
-	Status     string      `json:"status"`
-	Notes      *string     `json:"notes,omitempty"`
-	CreatedBy  string      `json:"created_by"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
-	Components []Component `json:"components"`
-	Operations []Operation `json:"operations"`
+	ID            string      `json:"id"`
+	ItemID        string      `json:"item_id"`
+	ItemName      string      `json:"item_name"`
+	Version       int         `json:"version"`
+	OutputQty     float64     `json:"output_qty"`
+	Unit          string      `json:"unit"`
+	Status        string      `json:"status"`
+	ScrapMethod   string      `json:"scrap_method"`
+	YieldPercent  float64     `json:"yield_percent"` // expected good output ÷ input; materials are grossed up by it
+	EffectiveFrom *string     `json:"effective_from,omitempty"`
+	EffectiveTo   *string     `json:"effective_to,omitempty"`
+	IsPrimary     bool        `json:"is_primary"`               // false = an alternate recipe/route
+	AlternateName *string     `json:"alternate_name,omitempty"` // e.g. "Machine B", "Imported resin"
+	Notes         *string     `json:"notes,omitempty"`
+	CreatedBy     string      `json:"created_by"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	Components    []Component `json:"components"`
+	Operations    []Operation `json:"operations"`
 }
 
-// Component is one input of a BOM. Qty is per OutputQty of the parent.
+// Component is one input of a BOM. Qty is per OutputQty of the parent, in Unit
+// (converted to the item's stock unit through bhandar's alternate units).
 type Component struct {
 	LineNo        int     `json:"line_no"`
 	ItemID        string  `json:"item_id"`
@@ -46,29 +64,44 @@ type Component struct {
 	Unit          string  `json:"unit"`
 	ScrapPercent  float64 `json:"scrap_percent"`
 	IsSubAssembly bool    `json:"is_sub_assembly"`
-	// SubBOMID pins a specific BOM; empty means "the component item's active BOM".
+	// SubBOMID pins a specific BOM; empty means "the component item's effective primary BOM".
 	SubBOMID *string `json:"sub_bom_id,omitempty"`
 }
 
-// Operation is a labour/overhead cost per batch of OutputQty.
+// Operation is a routing step per batch of OutputQty: a fixed cost plus
+// labour/machine hours at an hourly rate.
 type Operation struct {
-	LineNo    int    `json:"line_no"`
-	Name      string `json:"name"`
-	CostPaise int64  `json:"cost_paise"`
+	LineNo           int     `json:"line_no"`
+	Name             string  `json:"name"`
+	WorkCenter       string  `json:"work_center,omitempty"`
+	Hours            float64 `json:"hours"`
+	RatePaisePerHour int64   `json:"rate_paise_per_hour"`
+	CostPaise        int64   `json:"cost_paise"` // fixed cost per batch
+}
+
+// BatchCostPaise is the operation's cost for one batch.
+func (o Operation) BatchCostPaise() int64 {
+	return o.CostPaise + units.Extend(o.Hours, o.RatePaisePerHour)
 }
 
 // Input is the body for creating/updating a BOM.
 type Input struct {
-	ItemID     string      `json:"item_id"`
-	ItemName   string      `json:"item_name"`
-	OutputQty  float64     `json:"output_qty"`
-	Unit       string      `json:"unit,omitempty"`
-	Notes      string      `json:"notes,omitempty"`
-	Components []Component `json:"components"`
-	Operations []Operation `json:"operations,omitempty"`
+	ItemID        string      `json:"item_id"`
+	ItemName      string      `json:"item_name"`
+	OutputQty     float64     `json:"output_qty"`
+	Unit          string      `json:"unit,omitempty"`
+	ScrapMethod   string      `json:"scrap_method,omitempty"`  // divide (default) | multiply
+	YieldPercent  float64     `json:"yield_percent,omitempty"` // default 100
+	EffectiveFrom string      `json:"effective_from,omitempty"`
+	EffectiveTo   string      `json:"effective_to,omitempty"`
+	IsPrimary     *bool       `json:"is_primary,omitempty"` // default true
+	AlternateName string      `json:"alternate_name,omitempty"`
+	Notes         string      `json:"notes,omitempty"`
+	Components    []Component `json:"components"`
+	Operations    []Operation `json:"operations,omitempty"`
 }
 
-// Validate checks the shape of a BOM.
+// Validate checks the shape of a BOM and fills defaults.
 func (in *Input) Validate() error {
 	in.ItemName = strings.TrimSpace(in.ItemName)
 	if in.ItemID == "" || in.ItemName == "" {
@@ -76,6 +109,36 @@ func (in *Input) Validate() error {
 	}
 	if in.OutputQty <= 0 {
 		return httpx.Validation("output_qty must be positive")
+	}
+	switch in.ScrapMethod {
+	case "":
+		in.ScrapMethod = ScrapDivide
+	case ScrapDivide, ScrapMultiply:
+	default:
+		return httpx.Validation("scrap_method must be divide or multiply")
+	}
+	if in.YieldPercent == 0 {
+		in.YieldPercent = 100
+	}
+	if in.YieldPercent <= 0 || in.YieldPercent > 100 {
+		return httpx.Validation("yield_percent must be above 0 and at most 100")
+	}
+	for _, d := range []string{in.EffectiveFrom, in.EffectiveTo} {
+		if d != "" {
+			if _, err := time.Parse(time.DateOnly, d); err != nil {
+				return httpx.Validation("effective dates must be YYYY-MM-DD")
+			}
+		}
+	}
+	if in.EffectiveFrom != "" && in.EffectiveTo != "" && in.EffectiveTo < in.EffectiveFrom {
+		return httpx.Validation("effective_to is before effective_from")
+	}
+	if in.IsPrimary == nil {
+		t := true
+		in.IsPrimary = &t
+	}
+	if !*in.IsPrimary && strings.TrimSpace(in.AlternateName) == "" {
+		return httpx.Validation("an alternate BOM needs alternate_name")
 	}
 	if len(in.Components) == 0 || len(in.Components) > 300 {
 		return httpx.Validation("a BOM needs 1 to 300 components")
@@ -97,8 +160,8 @@ func (in *Input) Validate() error {
 		seen[c.ItemID] = true
 	}
 	for i, o := range in.Operations {
-		if strings.TrimSpace(o.Name) == "" || o.CostPaise < 0 {
-			return httpx.Validation("operation %d needs a name and non-negative cost", i+1)
+		if strings.TrimSpace(o.Name) == "" || o.CostPaise < 0 || o.Hours < 0 || o.RatePaisePerHour < 0 {
+			return httpx.Validation("operation %d needs a name and non-negative cost, hours and rate", i+1)
 		}
 	}
 	return nil
@@ -108,7 +171,7 @@ func (in *Input) Validate() error {
 type Resolver interface {
 	// BOM returns a BOM by id (error if missing).
 	BOM(id string) (*BOM, error)
-	// ActiveBOMFor returns the active BOM of an item, or nil when it has none.
+	// ActiveBOMFor returns the effective primary BOM of an item, or nil when it has none.
 	ActiveBOMFor(itemID string) (*BOM, error)
 }
 
@@ -132,9 +195,25 @@ func subBOM(r Resolver, c Component) (*BOM, error) {
 	return b, nil
 }
 
-// grossQty is the component quantity needed for parentQty of the parent, including scrap.
-func grossQty(c Component, parent *BOM, parentQty float64) float64 {
-	return c.Qty / parent.OutputQty * parentQty * (1 + c.ScrapPercent/100)
+// ApplyScrap grosses a net quantity up for scrap% using method.
+func ApplyScrap(net, pct float64, method string) float64 {
+	if pct <= 0 {
+		return net
+	}
+	if method == ScrapMultiply {
+		return net * (1 + pct/100)
+	}
+	return net / (1 - pct/100)
+}
+
+// GrossQty is the component quantity (in the component's unit) needed for
+// parentQty of the parent, including the parent's yield and the component's scrap.
+func GrossQty(c Component, parent *BOM, parentQty float64) float64 {
+	q := c.Qty / parent.OutputQty * parentQty
+	if y := parent.YieldPercent; y > 0 && y < 100 {
+		q = q * 100 / y
+	}
+	return ApplyScrap(q, c.ScrapPercent, parent.ScrapMethod)
 }
 
 // Node is one line of the indented explosion tree.
@@ -149,7 +228,7 @@ type Node struct {
 	Children      []Node  `json:"children,omitempty"`
 }
 
-// Requirement is a flattened raw-material need.
+// Requirement is a flattened raw-material need, in the item's base unit when known.
 type Requirement struct {
 	ItemID   string  `json:"item_id"`
 	ItemName string  `json:"item_name"`
@@ -158,40 +237,50 @@ type Requirement struct {
 }
 
 // Explode expands root for qty units of output into an indented tree and the
-// flattened raw-material requirement (leaves only), detecting cycles.
-func Explode(r Resolver, root *BOM, qty float64) (Node, []Requirement, error) {
+// flattened raw-material requirement (leaves only), detecting cycles. cat
+// converts component units to stock units (nil: quantities stay as entered).
+func Explode(r Resolver, root *BOM, qty float64, cat units.Catalog) (Node, []Requirement, error) {
 	if qty <= 0 {
 		return Node{}, nil, httpx.Validation("qty must be positive")
 	}
 	totals := map[string]*Requirement{}
 	var walk func(b *BOM, q float64, level int, path []string) ([]Node, error)
 	walk = func(b *BOM, q float64, level int, path []string) ([]Node, error) {
-		for _, id := range path {
-			if id == b.ID {
-				return nil, fmt.Errorf("%w: %s", ErrCycle, strings.Join(append(path, b.ID), " → "))
-			}
+		if err := checkCycle(path, b.ID); err != nil {
+			return nil, err
 		}
 		path = append(path, b.ID)
 		var nodes []Node
 		for _, c := range b.Components {
-			need := grossQty(c, b, q)
-			n := Node{ItemID: c.ItemID, ItemName: c.ItemName, Qty: Round3(need), Unit: c.Unit, Level: level, IsSubAssembly: c.IsSubAssembly}
+			need := GrossQty(c, b, q)
+			n := Node{ItemID: c.ItemID, ItemName: c.ItemName, Qty: units.Round3(need), Unit: c.Unit, Level: level, IsSubAssembly: c.IsSubAssembly}
 			sb, err := subBOM(r, c)
 			if err != nil {
 				return nil, err
 			}
 			if sb != nil {
 				n.BOMID = sb.ID
-				if n.Children, err = walk(sb, need, level+1, path); err != nil {
+				// the sub-BOM is expressed in its own output unit
+				subQty, err := convertBetween(cat, c.ItemID, need, c.Unit, sb.Unit)
+				if err != nil {
+					return nil, err
+				}
+				if n.Children, err = walk(sb, subQty, level+1, path); err != nil {
 					return nil, err
 				}
 			} else {
+				f, base, err := cat.FactorFor(c.ItemID, c.Unit)
+				if err != nil {
+					return nil, httpx.Validation("%s: %s", c.ItemName, err.Error())
+				}
 				t := totals[c.ItemID]
 				if t == nil {
-					t = &Requirement{ItemID: c.ItemID, ItemName: c.ItemName, Unit: c.Unit}
+					t = &Requirement{ItemID: c.ItemID, ItemName: c.ItemName, Unit: base}
 					totals[c.ItemID] = t
+				} else if t.Unit != base {
+					return nil, httpx.Validation("%s is used in %s and %s; set up the unit conversion in bhandar", c.ItemName, t.Unit, base)
 				}
-				t.Qty += need
+				t.Qty += need * f
 			}
 			nodes = append(nodes, n)
 		}
@@ -201,23 +290,55 @@ func Explode(r Resolver, root *BOM, qty float64) (Node, []Requirement, error) {
 	if err != nil {
 		return Node{}, nil, err
 	}
-	tree := Node{ItemID: root.ItemID, ItemName: root.ItemName, Qty: Round3(qty), Unit: root.Unit, Level: 0, BOMID: root.ID, Children: children}
+	tree := Node{ItemID: root.ItemID, ItemName: root.ItemName, Qty: units.Round3(qty), Unit: root.Unit, Level: 0, BOMID: root.ID, Children: children}
 	flat := make([]Requirement, 0, len(totals))
 	for _, t := range totals {
-		t.Qty = Round3(t.Qty)
+		t.Qty = units.Round3(t.Qty)
 		flat = append(flat, *t)
 	}
 	sort.Slice(flat, func(i, j int) bool { return flat[i].ItemName < flat[j].ItemName })
 	return tree, flat, nil
 }
 
+func checkCycle(path []string, id string) error {
+	for _, p := range path {
+		if p == id {
+			return fmt.Errorf("%w: %s", ErrCycle, strings.Join(append(path, id), " → "))
+		}
+	}
+	return nil
+}
+
+// convertBetween converts qty of item from unit `from` to unit `to` via its base unit.
+func convertBetween(cat units.Catalog, itemID string, qty float64, from, to string) (float64, error) {
+	if units.Norm(from) == units.Norm(to) {
+		return qty, nil
+	}
+	ff, _, err := cat.FactorFor(itemID, from)
+	if err != nil {
+		return 0, httpx.Validation("%s", err.Error())
+	}
+	ft, _, err := cat.FactorFor(itemID, to)
+	if err != nil {
+		return 0, httpx.Validation("%s", err.Error())
+	}
+	if ft == 0 {
+		return qty, nil
+	}
+	return qty * ff / ft, nil
+}
+
 // CostLine is one direct component in a cost roll-up.
 type CostLine struct {
 	ItemID        string  `json:"item_id"`
 	ItemName      string  `json:"item_name"`
-	Qty           float64 `json:"qty"` // for the requested quantity, incl. scrap
-	UnitCostPaise int64   `json:"unit_cost_paise"`
+	Qty           float64 `json:"qty"` // for the requested quantity, incl. yield and scrap, in Unit
+	Unit          string  `json:"unit"`
+	BaseQty       float64 `json:"base_qty"` // the same in the item's stock unit
+	BaseUnit      string  `json:"base_unit"`
+	UnitCostPaise int64   `json:"unit_cost_paise"` // per base unit
 	ExtendedPaise int64   `json:"extended_paise"`
+	PriceSource   string  `json:"price_source,omitempty"`
 	IsSubAssembly bool    `json:"is_sub_assembly"`
 }
 
@@ -229,84 +350,147 @@ type CostResult struct {
 	OperationsPaise int64      `json:"operations_paise"`
 	TotalPaise      int64      `json:"total_paise"`
 	UnitCostPaise   int64      `json:"unit_cost_paise"`
+	LabourHours     float64    `json:"labour_hours"`
 	Lines           []CostLine `json:"lines"`
-	MissingPrices   []string   `json:"missing_prices,omitempty"` // leaf items costed at 0
+	// MissingPrices are leaf items with no cost: the roll-up is incomplete
+	// (Complete is false) and production completion refuses to book at ₹0.
+	MissingPrices []string `json:"missing_prices,omitempty"`
+	Complete      bool     `json:"complete"`
+}
+
+// Pricing is what Cost needs: unit conversions and a price per base unit.
+type Pricing struct {
+	Units   units.Catalog
+	Prices  map[string]int64  // paise per base unit
+	Sources map[string]string // optional: where each price came from
 }
 
 // Cost rolls up material (leaf prices, sub-assemblies recursively) plus
-// operations, for qty units of root. prices are paise per unit of raw material.
-func Cost(r Resolver, root *BOM, qty float64, prices map[string]int64) (CostResult, error) {
+// operations, for qty units of root.
+func Cost(r Resolver, root *BOM, qty float64, pr Pricing) (CostResult, error) {
 	if qty <= 0 {
 		return CostResult{}, httpx.Validation("qty must be positive")
 	}
 	missing := map[string]bool{}
-	var unitCost func(b *BOM, path []string) (float64, error)
-	unitCost = func(b *BOM, path []string) (float64, error) {
-		for _, id := range path {
-			if id == b.ID {
-				return 0, fmt.Errorf("%w: %s", ErrCycle, strings.Join(append(path, b.ID), " → "))
-			}
+	// rate returns the cost per base unit of b's output item.
+	var rate func(b *BOM, path []string) (int64, error)
+	componentRate := func(c Component, path []string) (int64, string, error) {
+		sb, err := subBOM(r, c)
+		if err != nil {
+			return 0, "", err
+		}
+		if sb != nil {
+			v, err := rate(sb, path)
+			return v, "rollup", err
+		}
+		p, ok := pr.Prices[c.ItemID]
+		if !ok || p <= 0 {
+			missing[c.ItemID] = true
+			return 0, "", nil
+		}
+		return p, pr.Sources[c.ItemID], nil
+	}
+	rate = func(b *BOM, path []string) (int64, error) {
+		if err := checkCycle(path, b.ID); err != nil {
+			return 0, err
 		}
 		path = append(path, b.ID)
-		total := 0.0
+		var total int64
 		for _, c := range b.Components {
-			cu, err := componentUnitCost(r, c, prices, missing, func(sb *BOM) (float64, error) { return unitCost(sb, path) })
+			cr, _, err := componentRate(c, path)
 			if err != nil {
 				return 0, err
 			}
-			total += grossQty(c, b, b.OutputQty) * cu
+			baseQty, _, err := baseOf(pr.Units, c, GrossQty(c, b, b.OutputQty))
+			if err != nil {
+				return 0, err
+			}
+			total += units.Extend(baseQty, cr)
 		}
 		for _, o := range b.Operations {
-			total += float64(o.CostPaise)
+			total += o.BatchCostPaise()
 		}
-		return total / b.OutputQty, nil
+		f, _, err := pr.Units.FactorFor(b.ItemID, b.Unit)
+		if err != nil {
+			return 0, httpx.Validation("%s: %s", b.ItemName, err.Error())
+		}
+		return units.Rate(total, b.OutputQty*f), nil
 	}
 
-	res := CostResult{BOMID: root.ID, Qty: Round3(qty)}
-	var material float64
+	res := CostResult{BOMID: root.ID, Qty: units.Round3(qty), Lines: []CostLine{}}
 	for _, c := range root.Components {
-		cu, err := componentUnitCost(r, c, prices, missing, func(sb *BOM) (float64, error) { return unitCost(sb, []string{root.ID}) })
+		cr, src, err := componentRate(c, []string{root.ID})
 		if err != nil {
 			return CostResult{}, err
 		}
-		need := grossQty(c, root, qty)
-		ext := need * cu
-		material += ext
+		need := GrossQty(c, root, qty)
+		baseQty, baseUnit, err := baseOf(pr.Units, c, need)
+		if err != nil {
+			return CostResult{}, err
+		}
+		ext := units.Extend(baseQty, cr)
+		res.MaterialPaise += ext
 		res.Lines = append(res.Lines, CostLine{
-			ItemID: c.ItemID, ItemName: c.ItemName, Qty: Round3(need), UnitCostPaise: int64(math.Round(cu)),
-			ExtendedPaise: int64(math.Round(ext)), IsSubAssembly: c.IsSubAssembly,
+			ItemID: c.ItemID, ItemName: c.ItemName, Qty: units.Round3(need), Unit: c.Unit,
+			BaseQty: units.Round3(baseQty), BaseUnit: baseUnit, UnitCostPaise: cr, ExtendedPaise: ext,
+			PriceSource: src, IsSubAssembly: c.IsSubAssembly,
 		})
 	}
-	var ops float64
-	for _, o := range root.Operations {
-		ops += float64(o.CostPaise) * qty / root.OutputQty
-	}
-	res.MaterialPaise = int64(math.Round(material))
-	res.OperationsPaise = int64(math.Round(ops))
+	res.OperationsPaise, res.LabourHours = OperationsFor(root, qty)
 	res.TotalPaise = res.MaterialPaise + res.OperationsPaise
-	res.UnitCostPaise = int64(math.Round((material + ops) / qty))
+	res.UnitCostPaise = units.Rate(res.TotalPaise, qty)
 	for id := range missing {
 		res.MissingPrices = append(res.MissingPrices, id)
 	}
 	sort.Strings(res.MissingPrices)
+	res.Complete = len(res.MissingPrices) == 0
 	return res, nil
 }
 
-func componentUnitCost(r Resolver, c Component, prices map[string]int64, missing map[string]bool,
-	sub func(*BOM) (float64, error)) (float64, error) {
-	sb, err := subBOM(r, c)
+// OperationsFor is the operations cost (paise) and hours for qty output of b.
+func OperationsFor(b *BOM, qty float64) (int64, float64) {
+	var paise int64
+	var hours float64
+	for _, o := range b.Operations {
+		paise += units.MulDiv(o.BatchCostPaise(), units.Milli(qty), units.Milli(b.OutputQty))
+		hours += o.Hours * qty / b.OutputQty
+	}
+	return paise, units.Round3(hours)
+}
+
+func baseOf(cat units.Catalog, c Component, qty float64) (float64, string, error) {
+	f, base, err := cat.FactorFor(c.ItemID, c.Unit)
 	if err != nil {
-		return 0, err
+		return 0, "", httpx.Validation("%s: %s", c.ItemName, err.Error())
 	}
-	if sb != nil {
-		return sub(sb)
-	}
-	p, ok := prices[c.ItemID]
-	if !ok || p == 0 {
-		missing[c.ItemID] = true
-	}
-	return float64(p), nil
+	return qty * f, base, nil
 }
 
 // Round3 rounds a quantity to 3 decimals.
-func Round3(q float64) float64 { return math.Round(q*1000) / 1000 }
+func Round3(q float64) float64 { return units.Round3(q) }
+
+// EffectiveOn reports whether b's date range covers date (YYYY-MM-DD).
+func (b *BOM) EffectiveOn(date string) bool {
+	if b.EffectiveFrom != nil && *b.EffectiveFrom != "" && date < *b.EffectiveFrom {
+		return false
+	}
+	if b.EffectiveTo != nil && *b.EffectiveTo != "" && date > *b.EffectiveTo {
+		return false
+	}
+	return true
+}
+
+// UnitIssues lists components (and the output) whose unit cannot be converted
+// to the item's stock unit.
+func UnitIssues(b *BOM, cat units.Catalog) []string {
+	var out []string
+	if _, _, err := cat.FactorFor(b.ItemID, b.Unit); err != nil {
+		out = append(out, b.ItemName+": "+err.Error())
+	}
+	for _, c := range b.Components {
+		if _, _, err := cat.FactorFor(c.ItemID, c.Unit); err != nil {
+			out = append(out, c.ItemName+": "+err.Error())
+		}
+	}
+	return out
+}

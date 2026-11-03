@@ -1,5 +1,5 @@
 // nirmaan (निर्माण) — manufacturing service: multi-level BOMs, cost roll-up,
-// production runs that consume raw material and produce finished goods.
+// production runs (WIP, partial completion, by-products) and job work (ITC-04).
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"github.com/maapan/mool/svc"
 	"github.com/maapan/nirmaan/internal/bom"
 	"github.com/maapan/nirmaan/internal/clients"
+	"github.com/maapan/nirmaan/internal/jobwork"
 	"github.com/maapan/nirmaan/internal/production"
 	"github.com/maapan/nirmaan/migrations"
 )
@@ -37,11 +38,13 @@ func run(ctx context.Context) error {
 		return err
 	}
 	bhandar := &clients.Bhandar{C: svc.New(config.String("BHANDAR_URL", "http://localhost:7008"), app.Cfg.ServiceSecret, app.Cfg.UseIDTokens)}
-	boms := &bom.Service{DB: app.DB, Bhandar: bhandar, Log: app.Log, Now: time.Now}
-	runs := &production.Service{DB: app.DB, BOMs: boms, Bhandar: bhandar, Relay: app.Relay, Log: app.Log, Now: time.Now}
+	boms := &bom.Service{DB: app.DB, Inventory: bhandar, Log: app.Log, Now: time.Now}
+	runs := &production.Service{DB: app.DB, BOMs: boms, Inventory: bhandar, Relay: app.Relay, Log: app.Log, Now: time.Now}
+	jobs := &jobwork.Service{DB: app.DB, Inventory: bhandar, Relay: app.Relay, Log: app.Log, Now: time.Now}
 
 	mux := http.NewServeMux()
 	boms.Routes(mux, app.Verifier)
 	runs.Routes(mux, app.Verifier)
+	jobs.Routes(mux, app.Verifier)
 	return app.Run(ctx, mux)
 }

@@ -26,7 +26,7 @@ envVarGroups:
       - key: LOG_LEVEL
         value: info
       - key: RELEASE # bump to redeploy every service on a blueprint sync
-        value: batch1-2026-11-03
+        value: batch2-2026-11-03
       - key: SVC_TIMEOUT        # services sleep when idle; waking takes up to a minute
         value: 75s
       - key: DWAAR_URL
@@ -152,6 +152,8 @@ services:
     healthCheckPath: /healthz
     envVars:
       - fromGroup: maapan-shared
+      - key: PUBLIC_BASE_URL # signed invoice-PDF links go out through the gateway
+        value: https://maapan-dwaar.onrender.com/api/aadesh
       - key: DATABASE_URL
         fromDatabase:
           name: maapan-db
@@ -200,6 +202,10 @@ services:
     healthCheckPath: /healthz
     envVars:
       - fromGroup: maapan-shared
+      - key: BAHI_EXTRAS # bahi accepts the extra import fields (open bills, invoice history, PAN, ...)
+        value: "true"
+      - key: BHANDAR_EXTRAS # bhandar accepts alt units, MRP and mfg date on imports
+        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: maapan-db

@@ -47,7 +47,26 @@ func IsPublic(method, path string) bool { return PublicClass(method, path) != ""
 
 // PublicClass returns the route class of a public route, "" for routes that need a token.
 func PublicClass(method, path string) string {
-	return publicRoutes[method+" "+strings.TrimRight(path, "/")]
+	p := strings.TrimRight(path, "/")
+	if c := publicRoutes[method+" "+p]; c != "" {
+		return c
+	}
+	// Signed invoice PDF links (soochna attaches them on WhatsApp/email).
+	// aadesh checks the HMAC signature and expiry itself.
+	if method == "GET" && isSignedInvoicePDF(p) {
+		return ClassAuth
+	}
+	return ""
+}
+
+// isSignedInvoicePDF matches exactly /api/aadesh/public/v1/invoices/{id}/pdf.
+func isSignedInvoicePDF(p string) bool {
+	const pre, suf = "/api/aadesh/public/v1/invoices/", "/pdf"
+	if !strings.HasPrefix(p, pre) || !strings.HasSuffix(p, suf) {
+		return false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(p, pre), suf)
+	return id != "" && !strings.ContainsAny(id, "/.%")
 }
 
 // Target is a parsed gateway path.

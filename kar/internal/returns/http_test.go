@@ -182,3 +182,18 @@ func TestOpeningFeedsSetOff(t *testing.T) {
 		t.Fatalf("no 2B imported yet: %+v", g.ITC2B)
 	}
 }
+
+// The internal 2B route is mounted and refuses callers without the service secret.
+func TestInternalGSTR2BRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, auth.NewVerifier("jwt-secret", "svc-secret"), Deps{})
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/returns/gstr2b?period=102026", nil)
+	if _, pattern := mux.Handler(req); pattern != "GET /internal/v1/returns/gstr2b" {
+		t.Fatalf("route not mounted: %q", pattern)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("without the service secret want 401, got %d", rec.Code)
+	}
+}

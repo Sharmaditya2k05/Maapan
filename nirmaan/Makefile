@@ -1,7 +1,7 @@
 SERVICE := nirmaan
 PORT    ?= 7009
 
-.PHONY: run dev build test vet fmt tidy docker db-create db-reset help
+.PHONY: run dev build test test-db vet fmt tidy docker db-create db-reset help
 
 help:            ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -17,6 +17,9 @@ build:           ## Build bin/nirmaan
 
 test:            ## Unit tests
 	go test ./...
+
+test-db:         ## Unit + DB tests (TEST_DATABASE_URL, e.g. postgres://maapan:maapan@localhost:5432/maapan_test?sslmode=disable)
+	go test -count=1 ./...
 
 vet:             ## go vet + gofmt check
 	go vet ./... && test -z "$$(gofmt -l .)"

@@ -9,8 +9,8 @@
 | `opening_balances` | bahi `POST /internal/v1/bulk/opening-balances` | Trial balance; Tally *Other Ledgers* (cash, bank, capital, taxes …) |
 | `items` | bhandar `POST /internal/v1/bulk/items` (+ `bulk/opening-stock` for an opening qty column) | Marg Item master; Tally *Stock Items* |
 | `opening_stock` | bhandar `POST /internal/v1/bulk/opening-stock`, one call per store | Marg batch-wise stock; Tally *Stock Batches* (batch allocations per godown) |
-| `open_bills` | bahi `POST /internal/v1/bulk/open-bills` *(designed, not in bahi yet)* — or `party_totals` mode → `bulk/opening-balances` | Marg *Bill-wise Outstanding*; Tally *Bills* (opening bill allocations) |
-| `invoices` | bahi `POST /internal/v1/bulk/invoice-history` *(designed, not in bahi yet)* | Marg *Sale / Purchase Register*; Tally *Vouchers* (sales, purchase, credit / debit notes) |
+| `open_bills` | bahi `POST /internal/v1/bulk/open-bills` — or `party_totals` mode → `bulk/opening-balances` | Marg *Bill-wise Outstanding*; Tally *Bills* (opening bill allocations) |
+| `invoices` | bahi `POST /internal/v1/bulk/invoice-history` | Marg *Sale / Purchase Register*; Tally *Vouchers* (sales, purchase, credit / debit notes) |
 
 Flow: **upload → preview & auto-mapping (or a saved template) → validate (row-level errors and warnings) →
 dry run (optional) → commit (batches of 500, journalled) → rollback (optional)**, then
@@ -125,7 +125,7 @@ via the gateway prefix them with `/api/aayaat`.
 | `account_map` | opening_balances | `{"Output CGST": "2210", "Duties & Taxes": "2200"}` — old ledger *or group* name → bahi account code |
 | `doc_type` | invoices | `sale` · `purchase` · `sale_return` · `purchase_return` when the file has no type column (default `sale`) |
 | `side` | open_bills | `dr` (receivables, default) / `cr` (payables) when the file does not say |
-| `bills_mode` | open_bills | `bill_wise` (default; needs bahi `bulk/open-bills`) or `party_totals` (works with today's bahi) |
+| `bills_mode` | open_bills | `bill_wise` (default; bahi `bulk/open-bills`) or `party_totals` (one opening balance per party). bahi refuses bill-wise bills for a party that already has a party-level opening balance, so import the party master **without** opening balances when you import bills bill-wise |
 | `source` | — | `marg` · `tally` · `busy` · `vyapar` · `excel` (informational; `.xml` is Tally) |
 
 ### Job and row states
@@ -209,7 +209,7 @@ Tally amounts are signed (negative = Dr); they become `1,200.00 Dr` / `Cr` text 
 
 | Service | Need | Shape |
 |---|---|---|
-| bahi | **Bill-wise opening** | `POST /internal/v1/bulk/open-bills {as_of, bills:[{party_external_ref, party_name, bill_no, bill_date, due_date, bill_amount_paise, amount_paise, type: dr\|cr, external_ref}]}` → `BulkResult`. One opening voucher line per bill against the party (source id = `external_ref`), carrying bill no / due date so aging and outstanding match bill by bill. Until then use `bills_mode=party_totals` |
+| bahi | **Bill-wise opening** | `POST /internal/v1/bulk/open-bills {as_of, bills:[{party_external_ref, party_name, bill_no, bill_date, due_date, bill_amount_paise, amount_paise, type: dr\|cr, external_ref}]}` → `BulkResult`. One opening voucher line per bill against the party (source id = `external_ref`), carrying bill no / due date so aging and outstanding match bill by bill. **Built in bahi** (one opening voucher per bill; refused when the party already has a party-level opening) |
 | bahi | **Invoice history** | `POST /internal/v1/bulk/invoice-history {as_of, invoices:[{doc_type, number, date, party_external_ref, party_name, party_gstin, place_of_supply, taxable_paise, cgst_paise, sgst_paise, igst_paise, cess_paise, round_off_paise, total_paise, due_date, reference, narration, store_id, external_ref}]}`. Before `as_of`: stored for reference / GSTR history only (the opening balances already hold their effect). On / after `as_of`: posted as sales / purchase / CN / DN vouchers with source `import`, source id `external_ref`, period lock respected. Never emits stock movements |
 | bahi, bhandar | **Rollback** | `POST /internal/v1/bulk/rollback {kind, job_id, as_of, records:[…]}` → `BulkResult` (see above) |
 | bahi, bhandar | Per-record bulk result | `results:[{index, id, created}]` in `BulkResult`, so rollback can tell created from updated records (aayaat stores it when present) |

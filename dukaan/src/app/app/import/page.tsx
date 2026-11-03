@@ -9,6 +9,7 @@ import { PERMS } from '@/lib/rbac'
 import type { ImportJob, ImportKind } from '@/lib/types.more'
 import { JobBadge } from '@/components/import/bits'
 import { IMPORT_KINDS, fmtBytes, isJobBusy, kindLabel } from '@/components/import/kinds'
+import { TemplatesCard } from '@/components/import/extras'
 
 export default function ImportPage() {
   const canDo = usePerm()
@@ -22,7 +23,7 @@ export default function ImportPage() {
 
   return (
     <>
-      <PageHeader title="Import data" subtitle="Bring parties, items, opening balances and stock in from Excel or CSV"
+      <PageHeader title="Import data" subtitle="Bring parties, items, balances, stock, open bills and invoice history in from Excel, CSV or Tally XML"
         actions={<Link href="/app/import/new"><Button icon={Plus}>New import</Button></Link>} />
       <Card padded={false}>
         <div className="flex flex-wrap gap-2 p-4">
@@ -73,6 +74,7 @@ export default function ImportPage() {
           )}
         </QueryState>
       </Card>
+      <div className="mt-4"><TemplatesCard kindLabel={kindLabel} /></div>
     </>
   )
 }

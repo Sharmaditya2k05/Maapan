@@ -165,11 +165,24 @@ export interface RunCompleteInput {
 
 /* ======================= aayaat ======================= */
 
-export type ImportKind = 'parties' | 'items' | 'opening_balances' | 'opening_stock'
-export type ImportStatus = 'uploaded' | 'mapped' | 'validated' | 'queued' | 'running' | 'completed' | 'failed'
+export type ImportKind = 'parties' | 'items' | 'opening_balances' | 'opening_stock' | 'open_bills' | 'invoices'
+export type ImportStatus = 'uploaded' | 'mapped' | 'validated' | 'queued' | 'running' | 'completed' | 'failed' | 'rolled_back'
+export type ImportSource = 'marg' | 'tally' | 'busy' | 'vyapar' | 'excel'
 
 /** aayaat job.Params. */
-export interface ImportParams { as_of?: string; store_id?: string; notify_phone?: string }
+export interface ImportParams {
+  as_of?: string
+  store_id?: string
+  /** Store / godown text in the file → store id. */
+  store_map?: Record<string, string>
+  /** Old ledger or group name → bahi account code (opening_balances). */
+  account_map?: Record<string, string>
+  doc_type?: '' | 'sale' | 'purchase' | 'sale_return' | 'purchase_return'
+  side?: '' | 'dr' | 'cr'
+  bills_mode?: '' | 'bill_wise' | 'party_totals'
+  source?: '' | ImportSource
+  notify_phone?: string
+}
 
 /** aayaat job.Reconciliation — Dr vs Cr of opening balances. */
 export interface ImportReconciliation { dr_total_paise: number; cr_total_paise: number; difference_paise: number; balanced: boolean }
@@ -179,17 +192,23 @@ export interface ImportJob {
   id: string
   kind: ImportKind
   status: ImportStatus
+  source?: string
   file_name: string
   file_size: number
   sheet?: string
   header_row: number
   mapping: Record<string, string>
   params: ImportParams
+  template_id?: string
   total_rows: number
   valid_rows: number
   error_rows: number
+  skipped_rows?: number
+  warning_rows?: number
   imported: number
   failed: number
+  rolled_back?: number
+  rolled_back_at?: string
   reconciliation?: ImportReconciliation
   error?: string
   created_by: string
@@ -212,16 +231,71 @@ export interface ImportPreview {
   suggested_mapping: Record<string, string>
   mapping: Record<string, string>
   fields: ImportField[]
+  source?: string
+  /** Saved mappings of this kind; matches = the file has every mapped header. */
+  templates?: MappingTemplate[]
+}
+
+/** aayaat job.Template (GET /v1/mapping-templates). */
+export interface MappingTemplate {
+  id: string
+  kind: ImportKind
+  name: string
+  source?: string
+  sheet?: string
+  header_row: number
+  mapping: Record<string, string>
+  params: ImportParams
+  created_by: string
+  created_at: string
+  updated_at: string
+  matches?: boolean
 }
 
 /** aayaat job.MappingInput (PUT /v1/imports/{id}/mapping). header_row 0 = auto-detect. */
-export interface ImportMappingInput { sheet?: string; header_row?: number; mapping: Record<string, string>; params?: ImportParams }
+export interface ImportMappingInput { sheet?: string; header_row?: number; mapping: Record<string, string>; params?: ImportParams; template_id?: string; save_as?: string }
 
 /** aayaat job.RowResult. */
-export interface ImportRow { row_no: number; status: 'valid' | 'invalid' | 'imported' | 'failed'; raw: Record<string, string>; errors: string[]; record?: unknown }
+export interface ImportRow { row_no: number; status: 'valid' | 'invalid' | 'imported' | 'failed' | 'skipped' | 'rolled_back'; raw: Record<string, string>; errors: string[]; warnings?: string[]; record?: unknown; batch_no?: number }
 
 /** aayaat job.ValidateSummary (POST /v1/imports/{id}/validate). */
-export interface ImportValidateSummary { job: ImportJob; sample_errors: ImportRow[] }
+export interface ImportValidateSummary { job: ImportJob; sample_errors: ImportRow[]; sample_warnings?: ImportRow[] }
+
+/** aayaat job.DryRunCall — one bulk call a commit would make. */
+export interface DryRunCall { phase: string; service: string; path: string; store_id?: string; records: number; first_row: number; last_row: number; sample: unknown[] }
+
+/** aayaat job.DryRun (POST /v1/imports/{id}/dry-run). Nothing is sent. */
+export interface ImportDryRun {
+  job: ImportJob
+  calls: DryRunCall[] | null
+  would_send: number
+  zero_rows: number
+  unresolved: { ref: string; rows: number[]; count: number }[] | null
+  not_sent_fields: string[] | null
+  notes: string[] | null
+  reconciliation?: ImportReconciliation
+}
+
+/** aayaat job.Batch (GET /v1/imports/{id}/batches). */
+export interface ImportBatch {
+  batch_no: number
+  phase: string
+  path: string
+  store_id?: string
+  first_row: number
+  last_row: number
+  records: number
+  status: string
+  created: number
+  updated: number
+  errors: number
+  error?: string
+  sent_at: string
+  recorded_at?: string
+}
+
+/** aayaat job.RollbackResult (POST /v1/imports/{id}/rollback[?batch=N]). */
+export interface ImportRollbackResult { job: ImportJob; rolled_back: number; failed: ImportRow[] | null }
 
 /* ======================= buddhi ======================= */
 

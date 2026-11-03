@@ -4,9 +4,13 @@ package clients
 
 import (
 	"context"
+	"errors"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/maapan/mool/httpx"
 
 	"github.com/maapan/mool/svc"
 )
@@ -62,6 +66,7 @@ type Item struct {
 	TaxCategory      string `json:"tax_category"`
 	PriceIncludesTax bool   `json:"price_includes_tax"`
 	TrackBatches     bool   `json:"track_batches"`
+	TrackSerials     bool   `json:"track_serials"` // not served by bhandar yet; false until it is
 	Status           string `json:"status"`
 	AltUnits         []struct {
 		Unit   string  `json:"unit"`
@@ -165,4 +170,71 @@ func (d *Directory) PaymentRequest(ctx context.Context, in PaymentRequestInput) 
 	var out PaymentRequest
 	err := d.Lenden.Post(ctx, "/internal/v1/payment-requests", in, &out)
 	return out, err
+}
+
+// Batch is one batch of an item with its stock (bhandar's Batch).
+type Batch struct {
+	ID         string  `json:"id"`
+	ItemID     string  `json:"item_id"`
+	BatchNo    string  `json:"batch_no"`
+	MfgDate    string  `json:"mfg_date,omitempty"`
+	ExpiryDate string  `json:"expiry_date,omitempty"` // YYYY-MM-DD
+	MRPPaise   *int64  `json:"mrp_paise,omitempty"`
+	Qty        float64 `json:"qty"` // base units in the store asked for
+}
+
+// ErrNotSupported means the bhandar we talk to does not serve the route yet
+// (an older build answers a plain 404 from its router).
+var ErrNotSupported = errors.New("bhandar does not support this call yet")
+
+// notSupported maps "route missing" to ErrNotSupported. A JSON error from the
+// handler itself (e.g. item not found) is passed through unchanged.
+func notSupported(err error) error {
+	var he *httpx.Error
+	if errors.As(err, &he) && he.Status == 502 && strings.Contains(he.Message, "returned 404") {
+		return ErrNotSupported
+	}
+	if errors.As(err, &he) && (he.Status == 404 || he.Status == 405) && he.Code == "" {
+		return ErrNotSupported
+	}
+	return err
+}
+
+// Batches lists an item's batches with stock at a store:
+// GET bhandar /internal/v1/items/{id}/batches?store_id= (the internal twin of
+// the user route GET /v1/items/{id}/batches). ErrNotSupported until bhandar adds it.
+func (d *Directory) Batches(ctx context.Context, itemID, storeID string) ([]Batch, error) {
+	var res struct {
+		Batches []Batch `json:"batches"`
+	}
+	err := d.Bhandar.Get(ctx, "/internal/v1/items/"+url.PathEscape(itemID)+"/batches?store_id="+url.QueryEscape(storeID), &res)
+	if err != nil {
+		return nil, notSupported(err)
+	}
+	return res.Batches, nil
+}
+
+// SerialStatus is bhandar's view of one serial number.
+type SerialStatus struct {
+	SerialNo string `json:"serial_no"`
+	Status   string `json:"status"` // in_stock | sold | unknown
+	StoreID  string `json:"store_id,omitempty"`
+}
+
+// CheckSerials asks bhandar where serials of an item are:
+// POST bhandar /internal/v1/serials/check {item_id, store_id, serials}.
+// ErrNotSupported until bhandar tracks serials.
+func (d *Directory) CheckSerials(ctx context.Context, itemID, storeID string, serials []string) (map[string]SerialStatus, error) {
+	var res struct {
+		Serials []SerialStatus `json:"serials"`
+	}
+	err := d.Bhandar.Post(ctx, "/internal/v1/serials/check", map[string]any{"item_id": itemID, "store_id": storeID, "serials": serials}, &res)
+	if err != nil {
+		return nil, notSupported(err)
+	}
+	out := make(map[string]SerialStatus, len(res.Serials))
+	for _, s := range res.Serials {
+		out[s.SerialNo] = s
+	}
+	return out, nil
 }

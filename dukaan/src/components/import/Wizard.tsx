@@ -12,7 +12,9 @@ import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Refres
 import { Badge, Button, Card, ErrorBox, Field, Input, Select, Spinner, Table, useToast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { downloadFile, fyStartIST, useGet, useInvalidate, useSave, useStore } from '@/lib/hooks'
-import type { ImportJob, ImportKind, ImportMappingInput, ImportParams, ImportPreview, ImportValidateSummary } from '@/lib/types.more'
+import type { ImportJob, ImportKind, ImportMappingInput, ImportParams, ImportPreview, ImportValidateSummary, MappingTemplate } from '@/lib/types.more'
+import { IMPORT_ACCEPT, acceptImportFile, detectSource } from '@/lib/import/params'
+import { BatchesCard, DownloadWarnings, DryRunPanel, KindParams, MapParams, RollbackButton, TemplatePicker, WarningRows } from './extras'
 import { Counts, DownloadErrors, ErrorRows, JobBadge, Recon, Stepper } from './bits'
 import { IMPORT_KINDS, fmtBytes, isJobBusy, kindMeta, stepForStatus, type WizardStep } from './kinds'
 
@@ -59,7 +61,7 @@ function StepKind({ value, onNext }: { value: ImportKind | null; onNext: (k: Imp
   }
   return (
     <div>
-      <p className="mb-4 text-sm text-slate-600">Bring your existing books in from Excel or CSV — MargBooks exports work as they are. Import in this order: <strong>Parties → Items → Opening balances → Opening stock</strong>.</p>
+      <p className="mb-4 text-sm text-slate-600">Bring your existing books in from Excel, CSV or a Tally XML export — MargBooks and Tally exports work as they are. Import in this order: <strong>Parties → Items → Opening balances → Opening stock → Open bills → Invoice history</strong>.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {IMPORT_KINDS.map((m) => (
           <div key={m.kind} className={`card flex flex-col p-4 transition ${value === m.kind ? 'ring-2 ring-brand-500' : ''}`}>
@@ -91,6 +93,7 @@ function StepUpload({ kind, onBack, onUploaded }: { kind: ImportKind; onBack: ()
   const [asOf, setAsOf] = useState(fyStartIST())
   const [store, setStore] = useState(storeId ?? '')
   const [phone, setPhone] = useState('')
+  const [extra, setExtra] = useState<ImportParams>({})
   const [drag, setDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -98,21 +101,21 @@ function StepUpload({ kind, onBack, onUploaded }: { kind: ImportKind; onBack: ()
 
   const accept = (f: File | undefined) => {
     if (!f) return
-    const ok = /\.(xlsx|xlsm|csv|txt)$/i.test(f.name)
-    if (!ok) return setError(`${f.name}: upload .xlsx or .csv. Legacy .xls files must be saved as .xlsx first.`)
+    if (!acceptImportFile(f.name)) return setError(`${f.name}: upload .xlsx, .xls, .csv or a Tally .xml export.`)
+    if (detectSource(f.name)) setExtra((x) => ({ ...x, source: 'tally' }))
     if (f.size > 50 * 1024 * 1024) return setError('The file is larger than 50 MB; split it by sheet or year.')
     setError(null)
     setFile(f)
   }
   const submit = async () => {
     if (!file) return setError('Choose a file first.')
-    if (meta.store && !store) return setError('Pick the store that receives the opening stock.')
     const fd = new FormData()
     fd.set('kind', kind)
     fd.set('file', file)
     if (meta.asOf && asOf) fd.set('as_of', asOf)
     if (meta.store && store) fd.set('store_id', store)
     if (phone.trim()) fd.set('notify_phone', phone.trim())
+    for (const k of ['source', 'doc_type', 'side', 'bills_mode'] as const) if (extra[k]) fd.set(k, String(extra[k]))
     try { onUploaded(await upload.mutateAsync(fd)) } catch (e) { setError(errorMessage(e)) }
   }
 
@@ -124,7 +127,7 @@ function StepUpload({ kind, onBack, onUploaded }: { kind: ImportKind; onBack: ()
           onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); accept(e.dataTransfer.files?.[0]) }}
           onClick={() => inputRef.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()} aria-label="Choose a spreadsheet file">
-          <input ref={inputRef} type="file" className="sr-only" accept=".xlsx,.xlsm,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={(e) => accept(e.target.files?.[0])} />
+          <input ref={inputRef} type="file" className="sr-only" accept={IMPORT_ACCEPT} onChange={(e) => accept(e.target.files?.[0])} />
           {file ? (
             <>
               <FileSpreadsheet size={32} className="mb-2 text-brand-600" />
@@ -134,21 +137,22 @@ function StepUpload({ kind, onBack, onUploaded }: { kind: ImportKind; onBack: ()
           ) : (
             <>
               <Upload size={32} className="mb-2 text-slate-400" />
-              <div className="font-semibold">Drop an .xlsx or .csv here, or tap to choose</div>
-              <div className="mt-1 text-xs text-slate-500">Up to 50 MB · MargBooks: Reports → Export → Excel</div>
+              <div className="font-semibold">Drop an .xlsx, .xls, .csv or Tally .xml here, or tap to choose</div>
+              <div className="mt-1 text-xs text-slate-500">Up to 50 MB · MargBooks: Reports → Export → Excel · Tally: Export → XML (masters and/or vouchers)</div>
             </>
           )}
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           {meta.asOf && <Field label={kind === 'parties' ? 'Opening balance date' : 'As of date'} hint="Normally 1 April of the year you are migrating into."><Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>}
           {meta.store && (
-            <Field label="Store receiving the stock">
+            <Field label={meta.storeRequired ? 'Default store' : 'Default store (optional)'} hint="A Store / Godown column can pick the store per row; map its values on the next step.">
               <Select value={store} onChange={(e) => setStore(e.target.value)}>
-                <option value="">Select a store</option>
+                <option value="">{meta.storeRequired ? 'Select a store' : 'None'}</option>
                 {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </Field>
           )}
+          <KindParams meta={meta} params={extra} onChange={setExtra} />
           <Field label="WhatsApp a summary to (optional)" hint="+91 number; sent when the import finishes."><Input inputMode="tel" placeholder="+919876543210" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
         </div>
       </Card>
@@ -174,6 +178,8 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
   const [params, setParams] = useState<ImportParams>(job.params ?? {})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'save' | 'validate' | null>(null)
+  const [templateId, setTemplateId] = useState<string>(job.template_id ?? '')
+  const [saveAs, setSaveAs] = useState('')
 
   // Seed the mapping from the saved one, else the server's suggestion (per sheet).
   const seededFor = useRef<string | null>(null)
@@ -188,6 +194,13 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
   }, [preview.data, job.id, sheet])
 
   const p = preview.data
+  const applyTemplate = (t: MappingTemplate) => {
+    setTemplateId(t.id)
+    if (t.sheet && p?.sheets.includes(t.sheet)) setSheet(t.sheet)
+    if (t.header_row) setHeaderRow(String(t.header_row))
+    setMapping({ ...t.mapping })
+    setParams((x) => ({ ...t.params, ...Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined && v !== '')) }))
+  }
   const m = useMemo(() => mapping ?? {}, [mapping])
   const colIndex = useMemo(() => { const o: Record<string, number> = {}; p?.headers.forEach((h, i) => { if (!(h in o)) o[h] = i }); return o }, [p])
   const samples = (header: string) => { const i = colIndex[header]; return i === undefined ? [] : (p?.rows ?? []).map((r) => r[i] ?? '').filter((v) => v !== '').slice(0, 3) }
@@ -198,18 +211,19 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
     if (missing.length) return `Map the required field${missing.length > 1 ? 's' : ''}: ${missing.map((f) => f.label).join(', ')}.`
     const hr = headerRow.trim() === '' ? 0 : Number(headerRow)
     if (!Number.isInteger(hr) || hr < 0) return 'Header row must be a whole number (blank = auto-detect).'
-    if (meta?.store && !params.store_id) return 'Opening stock needs a target store.'
+    if (meta?.storeRequired && !params.store_id && !m.store && !Object.keys(params.store_map ?? {}).length) return 'Opening stock needs a store: pick a default store or map the Store / Godown column.'
     if (params.as_of && !/^\d{4}-\d{2}-\d{2}$/.test(params.as_of)) return 'As-of date must be YYYY-MM-DD.'
     const clean: Record<string, string> = {}
     for (const [k, v] of Object.entries(m)) if (v && v.trim()) clean[k] = v
-    return { sheet: sheet || undefined, header_row: hr, mapping: clean, params }
+    return { sheet: sheet || undefined, header_row: hr, mapping: clean, params, template_id: templateId || undefined, save_as: saveAs.trim() || undefined }
   }
   const saveMapping = async (): Promise<ImportJob | null> => {
     const b = body()
     if (typeof b === 'string') { setError(b); return null }
     setError(null)
     const j = await api<ImportJob>(`/aayaat/v1/imports/${job.id}/mapping`, { method: 'PUT', body: b })
-    invalidate(`/aayaat/v1/imports/${job.id}`, `/aayaat/v1/imports/${job.id}/preview`, '/aayaat/v1/imports')
+    if (saveAs.trim()) setSaveAs('')
+    invalidate(`/aayaat/v1/imports/${job.id}`, `/aayaat/v1/imports/${job.id}/preview`, '/aayaat/v1/imports', '/aayaat/v1/mapping-templates')
     return j
   }
   const save = async () => { setBusy('save'); try { if (await saveMapping()) setError(null) } catch (e) { setError(errorMessage(e)) } finally { setBusy(null) } }
@@ -223,7 +237,7 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
     } catch (e) { setError(errorMessage(e)) } finally { setBusy(null) }
   }
 
-  if (isJobBusy(job.status) || job.status === 'completed') {
+  if (isJobBusy(job.status) || job.status === 'completed' || job.status === 'rolled_back') {
     return <ErrorBox message={`This import is ${job.status}; its mapping can no longer change.`} />
   }
 
@@ -241,15 +255,19 @@ function StepMapping({ job, onValidated }: { job: ImportJob; onValidated: (j: Im
           </Field>
           {meta?.asOf && <Field label={job.kind === 'parties' ? 'Opening balance date' : 'As of date'}><Input type="date" value={params.as_of ?? ''} onChange={(e) => setParams((x) => ({ ...x, as_of: e.target.value }))} /></Field>}
           {meta?.store && (
-            <Field label="Store receiving the stock">
+            <Field label={meta.storeRequired ? 'Default store' : 'Default store (optional)'}>
               <Select value={params.store_id ?? ''} onChange={(e) => setParams((x) => ({ ...x, store_id: e.target.value }))}>
-                <option value="">Select a store</option>
+                <option value="">{meta.storeRequired ? 'Select a store' : 'None'}</option>
                 {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </Field>
           )}
+          {meta && <KindParams meta={meta} params={params} onChange={setParams} />}
+          {meta && p && <MapParams meta={meta} params={params} onChange={setParams} headers={p.headers} rows={p.rows} storeColumn={m.store} ledgerColumn={m.account_name || m.group} />}
+          <Field label="Save this mapping as (optional)" hint="Reuse it for the next export from the same program"><Input value={saveAs} maxLength={80} onChange={(e) => setSaveAs(e.target.value)} placeholder="Marg party master" /></Field>
         </div>
       </Card>
+      {p && <TemplatePicker templates={p.templates} onApply={applyTemplate} />}
 
       {preview.isLoading && <div className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Reading the file…</div>}
       {preview.error && <ErrorBox message={(preview.error as Error).message} retry={() => preview.refetch()} />}
@@ -319,6 +337,13 @@ function StepValidate({ job, onBack, onCommitted }: { job: ImportJob; onBack: ()
       <Counts job={job} />
       {job.reconciliation && <Recon r={job.reconciliation} />}
       {job.valid_rows === 0 && <ErrorBox message="No valid rows. Fix the errors in the sheet (or the column mapping) and check again." />}
+      {(job.skipped_rows ?? 0) > 0 && <p className="text-xs text-slate-500">{job.skipped_rows} rows have nothing to import (zero quantity, zero balance or a settled bill) and are skipped.</p>}
+      {(job.warning_rows ?? 0) > 0 && (
+        <Card title={`${job.warning_rows} rows import with a warning`} padded={false} actions={<DownloadWarnings jobId={job.id} count={job.warning_rows} />}>
+          <WarningRows jobId={job.id} />
+        </Card>
+      )}
+      {job.valid_rows > 0 && <DryRunPanel job={job} />}
       <Card title="Rows with errors" padded={false} actions={job.error_rows > 0 ? <DownloadErrors jobId={job.id} count={job.error_rows} /> : undefined}>
         {job.error_rows === 0 ? (
           <div className="flex items-center gap-2 px-4 py-6 text-sm text-emerald-700"><CheckCircle2 size={18} /> Every row is valid.</div>
@@ -371,6 +396,7 @@ function StepCommit({ job, onBackToMapping }: { job: ImportJob; onBackToMapping:
               : job.status === 'running' ? `Importing ${meta?.label.toLowerCase() ?? 'rows'}…`
               : job.status === 'completed' ? `${job.imported.toLocaleString('en-IN')} ${meta?.label.toLowerCase() ?? 'rows'} imported`
               : job.status === 'failed' ? 'Import stopped'
+              : job.status === 'rolled_back' ? 'Import rolled back'
               : `Import is ${job.status}`}
           </div>
           <div className="mt-1 text-sm text-slate-500">{job.file_name} · <JobBadge status={job.status} /></div>
@@ -399,6 +425,7 @@ function StepCommit({ job, onBackToMapping }: { job: ImportJob; onBackToMapping:
             <div className="flex gap-2">
               <Link href="/app/import"><Button variant="secondary">Import history</Button></Link>
               {job.status === 'failed' && <Button variant="secondary" onClick={onBackToMapping}>Fix mapping</Button>}
+              <RollbackButton job={job} />
             </div>
             <div className="flex gap-2">
               {job.status === 'failed' && <Button icon={RefreshCw} loading={retry.isPending} onClick={() => retry.mutate(undefined)}>Resume import</Button>}
@@ -407,6 +434,7 @@ function StepCommit({ job, onBackToMapping }: { job: ImportJob; onBackToMapping:
           </div>
         </>
       )}
+      {!busy && job.imported + job.failed > 0 && <BatchesCard job={job} />}
       {busy && <p className="text-center text-xs text-slate-500">You can leave this page; the import continues on the server and shows up in <Link href="/app/import" className="link">Import history</Link>.</p>}
       {job.status === 'completed' && (
         <Table>

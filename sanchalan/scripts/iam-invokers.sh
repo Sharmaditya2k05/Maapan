@@ -28,7 +28,7 @@ allow aayaat bahi;     allow aayaat bhandar
 allow nirmaan bhandar
 allow soochna pehchaan                                         # business name, owner phone
 allow soochna bahi                                             # party e-mail, overdue bills (payment reminders)
-allow buddhi pehchaan; allow buddhi bahi;   allow buddhi aadesh; allow buddhi bhandar; allow buddhi soochna
+allow buddhi pehchaan; allow buddhi bahi;   allow buddhi aadesh; allow buddhi bhandar; allow buddhi soochna; allow buddhi kar   # kar: GSTR-2B insights
 
 echo "==> aayaat → its import worker job (starts executions with overrides)"
 if gcloud run jobs describe aayaat-worker --region="$REGION" >/dev/null 2>&1; then

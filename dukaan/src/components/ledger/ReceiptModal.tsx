@@ -19,6 +19,8 @@ import { AccountPicker, type LedgerTarget } from './AccountPicker'
 import { PartyPicker } from './PartyPicker'
 import { NoPermission } from './bits'
 import { useAction } from './useAction'
+import { AllocationGrid, useOpenBills } from './party/BillsTab'
+import { checkAllocations, cleanAllocations, type Alloc } from '@/lib/ledger/phase4'
 
 export type ReceiptDirection = 'receipt' | 'payment'
 type Method = ManualReceiptInput['method']
@@ -54,6 +56,7 @@ export function ReceiptModal({ open, onClose, party: fixedParty, invoice: fixedI
   const [account, setAccount] = useState<LedgerTarget | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID())
+  const [allocs, setAllocs] = useState<Alloc[]>([])
 
   // Reset the draft each time the modal opens.
   useEffect(() => {
@@ -61,7 +64,7 @@ export function ReceiptModal({ open, onClose, party: fixedParty, invoice: fixedI
     setDirection(initialDirection ?? (fixedParty?.type === 'supplier' ? 'payment' : 'receipt'))
     setParty(fixedParty ?? null)
     setAmount(fixedInvoice?.balance_paise ?? 0)
-    setMethod('cash'); setReference(''); setDate(todayIST()); setInvoiceId(fixedInvoice?.id ?? ''); setNotes(''); setAccount(null); setError(null)
+    setMethod('cash'); setReference(''); setDate(todayIST()); setInvoiceId(fixedInvoice?.id ?? ''); setNotes(''); setAccount(null); setError(null); setAllocs([])
     setIdemKey(crypto.randomUUID())
   }, [open, fixedParty, fixedInvoice, initialDirection])
 
@@ -70,6 +73,8 @@ export function ReceiptModal({ open, onClose, party: fixedParty, invoice: fixedI
   useEffect(() => { setIdemKey(crypto.randomUUID()) }, [draftSig])
 
   const isReceipt = direction === 'receipt'
+  // Bill-wise: a payment (Dr party) settles the supplier's open payable bills.
+  const payBills = useOpenBills(open && !isReceipt && party && canDo(PERMS.ledgerRead) ? party.id : null, 'dr')
   const docType = isReceipt ? 'sale' : 'purchase'
   const openInvoices = useList<Invoice>(open && party && canDo(PERMS.invoiceRead) && !fixedInvoice ? '/aadesh/v1/invoices' : null,
     { party_id: party?.id, doc_type: docType, status: 'posted', limit: 100 })
@@ -103,10 +108,14 @@ export function ReceiptModal({ open, onClose, party: fixedParty, invoice: fixedI
       await receipt.mutateAsync(body).catch(() => undefined)
     } else {
       if (!account?.account_id) return setError('Pick the cash or bank account the money went out of.')
+      const a = cleanAllocations(allocs)
+      const problem = a.length ? checkAllocations(a, Object.fromEntries(payBills.bills.map((b) => [b.id, b.outstanding_paise])), amount) : null
+      if (problem) return setError(problem)
       const body: ManualVoucherInput = {
         type: 'payment', date, narration: notes.trim() || `Payment to ${party.name}${chosenInvoice ? ` against ${chosenInvoice.number}` : ''}`,
         reference: reference.trim() || undefined,
         entries: [{ party_id: party.id, debit_paise: amount, credit_paise: 0 }, { account_id: account.account_id, debit_paise: 0, credit_paise: amount }],
+        ...(a.length ? { allocations: a } : {}),
       }
       await payment.mutateAsync(body).catch(() => undefined)
     }
@@ -161,6 +170,12 @@ export function ReceiptModal({ open, onClose, party: fixedParty, invoice: fixedI
           )}
           {fixedInvoice && <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">Against <span className="font-mono font-semibold">{fixedInvoice.number}</span> · due <span className="num font-semibold">{formatINR(fixedInvoice.balance_paise)}</span></div>}
           {chosenInvoice && amount > chosenInvoice.balance_paise && <p className="text-xs text-amber-700">More than the invoice balance — the excess will sit on the party’s account.</p>}
+          {!isReceipt && party && canDo(PERMS.ledgerRead) && amount > 0 && (
+            <Field label="Against bills" hint="Optional. Unallocated money stays on account and can be allocated later from the party’s Bill-wise tab.">
+              <AllocationGrid bills={payBills.bills} value={allocs} onChange={setAllocs} available={amount} />
+            </Field>
+          )}
+          {isReceipt && <p className="text-xs text-slate-500">A receipt against an invoice settles that bill automatically; set on-account money against other bills from the party’s Bill-wise tab.</p>}
           <Field label="Notes"><Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isReceipt ? 'Optional' : 'Narration (optional)'} /></Field>
           {error && <p className="text-sm text-rose-600">{error}</p>}
         </div>

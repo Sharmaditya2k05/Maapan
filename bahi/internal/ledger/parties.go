@@ -40,19 +40,21 @@ type Party struct {
 	TDSSection       string    `json:"tds_section,omitempty"`   // default TDS section for bills/payments to this party
 	DeducteeType     string    `json:"deductee_type,omitempty"` // individual | huf | company | firm | other
 	LowerTDSRateBP   *int      `json:"lower_tds_rate_bp,omitempty"`
+	ShippingAddress  string    `json:"shipping_address,omitempty"`
 }
 
 const partyCols = `p.id, p.account_id, p.name, p.type, COALESCE(p.phone,''), COALESCE(p.email,''), COALESCE(p.gstin,''),
 	COALESCE(p.state_code,''), COALESCE(p.address,''), p.credit_limit_paise, p.credit_days, p.gst_verified,
 	COALESCE(p.legal_name,''), COALESCE(p.external_ref,''), p.archived,
 	COALESCE((SELECT sum(debit_paise - credit_paise) FROM voucher_entries e WHERE e.tenant_id=p.tenant_id AND e.account_id=p.account_id),0),
-	p.created_at, COALESCE(p.pan,''), COALESCE(p.tds_section,''), COALESCE(p.deductee_type,''), p.lower_tds_rate_bp`
+	p.created_at, COALESCE(p.pan,''), COALESCE(p.tds_section,''), COALESCE(p.deductee_type,''), p.lower_tds_rate_bp,
+	COALESCE(p.shipping_address,'')`
 
 func scanParty(row pgx.Row) (*Party, error) {
 	var p Party
 	err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Type, &p.Phone, &p.Email, &p.GSTIN, &p.StateCode, &p.Address,
 		&p.CreditLimitPaise, &p.CreditDays, &p.GSTVerified, &p.LegalName, &p.ExternalRef, &p.Archived, &p.BalancePaise, &p.CreatedAt,
-		&p.PAN, &p.TDSSection, &p.DeducteeType, &p.LowerTDSRateBP)
+		&p.PAN, &p.TDSSection, &p.DeducteeType, &p.LowerTDSRateBP, &p.ShippingAddress)
 	return &p, err
 }
 
@@ -83,6 +85,9 @@ type PartyInput struct {
 	TDSSection          string `json:"tds_section"`
 	DeducteeType        string `json:"deductee_type"`
 	LowerTDSRateBP      *int   `json:"lower_tds_rate_bp"`
+	ShippingAddress     string `json:"shipping_address"`
+
+	createdVia string // "import" for bulk-created parties (rollback may archive them)
 }
 
 // validateTDS normalises PAN / TDS section / deductee type.
@@ -137,7 +142,7 @@ func (in *PartyInput) Validate() error {
 	if in.StateCode != "" && !gst.ValidState(in.StateCode) {
 		return httpx.Validation("unknown state_code %s", in.StateCode)
 	}
-	if in.OpeningBalancePaise < 0 || in.CreditLimitPaise < 0 {
+	if in.OpeningBalancePaise < 0 || in.CreditLimitPaise < 0 || in.CreditDays < 0 {
 		return httpx.Validation("amounts cannot be negative")
 	}
 	if in.OpeningBalancePaise > 0 && in.OpeningType != "dr" && in.OpeningType != "cr" {
@@ -185,12 +190,13 @@ func (s *Service) createParty(ctx context.Context, tx pgx.Tx, tenantID, userID s
 	}
 	var id string
 	err = tx.QueryRow(ctx, `INSERT INTO parties (tenant_id, account_id, name, type, phone, email, gstin, state_code, address,
-		credit_limit_paise, credit_days, gst_verified, legal_name, external_ref, pan, tds_section, deductee_type, lower_tds_rate_bp)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+		credit_limit_paise, credit_days, gst_verified, legal_name, external_ref, pan, tds_section, deductee_type, lower_tds_rate_bp,
+		shipping_address, created_via)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
 		tenantID, acctID, in.Name, in.Type, nilIfEmpty(in.Phone), nilIfEmpty(in.Email), nilIfEmpty(in.GSTIN),
 		nilIfEmpty(in.StateCode), nilIfEmpty(in.Address), in.CreditLimitPaise, in.CreditDays, gstOK,
 		nilIfEmpty(legal), nilIfEmpty(in.ExternalRef), nilIfEmpty(in.PAN), nilIfEmpty(in.TDSSection),
-		nilIfEmpty(in.DeducteeType), in.LowerTDSRateBP).Scan(&id)
+		nilIfEmpty(in.DeducteeType), in.LowerTDSRateBP, nilIfEmpty(in.ShippingAddress), nilIfEmpty(in.createdVia)).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -343,6 +349,7 @@ type partyPatch struct {
 	TDSSection       *string `json:"tds_section"`
 	DeducteeType     *string `json:"deductee_type"`
 	LowerTDSRateBP   *int    `json:"lower_tds_rate_bp"`
+	ShippingAddress  *string `json:"shipping_address"`
 }
 
 func (in *partyPatch) Validate() error {
@@ -394,9 +401,9 @@ func (s *Service) handleUpdateParty(w http.ResponseWriter, r *http.Request) erro
 			address=COALESCE($8,address), credit_limit_paise=COALESCE($9,credit_limit_paise),
 			credit_days=COALESCE($10,credit_days), type=COALESCE($11,type), archived=COALESCE($12,archived),
 			gst_verified = CASE WHEN $6::text IS NOT NULL AND $6 <> COALESCE(gstin,'') THEN false ELSE gst_verified END,
-			updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+			shipping_address=COALESCE($13,shipping_address), updated_at=now() WHERE tenant_id=$1 AND id=$2`,
 			p.TenantID, id, in.Name, in.Phone, in.Email, in.GSTIN, in.StateCode, in.Address, in.CreditLimitPaise,
-			in.CreditDays, in.Type, in.Archived)
+			in.CreditDays, in.Type, in.Archived, in.ShippingAddress)
 		if isBadUUID(err) {
 			return httpx.NotFound("party not found")
 		}
@@ -465,11 +472,15 @@ func (s *Service) handleInternalParty(w http.ResponseWriter, r *http.Request) er
 		CreditDays: pt.CreditDays, BalancePaise: pt.BalancePaise})
 }
 
-// BulkResult is the shape every bulk endpoint returns.
+// BulkResult is the shape every bulk endpoint returns. Results carries one
+// entry per accepted record (index into the request, the id bahi stored, and
+// whether this call created it) so an importer can later roll back only what
+// it created.
 type BulkResult struct {
-	Created int         `json:"created"`
-	Updated int         `json:"updated"`
-	Errors  []BulkError `json:"errors"`
+	Created int              `json:"created"`
+	Updated int              `json:"updated"`
+	Errors  []BulkError      `json:"errors"`
+	Results []BulkItemResult `json:"results,omitempty"`
 }
 
 // BulkError reports one failed row.
@@ -478,59 +489,107 @@ type BulkError struct {
 	Message string `json:"message"`
 }
 
+// BulkItemResult is the outcome of one accepted record.
+type BulkItemResult struct {
+	Index   int    `json:"index"`
+	ID      string `json:"id,omitempty"`
+	Created bool   `json:"created"`
+}
+
+func newBulkResult() BulkResult {
+	return BulkResult{Errors: []BulkError{}, Results: []BulkItemResult{}}
+}
+
+func (r *BulkResult) fail(i int, err error) {
+	r.Errors = append(r.Errors, BulkError{i, httpx.AsError(err).Message})
+}
+
+func (r *BulkResult) failf(i int, format string, args ...any) {
+	r.Errors = append(r.Errors, BulkError{i, fmt.Sprintf(format, args...)})
+}
+
+func (r *BulkResult) ok(i int, id string, created bool) {
+	if created {
+		r.Created++
+	} else {
+		r.Updated++
+	}
+	r.Results = append(r.Results, BulkItemResult{Index: i, ID: id, Created: created})
+}
+
+// internalTenant is the tenant of an internal (service-secret) call.
+func internalTenant(r *http.Request) (*auth.Principal, error) {
+	p := auth.FromContext(r.Context())
+	if p.TenantID == "" {
+		return nil, httpx.BadRequest("X-Tenant-ID header is required")
+	}
+	return p, nil
+}
+
 type bulkPartiesInput struct {
 	Parties []PartyInput `json:"parties"`
 }
 
 // handleBulkParties upserts parties by external_ref (used by aayaat). Each row
-// runs in its own transaction so one bad row doesn't sink the batch.
+// runs in its own transaction so one bad row doesn't sink the batch. A
+// re-import updates the master fields (name, type, contact, GSTIN, address,
+// PAN, shipping address, credit limit and days) but never posts a second
+// opening balance.
 func (s *Service) handleBulkParties(w http.ResponseWriter, r *http.Request) error {
 	var in bulkPartiesInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	p := auth.FromContext(r.Context())
-	if p.TenantID == "" {
-		return httpx.BadRequest("X-Tenant-ID header is required")
+	p, err := internalTenant(r)
+	if err != nil {
+		return err
 	}
 	if len(in.Parties) > 2000 {
 		return httpx.Validation("at most 2000 parties per call")
 	}
-	res := BulkResult{Errors: []BulkError{}}
+	res := newBulkResult()
 	for i := range in.Parties {
 		row := in.Parties[i]
 		if err := row.Validate(); err != nil {
-			res.Errors = append(res.Errors, BulkError{i, httpx.AsError(err).Message})
+			res.fail(i, err)
 			continue
 		}
+		row.createdVia = "import"
+		var id string
 		updated := false
 		err := s.WithTx(r.Context(), func(tx pgx.Tx) error {
+			updated = false
+			if err := setActor(r.Context(), tx, p.UserID()); err != nil {
+				return err
+			}
 			if row.ExternalRef != "" {
-				tag, err := tx.Exec(r.Context(), `UPDATE parties SET name=$3, type=$4, phone=COALESCE($5,phone),
-					gstin=COALESCE($6,gstin), state_code=COALESCE($7,state_code), address=COALESCE($8,address), updated_at=now()
-					WHERE tenant_id=$1 AND external_ref=$2`, p.TenantID, row.ExternalRef, row.Name, row.Type,
-					nilIfEmpty(row.Phone), nilIfEmpty(row.GSTIN), nilIfEmpty(row.StateCode), nilIfEmpty(row.Address))
-				if err != nil {
-					return err
-				}
-				if tag.RowsAffected() > 0 {
+				err := tx.QueryRow(r.Context(), `UPDATE parties SET name=$3, type=$4, phone=COALESCE($5,phone),
+					gstin=COALESCE($6,gstin), state_code=COALESCE($7,state_code), address=COALESCE($8,address),
+					email=COALESCE($9,email), credit_limit_paise=$10, credit_days=$11, pan=COALESCE($12,pan),
+					shipping_address=COALESCE($13,shipping_address), updated_at=now()
+					WHERE tenant_id=$1 AND external_ref=$2 RETURNING id`, p.TenantID, row.ExternalRef, row.Name, row.Type,
+					nilIfEmpty(row.Phone), nilIfEmpty(row.GSTIN), nilIfEmpty(row.StateCode), nilIfEmpty(row.Address),
+					nilIfEmpty(row.Email), row.CreditLimitPaise, row.CreditDays, nilIfEmpty(row.PAN),
+					nilIfEmpty(row.ShippingAddress)).Scan(&id)
+				if err == nil {
 					updated = true
 					_, err = tx.Exec(r.Context(), `UPDATE accounts SET name=$3 WHERE tenant_id=$1
-						AND id=(SELECT account_id FROM parties WHERE tenant_id=$1 AND external_ref=$2)`, p.TenantID, row.ExternalRef, row.Name)
+						AND id=(SELECT account_id FROM parties WHERE tenant_id=$1 AND id=$2)`, p.TenantID, id, row.Name)
+					return err
+				}
+				if !db.IsNotFound(err) {
 					return err
 				}
 			}
-			_, err := s.createParty(r.Context(), tx, p.TenantID, p.UserID(), row, nil)
+			var err error
+			id, err = s.createParty(r.Context(), tx, p.TenantID, p.UserID(), row, nil)
 			return err
 		})
-		switch {
-		case err != nil:
-			res.Errors = append(res.Errors, BulkError{i, httpx.AsError(err).Message})
-		case updated:
-			res.Updated++
-		default:
-			res.Created++
+		if err != nil {
+			res.fail(i, err)
+			continue
 		}
+		res.ok(i, id, !updated)
 	}
 	return httpx.OK(w, res)
 }
@@ -540,12 +599,17 @@ type openingLine struct {
 	PartyExternalRef string `json:"party_external_ref"`
 	AmountPaise      int64  `json:"amount_paise"`
 	Type             string `json:"type"`
+	ExternalRef      string `json:"external_ref"` // the importer's key, kept on the voucher
 }
 
 type bulkOpeningInput struct {
 	AsOf     string        `json:"as_of"`
 	Balances []openingLine `json:"balances"`
 }
+
+// openingKey is the source_id of a bulk opening line: one per as_of and
+// account / party, whatever external_ref the importer sends.
+func openingKey(asOf, key string) string { return "bulk:" + asOf + ":" + key }
 
 // handleBulkOpening posts one opening voucher per line against Opening Balance
 // Difference. Re-running the same import is a no-op (source_id per line).
@@ -554,14 +618,14 @@ func (s *Service) handleBulkOpening(w http.ResponseWriter, r *http.Request) erro
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	p := auth.FromContext(r.Context())
-	if p.TenantID == "" {
-		return httpx.BadRequest("X-Tenant-ID header is required")
+	p, err := internalTenant(r)
+	if err != nil {
+		return err
 	}
 	if _, err := time.Parse(time.DateOnly, in.AsOf); err != nil {
 		return httpx.Validation("as_of must be YYYY-MM-DD")
 	}
-	res := BulkResult{Errors: []BulkError{}}
+	res := newBulkResult()
 	for i, l := range in.Balances {
 		var target posting.Entry
 		var key string
@@ -573,33 +637,36 @@ func (s *Service) handleBulkOpening(w http.ResponseWriter, r *http.Request) erro
 			err := s.DB.QueryRow(r.Context(), `SELECT id FROM parties WHERE tenant_id=$1 AND external_ref=$2`,
 				p.TenantID, l.PartyExternalRef).Scan(&pid)
 			if err != nil {
-				res.Errors = append(res.Errors, BulkError{i, "party_external_ref not found"})
+				res.failf(i, "party_external_ref not found")
 				continue
 			}
 			target, key = posting.Entry{PartyID: pid}, "party:"+pid
 		default:
-			res.Errors = append(res.Errors, BulkError{i, "account_code or party_external_ref is required"})
+			res.failf(i, "account_code or party_external_ref is required")
 			continue
 		}
-		v, err := posting.Opening(target, l.AmountPaise, l.Type, in.AsOf, "bulk:"+in.AsOf+":"+key)
+		v, err := posting.Opening(target, l.AmountPaise, l.Type, in.AsOf, openingKey(in.AsOf, key))
 		if err != nil {
-			res.Errors = append(res.Errors, BulkError{i, err.Error()})
+			res.failf(i, "%s", err.Error())
 			continue
 		}
 		var posted Posted
 		err = s.WithTx(r.Context(), func(tx pgx.Tx) error {
 			var err error
-			posted, err = Post(r.Context(), tx, p.TenantID, p.UserID(), v)
+			if posted, err = Post(r.Context(), tx, p.TenantID, p.UserID(), v); err != nil {
+				return err
+			}
+			if posted.Created && l.ExternalRef != "" {
+				_, err = tx.Exec(r.Context(), `UPDATE vouchers SET external_ref=$3 WHERE tenant_id=$1 AND id=$2`,
+					p.TenantID, posted.ID, l.ExternalRef)
+			}
 			return err
 		})
-		switch {
-		case err != nil:
-			res.Errors = append(res.Errors, BulkError{i, httpx.AsError(err).Message})
-		case posted.Created:
-			res.Created++
-		default:
-			res.Updated++ // already imported
+		if err != nil {
+			res.fail(i, err)
+			continue
 		}
+		res.ok(i, posted.ID, posted.Created) // not created = already imported
 	}
 	return httpx.OK(w, res)
 }

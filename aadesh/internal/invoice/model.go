@@ -67,7 +67,14 @@ type LineInput struct {
 	// (default) | ineligible_17_5 | ineligible_other. A debit note inherits it
 	// from the purchase line when omitted.
 	ITCEligibility string `json:"itc_eligibility,omitempty"`
-	gst.Line              // hsn, qty, unit_price_paise, discount_paise, discount_bp, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, price_includes_tax, tax_category
+	// Serials are the serial numbers sold/bought on this line, one per base
+	// unit (a line of 2 BOX of 5 carries 10). Required when the item tracks serials.
+	Serials  []string `json:"serials,omitempty"`
+	gst.Line          // hsn, qty, unit_price_paise, discount_paise, discount_bp, tax_rate_bp, cess_rate_bp, cess_per_unit_paise, price_includes_tax, tax_category
+
+	factor     float64 // base units per Unit, from bhandar (1 for the base unit and free-text lines)
+	baseUnit   string  // the item's base unit ("" for free-text lines)
+	sourceLine string  // order line this invoice line was converted from
 }
 
 // Tender is how part of the bill was paid at the counter.
@@ -106,6 +113,8 @@ type CreateInput struct {
 	DeviceID        string     `json:"device_id,omitempty"`
 	Number          int64      `json:"number,omitempty"` // seq from a reserved number block
 	ClientCreatedAt *time.Time `json:"client_created_at,omitempty"`
+
+	link *orderLink // set by Convert: the order lines this document consumes
 }
 
 var validTender = map[string]bool{"cash": true, "card": true, "upi": true, "bank": true, "credit": true, "other": true}
@@ -249,34 +258,40 @@ type Invoice struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	CancelledAt          *time.Time `json:"cancelled_at,omitempty"`
 	CancelReason         *string    `json:"cancel_reason,omitempty"`
+	SourceOrderID        *string    `json:"source_order_id,omitempty"` // order (challan, sales order, GRN, ...) it was converted from
 	Lines                []Line     `json:"lines,omitempty"`
 	Tenders              []Tender   `json:"tenders,omitempty"`
 }
 
 // Line is a stored invoice line.
 type Line struct {
-	LineNo           int     `json:"line_no"`
-	ItemID           *string `json:"item_id,omitempty"`
-	Name             string  `json:"name"`
-	HSN              *string `json:"hsn,omitempty"`
-	Unit             string  `json:"unit"`
-	BatchNo          *string `json:"batch_no,omitempty"`
-	Qty              float64 `json:"qty"`
-	UnitPricePaise   int64   `json:"unit_price_paise"`
-	DiscountPaise    int64   `json:"discount_paise"`
-	DiscountBP       int     `json:"discount_bp,omitempty"`
-	TaxRateBP        int     `json:"tax_rate_bp"`
-	CessRateBP       int     `json:"cess_rate_bp"`
-	CessPerUnitPaise int64   `json:"cess_per_unit_paise,omitempty"`
-	TaxCategory      string  `json:"tax_category"`
-	ITCEligibility   string  `json:"itc_eligibility,omitempty"` // purchase documents only
-	PriceIncludesTax bool    `json:"price_includes_tax"`
-	TaxablePaise     int64   `json:"taxable_paise"`
-	CGSTPaise        int64   `json:"cgst_paise"`
-	SGSTPaise        int64   `json:"sgst_paise"`
-	IGSTPaise        int64   `json:"igst_paise"`
-	CessPaise        int64   `json:"cess_paise"`
-	TotalPaise       int64   `json:"total_paise"`
+	LineNo           int      `json:"line_no"`
+	ItemID           *string  `json:"item_id,omitempty"`
+	Name             string   `json:"name"`
+	HSN              *string  `json:"hsn,omitempty"`
+	Unit             string   `json:"unit"`
+	BatchNo          *string  `json:"batch_no,omitempty"`
+	Qty              float64  `json:"qty"`
+	UnitPricePaise   int64    `json:"unit_price_paise"`
+	DiscountPaise    int64    `json:"discount_paise"`
+	DiscountBP       int      `json:"discount_bp,omitempty"`
+	TaxRateBP        int      `json:"tax_rate_bp"`
+	CessRateBP       int      `json:"cess_rate_bp"`
+	CessPerUnitPaise int64    `json:"cess_per_unit_paise,omitempty"`
+	TaxCategory      string   `json:"tax_category"`
+	ITCEligibility   string   `json:"itc_eligibility,omitempty"` // purchase documents only
+	PriceIncludesTax bool     `json:"price_includes_tax"`
+	TaxablePaise     int64    `json:"taxable_paise"`
+	CGSTPaise        int64    `json:"cgst_paise"`
+	SGSTPaise        int64    `json:"sgst_paise"`
+	IGSTPaise        int64    `json:"igst_paise"`
+	CessPaise        int64    `json:"cess_paise"`
+	TotalPaise       int64    `json:"total_paise"`
+	UnitFactor       float64  `json:"unit_factor"`         // base units per unit (BOX of 48 → 48)
+	BaseUnit         string   `json:"base_unit,omitempty"` // the item's base unit
+	BaseQty          float64  `json:"base_qty"`            // qty × unit_factor
+	Serials          []string `json:"serials,omitempty"`
+	SourceLineID     *string  `json:"source_line_id,omitempty"` // order line it was converted from
 }
 
 // Filter narrows GET /v1/invoices.

@@ -93,6 +93,9 @@ type ChatRequest struct {
 	MaxToolCalls int               // hard cap on executed tool calls; 0 = no tools allowed
 	MaxTokens    int64             // 0 = default
 	OnText       func(text string) // optional streaming callback for text deltas
+	// TokenBudget (0 = none) is the reservation behind this call: once the
+	// turns so far have used it, no more tools run and Claude must answer.
+	TokenBudget int64
 }
 
 // Client is what the rest of buddhi uses.

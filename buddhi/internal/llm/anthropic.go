@@ -21,6 +21,7 @@ type Config struct {
 	FastModel       string
 	RefusalFallback bool // server-side fallback ("default" routing) when a request is declined
 	Timeout         time.Duration
+	BaseURL         string // optional override (tests point it at a local fake server)
 }
 
 // Anthropic implements Client with the official Go SDK.
@@ -43,14 +44,15 @@ func New(cfg Config) Client {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 3 * time.Minute
 	}
-	return &Anthropic{
-		c: anthropic.NewClient(
-			option.WithAPIKey(cfg.APIKey),
-			option.WithMaxRetries(2),
-			option.WithRequestTimeout(cfg.Timeout),
-		),
-		cfg: cfg,
+	opts := []option.RequestOption{
+		option.WithAPIKey(cfg.APIKey),
+		option.WithMaxRetries(2),
+		option.WithRequestTimeout(cfg.Timeout),
 	}
+	if cfg.BaseURL != "" {
+		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	}
+	return &Anthropic{c: anthropic.NewClient(opts...), cfg: cfg}
 }
 
 func (a *Anthropic) Enabled() bool { return true }
@@ -62,14 +64,43 @@ func (a *Anthropic) model(t Tier) string {
 	return a.cfg.SmartModel
 }
 
-// opts adds the server-side refusal fallback. A declined request is re-served by
-// a fallback model inside the same call instead of simply stopping.
-func (a *Anthropic) opts() []option.RequestOption {
-	if !a.cfg.RefusalFallback {
+// FallbackBeta is the beta header that gates `fallbacks: "default"`.
+const FallbackBeta = "server-side-fallback-2026-07-01"
+
+// serverFallbackModels accept `fallbacks: "default"` on the Claude API. Claude
+// Haiku 5.5 has no server-side fallback (a declined request stays declined and
+// a fallback list is a 400), so it, and any model not listed here, is sent
+// without the header and parameter.
+var serverFallbackModels = map[string]bool{
+	"claude-fable-5-1":  true,
+	"claude-mythos-5-1": true,
+	"claude-fable-5":    true,
+	"claude-opus-5-5":   true,
+	"claude-opus-5":     true,
+	"claude-sonnet-5-5": true,
+}
+
+// SupportsServerFallback reports whether model accepts the server-side refusal
+// fallback (`fallbacks: "default"` + FallbackBeta).
+func SupportsServerFallback(model string) bool {
+	return serverFallbackModels[strings.ToLower(strings.TrimSpace(model))]
+}
+
+// useFallback decides per request: on when configured and the model takes it.
+func useFallback(enabled bool, model string) bool {
+	return enabled && SupportsServerFallback(model)
+}
+
+// opts adds the server-side refusal fallback for models that support it. A
+// declined request is re-served by a fallback model inside the same call
+// instead of simply stopping. Other models get plain requests and surface a
+// refusal as RefusalError.
+func (a *Anthropic) opts(model string) []option.RequestOption {
+	if !useFallback(a.cfg.RefusalFallback, model) {
 		return nil
 	}
 	return []option.RequestOption{
-		option.WithHeaderAdd("anthropic-beta", "server-side-fallback-2026-07-01"),
+		option.WithHeaderAdd("anthropic-beta", FallbackBeta),
 		option.WithJSONSet("fallbacks", "default"),
 	}
 }
@@ -121,7 +152,7 @@ func (a *Anthropic) Extract(ctx context.Context, req ExtractRequest) (json.RawMe
 			Effort: effort(req.Effort),
 			Format: anthropic.JSONOutputFormatParam{Schema: req.Schema},
 		},
-	}, a.opts()...)
+	}, a.opts(model)...)
 	if err != nil {
 		return nil, Usage{}, wrapAPIError(err)
 	}
@@ -178,10 +209,10 @@ func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (string, Usage, e
 	var total Usage
 	calls := 0
 	for turn := 0; turn < req.MaxToolCalls+2; turn++ {
-		if len(tools) > 0 && calls >= req.MaxToolCalls {
+		if len(tools) > 0 && (calls >= req.MaxToolCalls || overBudget(total, req.TokenBudget)) {
 			params.ToolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
 		}
-		msg, err := a.stream(ctx, params, req.OnText)
+		msg, err := a.stream(ctx, params, req.OnText, model)
 		total.Add(usageOf(model, msg.Usage))
 		if err != nil {
 			return "", total, err
@@ -200,7 +231,7 @@ func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (string, Usage, e
 			if !ok {
 				continue
 			}
-			if calls >= req.MaxToolCalls || req.Exec == nil {
+			if calls >= req.MaxToolCalls || req.Exec == nil || overBudget(total, req.TokenBudget) {
 				results = append(results, anthropic.NewToolResultBlock(tu.ID, "Tool budget exhausted. Answer now with the data you already have.", true))
 				continue
 			}
@@ -218,8 +249,14 @@ func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (string, Usage, e
 	return "", total, errors.New("AI did not finish within the tool-call limit")
 }
 
-func (a *Anthropic) stream(ctx context.Context, params anthropic.MessageNewParams, onText func(string)) (anthropic.Message, error) {
-	s := a.c.Messages.NewStreaming(ctx, params, a.opts()...)
+// overBudget is true once the call has spent its reserved tokens; the agent
+// loop then stops calling tools and asks for the final answer.
+func overBudget(u Usage, budget int64) bool {
+	return budget > 0 && u.Total() >= budget
+}
+
+func (a *Anthropic) stream(ctx context.Context, params anthropic.MessageNewParams, onText func(string), model string) (anthropic.Message, error) {
+	s := a.c.Messages.NewStreaming(ctx, params, a.opts(model)...)
 	defer s.Close()
 	msg := anthropic.Message{}
 	for s.Next() {

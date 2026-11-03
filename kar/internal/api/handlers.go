@@ -53,6 +53,7 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /v1/hsn", user(s.searchHSN))
 	mux.Handle("GET /v1/hsn/{code}", user(s.getHSN))
 	mux.Handle("POST /v1/hsn/import", user(s.importHSN, auth.PermSettingsManage))
+	mux.Handle("GET /internal/v1/hsn", internal(s.searchHSN)) // bhandar's HSN suggestions
 	mux.Handle("GET /internal/v1/hsn/{code}", internal(s.getHSN))
 	mux.Handle("POST /internal/v1/hsn/import", internal(s.importHSN))
 

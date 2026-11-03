@@ -67,7 +67,7 @@ steps:
       - --min-instances=1           # POS catalog + barcode lookups: no cold starts
       - --max-instances=20
       - --no-cpu-throttling         # outbox relay runs between requests
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,EXPIRY_ALERT_DAYS=30
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,CORS_ORIGINS=https://app.maapan.in,EXPIRY_ALERT_DAYS=30,KAR_URL=https://kar-$PROJECT_NUMBER.${_REGION}.run.app
       - --update-secrets=DATABASE_URL=bhandar-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest
 
 images:

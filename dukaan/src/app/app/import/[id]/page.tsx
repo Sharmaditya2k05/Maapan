@@ -9,6 +9,7 @@ import { PERMS } from '@/lib/rbac'
 import type { ImportJob } from '@/lib/types.more'
 import { Counts, DownloadErrors, ErrorRows, JobBadge, Recon } from '@/components/import/bits'
 import { fmtBytes, isJobBusy, kindLabel, kindMeta } from '@/components/import/kinds'
+import { BatchesCard, DownloadWarnings, RollbackButton, WarningRows } from '@/components/import/extras'
 
 export default function ImportDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -24,16 +25,17 @@ export default function ImportDetailPage() {
     <QueryState isLoading={job.isLoading} error={job.error} data={job.data} retry={() => job.refetch()}>
       {(j) => {
         const meta = kindMeta(j.kind)
-        const open = j.status !== 'completed'
+        const open = j.status !== 'completed' && j.status !== 'rolled_back'
         const errors = j.error_rows + j.failed
         return (
           <>
             <PageHeader back={() => router.push('/app/import')}
               title={<span className="inline-flex flex-wrap items-center gap-2">{j.file_name} <JobBadge status={j.status} /></span>}
               subtitle={`${kindLabel(j.kind)} · ${fmtBytes(j.file_size)} · uploaded ${fmtDate(j.created_at, true)}${j.finished_at ? ` · finished ${fmtDate(j.finished_at, true)}` : ''}`}
-              actions={open && (
-                <Link href={`/app/import/new?job=${j.id}`}><Button icon={ArrowRight}>{isJobBusy(j.status) ? 'Watch progress' : j.status === 'failed' ? 'Resume' : 'Continue'}</Button></Link>
-              )} />
+              actions={<>
+                <RollbackButton job={j} />
+                {open && <Link href={`/app/import/new?job=${j.id}`}><Button icon={ArrowRight}>{isJobBusy(j.status) ? 'Watch progress' : j.status === 'failed' ? 'Resume' : 'Continue'}</Button></Link>}
+              </>} />
             <div className="space-y-4">
               <Counts job={j} />
               {j.error && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{j.error}</div>}
@@ -46,6 +48,12 @@ export default function ImportDetailPage() {
                     <Row k="Header row" v={j.header_row ? String(j.header_row) : 'auto'} />
                     {meta?.asOf && <Row k="As of" v={j.params.as_of ? fmtDate(j.params.as_of) : 'default (1 April)'} />}
                     {meta?.store && <Row k="Store" v={stores.find((s) => s.id === j.params.store_id)?.name ?? j.params.store_id ?? '—'} />}
+                    {j.params.store_map && <Row k="Store per row" v={`${Object.keys(j.params.store_map).length} names mapped`} />}
+                    {j.params.account_map && <Row k="Ledger map" v={`${Object.keys(j.params.account_map).length} ledgers mapped`} />}
+                    {(j.source || j.params.source) && <Row k="Source" v={j.source || j.params.source || ''} />}
+                    {j.params.doc_type && <Row k="Document type" v={j.params.doc_type} />}
+                    {j.params.bills_mode && <Row k="Bills" v={j.params.bills_mode === 'party_totals' ? 'party totals' : 'bill by bill'} />}
+                    {(j.rolled_back ?? 0) > 0 && <Row k="Rolled back" v={`${j.rolled_back} rows${j.rolled_back_at ? ` · ${fmtDate(j.rolled_back_at, true)}` : ''}`} />}
                     {j.params.notify_phone && <Row k="Notify" v={j.params.notify_phone} />}
                   </dl>
                 </Card>
@@ -57,6 +65,12 @@ export default function ImportDetailPage() {
                   )}
                 </Card>
               </div>
+              {(j.warning_rows ?? 0) > 0 && (
+                <Card title={`${j.warning_rows} rows with warnings`} padded={false} actions={<DownloadWarnings jobId={j.id} count={j.warning_rows} />}>
+                  <WarningRows jobId={j.id} />
+                </Card>
+              )}
+              {j.imported + j.failed + (j.rolled_back ?? 0) > 0 && <BatchesCard job={j} />}
               {errors > 0 && (
                 <Card title={`${errors.toLocaleString('en-IN')} rows not imported`} padded={false} actions={<DownloadErrors jobId={j.id} count={errors} />}>
                   <ErrorRows jobId={j.id} />

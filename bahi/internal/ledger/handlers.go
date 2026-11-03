@@ -30,6 +30,7 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("DELETE /v1/parties/{id}", user(s.handleDeleteParty, auth.PermPartyManage))
 	mux.Handle("GET /v1/parties/{id}/statement", user(s.handlePartyStatement, auth.PermLedgerRead)) // ?view=bills: bill-wise
 	mux.Handle("GET /v1/parties/{id}/bills", user(s.handlePartyBills, auth.PermLedgerRead))
+	mux.Handle("GET /v1/invoice-history", user(s.handleInvoiceHistory, auth.PermLedgerRead))
 	mux.Handle("POST /v1/parties/{id}/allocations/auto", user(s.handleAutoAllocate, auth.PermLedgerWrite))
 
 	// Vouchers
@@ -112,6 +113,10 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier, trustIAM bool) {
 	mux.Handle("GET /internal/v1/receivables/overdue", internal(s.handleOverdueReceivables))
 	mux.Handle("POST /internal/v1/bulk/parties", internal(s.handleBulkParties))
 	mux.Handle("POST /internal/v1/bulk/opening-balances", internal(s.handleBulkOpening))
+	mux.Handle("POST /internal/v1/bulk/open-bills", internal(s.handleBulkOpenBills))
+	mux.Handle("POST /internal/v1/bulk/invoice-history", internal(s.handleBulkInvoiceHistory))
+	mux.Handle("POST /internal/v1/bulk/accounts", internal(s.handleBulkAccounts))
+	mux.Handle("POST /internal/v1/bulk/rollback", internal(s.handleBulkRollback))
 	mux.Handle("GET /internal/v1/reports/summary", internal(s.handleSummary))
 
 	mux.Handle("POST /events", events.Handler(v, trustIAM, s.EventRoutes()))

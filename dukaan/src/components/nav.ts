@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, FileText, Landmark, LayoutDashboard, Package, Receipt, ScanLine, Settings, ShoppingCart, Sparkles, Upload, Users, Wallet, Factory,
+  BarChart3, Boxes, FileText, Landmark, LayoutDashboard, Package, Percent, Receipt, ScanLine, Settings, ShoppingCart, Sparkles, Upload, Users, Wallet, Factory,
   type LucideIcon,
 } from 'lucide-react'
 import { PERMS, type Perm } from '@/lib/rbac'
@@ -28,6 +28,7 @@ export const NAV: NavItem[] = [
   { href: '/app/parties', label: 'Parties & Ledgers', model: 'bahi', icon: Users, group: 'Money', perms: [PERMS.partyManage, PERMS.ledgerRead] },
   { href: '/app/payments', label: 'Payments', model: 'lenden', icon: Wallet, group: 'Money', perms: [PERMS.paymentCollect] },
   { href: '/app/bank', label: 'Cash & Bank', model: 'bahi', icon: Landmark, group: 'Money', perms: [PERMS.ledgerRead] },
+  { href: '/app/tds', label: 'TDS / TCS', model: 'bahi', icon: Percent, group: 'Money', perms: [PERMS.ledgerRead, PERMS.reportRead] },
   { href: '/app/reports', label: 'Reports', model: 'bahi', icon: BarChart3, group: 'Money', perms: [PERMS.reportRead] },
   { href: '/app/gst', label: 'GST', model: 'kar', icon: FileText, group: 'Money', perms: [PERMS.gstFile, PERMS.reportRead] },
 
