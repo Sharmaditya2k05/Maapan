@@ -90,6 +90,7 @@ type PaymentRequestInput struct {
 type PaymentRequest struct {
 	ID            string `json:"id"`
 	Status        string `json:"status"`
+	AmountPaise   int64  `json:"amount_paise"`
 	UPIQRImageURL string `json:"upi_qr_image_url,omitempty"`
 	UPIIntent     string `json:"upi_intent,omitempty"`
 	ShortURL      string `json:"short_url,omitempty"`

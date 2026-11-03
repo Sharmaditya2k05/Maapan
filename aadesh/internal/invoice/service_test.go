@@ -364,7 +364,7 @@ func TestBillingEndToEnd(t *testing.T) {
 
 	// 9. Counter QR for what is still due.
 	req, err := s.PaymentRequest(ctx, admin, invB.ID, "")
-	if err != nil || !strings.Contains(req.UPIIntent, "am=800") {
+	if err != nil || !strings.Contains(req.UPIIntent, "am=800") || req.AmountPaise != 800 {
 		t.Fatalf("payment request: %+v %v", req, err)
 	}
 	if _, err := s.PaymentRequest(ctx, admin, inv.ID, ""); status(err) != 409 {

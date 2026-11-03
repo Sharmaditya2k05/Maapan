@@ -789,6 +789,9 @@ func (s *Service) PaymentRequest(ctx context.Context, p *auth.Principal, id, kin
 	if err != nil {
 		return nil, err
 	}
+	if req.AmountPaise == 0 {
+		req.AmountPaise = inv.BalancePaise
+	}
 	return &req, nil
 }
 
