@@ -1,7 +1,8 @@
 # Cloud Build: test → build → push to Artifact Registry → deploy to Cloud Run.
 # Trigger: push to `main` (dev) and tags `v*` (staging/prod via _ENV).
 # One-time GCP setup: sanchalan/scripts/gcp-bootstrap.sh
-# Also create a Cloud Scheduler job: every 15 min → POST /internal/v1/jobs/retry-failed (OIDC + X-Service-Secret).
+# Cloud Scheduler jobs (sanchalan/scripts/scheduler-setup.sh, OIDC only): retry-failed every 10 min,
+# payment-reminders daily 10:30 IST.
 substitutions:
   _SERVICE: soochna
   _ENV: dev
@@ -66,10 +67,11 @@ steps:
       - --min-instances=1           # OTP latency
       - --max-instances=10
       # --update-* keeps vars set by hand (template ids etc.); a repeated --set-env-vars flag would not.
-      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,SMS_PROVIDER=msg91,WHATSAPP_PROVIDER=gupshup,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app
-      # Template ids are not secret: set MSG91_TEMPLATE_* / GUPSHUP_TEMPLATE_* / GUPSHUP_SOURCE / GUPSHUP_APP_NAME
+      - --update-env-vars=APP_ENV=${_ENV},EVENTS_DRIVER=pubsub,GCP_PROJECT=$PROJECT_ID,EVENTS_TRUST_IAM=true,USE_ID_TOKENS=true,AUTO_MIGRATE=true,SMS_PROVIDER=msg91,WHATSAPP_PROVIDER=gupshup,PEHCHAAN_URL=https://pehchaan-$PROJECT_NUMBER.${_REGION}.run.app,BAHI_URL=https://bahi-$PROJECT_NUMBER.${_REGION}.run.app,JOBS_OIDC_AUDIENCE=https://soochna-$PROJECT_NUMBER.${_REGION}.run.app,JOBS_OIDC_EMAILS=scheduler@$PROJECT_ID.iam.gserviceaccount.com
+      # Template ids are not secret: set MSG91_TEMPLATE_* / GUPSHUP_TEMPLATE_* / GUPSHUP_SOURCE / GUPSHUP_APP_NAME,
+      # EMAIL_PROVIDER=smtp + SMTP_HOST / SMTP_USERNAME / EMAIL_FROM and INVOICE_PDF_URL
       # once with `gcloud run services update soochna --update-env-vars=...`; deploys keep them.
-      - --update-secrets=DATABASE_URL=soochna-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,MSG91_AUTH_KEY=msg91-auth-key:latest,GUPSHUP_API_KEY=gupshup-api-key:latest,WEBHOOK_TOKEN=soochna-webhook-token:latest
+      - --update-secrets=DATABASE_URL=soochna-database-url:latest,JWT_SECRET=jwt-secret:latest,SERVICE_SECRET=service-secret:latest,MSG91_AUTH_KEY=msg91-auth-key:latest,GUPSHUP_API_KEY=gupshup-api-key:latest,WEBHOOK_TOKEN=soochna-webhook-token:latest,SMTP_PASSWORD=soochna-smtp-password:latest
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

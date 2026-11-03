@@ -40,16 +40,16 @@ Services that publish events (`aadesh`, `lenden`, `bhandar`, `nirmaan`, `aayaat`
 | Cloud SQL Postgres 16 `maapan-pg` (private IP, PITR; REGIONAL HA in prod) + one database & user per service | `gcp-bootstrap.sh` | W1 |
 | Memorystore Redis 7 (1 GB) | `gcp-bootstrap.sh` | W3 (OTP, rate limits) |
 | Secret Manager: `jwt-secret`, `service-secret`, `<svc>-database-url`, `redis-url`, `github-token` | `gcp-bootstrap.sh` | W1 |
-| Secrets with real values: `msg91-auth-key`, `gupshup-api-key` | you, before **W3** | W3 |
+| Secrets with real values: `msg91-auth-key`, `gupshup-api-key` (and `soochna-smtp-password` before e-mail goes live); `soochna-webhook-token` is generated — copy it into the Gupshup/MSG91 callback URLs | you, before **W3** | W3 |
 | `gsp-client-id/secret` (GST Suvidha Provider contract) | you, before **W4** | W4 |
 | `razorpay-key-id/secret`, `razorpay-webhook-secret` | you, before **W10** | W10 |
 | `anthropic-api-key` | you, before **W12** (pilot) | W12 |
 | Cloud Storage `maapan-<env>-files` (imports, invoice PDFs, bill photos) | `gcp-bootstrap.sh` | W9 |
-| Service accounts per service, `pubsub-pusher`, `scheduler` | `gcp-bootstrap.sh` | W1 |
+| Service accounts per service, `pubsub-pusher`, `scheduler`; `pubsub.publisher` only for `PUBLISHER_SERVICES` (env.sh) | `gcp-bootstrap.sh` | W1 |
 | Cloud Build triggers per repo | `scripts/triggers-setup.sh` | W1 |
 | run.invoker grants (who may call whom) | `scripts/iam-invokers.sh` (re-run whenever a service is added) | W3 |
 | Pub/Sub topics + push subscriptions + dead-letter | `scripts/pubsub-setup.sh` (re-run when a subscriber is added) | W4 |
-| Cloud Scheduler jobs | `scripts/scheduler-setup.sh` | W3 |
+| Cloud Scheduler jobs (OIDC token only; `LEGACY_SECRET_SERVICES` still get the secret header until they verify the token) | `scripts/scheduler-setup.sh` | W3 |
 | HTTPS LB + managed certs for `app.maapan.in` → dukaan, `api.maapan.in` → dwaar, Cloud Armor policy | console / Terraform later | W3 (dev), W12 (prod) |
 
 ## 3. Week-by-week deployment calendar

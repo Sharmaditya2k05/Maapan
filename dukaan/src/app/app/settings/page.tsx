@@ -14,11 +14,12 @@ import { GatewaysSection } from '@/components/settings/GatewaysSection'
 import { GstSection } from '@/components/settings/GstSection'
 import { NumberingSection } from '@/components/settings/NumberingSection'
 import { PeriodLockSection } from '@/components/settings/PeriodLockSection'
+import { RegistrationsSection } from '@/components/settings/RegistrationsSection'
 import { StoresSection } from '@/components/settings/StoresSection'
 import { UsersSection } from '@/components/settings/UsersSection'
 
 const BODY: Record<SectionId, () => React.JSX.Element> = {
-  business: BusinessSection, stores: StoresSection, users: UsersSection, numbering: NumberingSection, 'period-lock': PeriodLockSection,
+  business: BusinessSection, registrations: RegistrationsSection, stores: StoresSection, users: UsersSection, numbering: NumberingSection, 'period-lock': PeriodLockSection,
   gateways: GatewaysSection, gst: GstSection, ai: AiSection, device: DeviceSection, about: AboutSection,
 }
 

@@ -1,4 +1,5 @@
-// soochna (सूचना) — notification service: SMS (MSG91) and WhatsApp (Gupshup) delivery, templates, delivery log.
+// soochna (सूचना) — notification service: SMS (MSG91), WhatsApp (Gupshup) and e-mail (SMTP) delivery,
+// templates, consent, dead letters, payment reminders and the delivery log.
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"github.com/maapan/mool/config"
 	"github.com/maapan/mool/svc"
 	"github.com/maapan/soochna/internal/clients"
+	"github.com/maapan/soochna/internal/jobauth"
 	"github.com/maapan/soochna/internal/messaging"
 	"github.com/maapan/soochna/internal/providers"
 	"github.com/maapan/soochna/internal/templates"
@@ -47,20 +49,46 @@ func run(ctx context.Context) error {
 		GupshupAppName:   config.String("GUPSHUP_APP_NAME", ""),
 		GupshupBaseURL:   config.String("GUPSHUP_BASE_URL", ""),
 		GupshupTemplates: templateIDs("GUPSHUP_TEMPLATE_"),
+		EmailProvider:    config.String("EMAIL_PROVIDER", "console"),
+		SMTP: providers.SMTPConfig{
+			Host:     config.String("SMTP_HOST", ""),
+			Port:     config.Int("SMTP_PORT", 587),
+			Username: config.String("SMTP_USERNAME", ""),
+			Password: config.String("SMTP_PASSWORD", ""),
+			From:     config.String("EMAIL_FROM", ""),
+			FromName: config.String("EMAIL_FROM_NAME", "Maapan"),
+			ReplyTo:  config.String("EMAIL_REPLY_TO", ""),
+		},
 	}
-	sms, wa, err := providers.Build(pcfg, app.Log)
+	drivers, err := providers.Build(pcfg, app.Log)
 	if err != nil {
 		return err
 	}
-	msgs := &messaging.Service{
-		DB: app.DB, SMS: sms, WhatsApp: wa, Log: app.Log,
-		Tenants:      clients.NewTenants(svc.New(config.String("PEHCHAAN_URL", "http://localhost:7001"), app.Cfg.ServiceSecret, app.Cfg.UseIDTokens)),
-		WebhookToken: config.String("WEBHOOK_TOKEN", ""),
+	quiet, err := messaging.ParseQuietHours(config.String("QUIET_HOURS", "21:00-09:00"), nil)
+	if err != nil {
+		return err
 	}
-	app.Log.Info("providers", "sms", sms.Name(), "whatsapp", wa.Name())
+	secret, idTok := app.Cfg.ServiceSecret, app.Cfg.UseIDTokens
+	msgs := &messaging.Service{
+		DB: app.DB, SMS: drivers.SMS, WhatsApp: drivers.WhatsApp, Email: drivers.Email, Log: app.Log,
+		Tenants:            clients.NewTenants(svc.New(config.String("PEHCHAAN_URL", "http://localhost:7001"), secret, idTok)),
+		WebhookToken:       config.String("WEBHOOK_TOKEN", ""),
+		Quiet:              quiet,
+		PromoRequiresOptIn: config.Bool("PROMO_REQUIRES_OPT_IN", true),
+		InvoicePDFURL:      config.String("INVOICE_PDF_URL", ""),
+	}
+	if u := config.String("BAHI_URL", ""); u != "" {
+		msgs.Bahi = &clients.BahiClient{C: svc.New(u, secret, idTok)}
+	}
+	oidc := &jobauth.OIDC{
+		Audience: config.String("JOBS_OIDC_AUDIENCE", ""),
+		Emails:   config.List("JOBS_OIDC_EMAILS", nil),
+	}
+	app.Log.Info("providers", "sms", drivers.SMS.Name(), "whatsapp", drivers.WhatsApp.Name(), "email", drivers.Email.Name(),
+		"bahi", msgs.Bahi != nil, "jobs_oidc", oidc.Enabled(), "quiet_hours", quiet.Enabled())
 
 	mux := http.NewServeMux()
-	msgs.Routes(mux, app.Verifier, app.TrustIAMForEvents())
+	msgs.Routes(mux, app.Verifier, app.TrustIAMForEvents(), jobauth.Middleware(app.Verifier, oidc))
 	return app.Run(ctx, mux)
 }
 

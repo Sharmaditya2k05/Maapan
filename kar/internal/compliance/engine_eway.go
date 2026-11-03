@@ -28,6 +28,7 @@ const (
 type EWayRecord struct {
 	InvoiceID      string          `json:"invoice_id"`
 	InvoiceNumber  string          `json:"invoice_number"`
+	DocType        string          `json:"doc_type,omitempty"` // aadesh doc type: sale | sale_return | purchase | purchase_return
 	StoreID        string          `json:"store_id,omitempty"`
 	GSTIN          string          `json:"gstin"`
 	DocDate        string          `json:"doc_date,omitempty"`
@@ -60,14 +61,14 @@ type EWayRecord struct {
 const ewbCols = `invoice_id, invoice_number, COALESCE(store_id::text,''), gstin, COALESCE(to_char(doc_date,'YYYY-MM-DD'),''),
 	COALESCE(irn,''), status, COALESCE(ewb_no,''), ewb_date, valid_upto, mode, vehicle_no, vehicle_type, distance_km,
 	transporter_id, extensions, below_threshold, warnings, COALESCE(error_code,''), COALESCE(error_message,''), provider,
-	cancelled_at, cancel_reason, COALESCE(cancel_remark,''), history, created_by, created_at, updated_at, payload`
+	cancelled_at, cancel_reason, COALESCE(cancel_remark,''), history, created_by, created_at, updated_at, payload, doc_type`
 
 func scanEWB(row pgx.Row) (EWayRecord, error) {
 	var r EWayRecord
 	err := row.Scan(&r.InvoiceID, &r.InvoiceNumber, &r.StoreID, &r.GSTIN, &r.DocDate, &r.IRN, &r.Status, &r.EWBNo, &r.EWBDate,
 		&r.ValidUpto, &r.Mode, &r.VehicleNo, &r.VehicleType, &r.DistanceKM, &r.TransporterID, &r.Extensions, &r.BelowThreshold,
 		&r.Warnings, &r.ErrorCode, &r.ErrorMessage, &r.Provider, &r.CancelledAt, &r.CancelReason, &r.CancelRemark, &r.History,
-		&r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.Payload)
+		&r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.Payload, &r.DocType)
 	return r, err
 }
 
@@ -253,6 +254,10 @@ func (e *Engine) GenerateEWay(ctx context.Context, tenantID string, inv clients.
 			tenantID, inv.ID, inv.Number, payload, below, warn, by, inv.StoreID, seller.GSTIN, inv.InvoiceDate, irn, r.Status,
 			r.EWBNo, r.EWBDate, r.ValidUpto, r.Mode, r.VehicleNo, r.VehicleType, r.DistanceKM, r.TransporterID, r.ErrorCode,
 			r.ErrorMessage, r.Provider, hist); err != nil {
+			return err
+		}
+		// The document type lets lists link a bill to the right page (sale, return, purchase).
+		if _, err := tx.Exec(ctx, `UPDATE eway_bills SET doc_type=$3 WHERE tenant_id=$1 AND invoice_id=$2`, tenantID, inv.ID, inv.DocType); err != nil {
 			return err
 		}
 		return e.publishEWay(ctx, tx, tenantID, r, r.Status, r.ErrorMessage)

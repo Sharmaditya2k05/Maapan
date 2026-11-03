@@ -18,7 +18,8 @@ import (
 // service stamps its responses with X-Request-ID, so a gateway error without
 // it came from the edge and the service never saw the request: it is safe to
 // send again, whatever the method. Connection failures are retried only when
-// the connection was never made or the request is a read.
+// the connection was never made, the request is a read, or it carries an
+// Idempotency-Key (the service deduplicates a repeat).
 type edgeRetry struct {
 	next   http.RoundTripper
 	budget time.Duration // total time spent retrying one request
@@ -47,7 +48,8 @@ func (e edgeRetry) RoundTrip(req *http.Request) (*http.Response, error) {
 		retry := false
 		switch {
 		case err != nil:
-			retry = req.Context().Err() == nil && (isDialError(err) || req.Method == http.MethodGet || req.Method == http.MethodHead)
+			retry = req.Context().Err() == nil && (isDialError(err) || req.Method == http.MethodGet || req.Method == http.MethodHead ||
+				req.Header.Get(HeaderIdempotencyKey) != "")
 		case fromEdge(res):
 			retry = true
 		}

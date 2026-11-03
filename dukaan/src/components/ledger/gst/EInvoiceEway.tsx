@@ -1,175 +1,264 @@
 'use client'
 
 /**
- * e-Invoice (IRP INV-01) and e-Way bill (NIC) JSON for recent B2B sales.
- * POST /kar/v1/einvoices/{id}/json (gst:file) · POST /kar/v1/eway-bills/{id}/json (invoice:read, transport details)
- * GET  /kar/v1/einvoices/{id} · /kar/v1/eway-bills/{id} show what was generated before.
+ * GST centre → e-Invoice & e-Way, for the selected registration:
+ *  - Sales: posted sales of this GSTIN (aadesh, store_gstin=) with their IRN / EWB status and actions
+ *  - e-Invoices: kar GET /v1/einvoices?status=&from=&to=&gstin= — retry failed (IRP code + message), cancel
+ *  - e-Way bills: kar GET /v1/eway-bills?status=&from=&to=&gstin= — Part-B, extend, cancel
+ * The IRP / NIC JSON downloads for offline upload stay available.
  */
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, Download, FileJson, FileText, Truck } from 'lucide-react'
-import { Badge, Button, Card, Empty, Field, Input, Modal, Money, Pagination, QueryState, SearchInput, Select, Table } from '@/components/ui'
-import { ApiError, post } from '@/lib/api'
-import { fmtDate, todayIST, useDebounced, useGet, useList, usePerm } from '@/lib/hooks'
+import { Ban, ChevronDown, ChevronRight, Clock, FileCheck2, FileJson, FileText, RefreshCw, Truck } from 'lucide-react'
+import { Badge, Button, Card, Empty, Money, Pagination, QueryState, SearchInput, Table, Tabs, Toggle, statusTone } from '@/components/ui'
+import { fmtDate, todayIST, useDebounced, useList, usePerm } from '@/lib/hooks'
 import { PERMS } from '@/lib/rbac'
+import { ewayCancelCheck, ewayExtendCheck, ewayModeLabel, irnCancelCheck } from '@/lib/compliance'
 import type { Invoice } from '@/lib/types'
-import type { EinvoiceResponse, EwayResponse, EwayTransportInput, StoredCompliance } from '@/lib/types.ledger'
+import type { EInvoiceRecord, EWayRecord } from '@/lib/types.kar'
 import { presetRange, type DateRange } from '@/lib/ledger/util'
 import { DateRangePicker } from '../DateRangePicker'
-import { KV, WarningList } from '../bits'
-import { useAction } from '../useAction'
-import { downloadJSON } from './shared'
+import { WarningList } from '../bits'
+import { CompliancePanel } from '@/components/compliance/CompliancePanel'
+import { ComplianceDialogs, ServerError, useEinvoiceJson, useGenerateIrn, type ComplianceDialog, type DocRef } from '@/components/compliance/actions'
 
-export function EInvoiceEway() {
+type View = 'sales' | 'einvoices' | 'eway'
+const EINV_STATUSES = ['', 'generated', 'failed', 'pending', 'cancelled'] as const
+const EWB_STATUSES = ['', 'generated', 'failed', 'cancelled'] as const
+
+const ewayHref = (r: Pick<EWayRecord, 'invoice_id' | 'doc_type'>) =>
+  r.doc_type === 'purchase' || r.doc_type === 'purchase_return' ? `/app/purchases/${r.invoice_id}`
+    : r.doc_type === 'sale_return' ? `/app/returns/${r.invoice_id}` : `/app/sales/${r.invoice_id}`
+const einvHref = (r: Pick<EInvoiceRecord, 'invoice_id' | 'doc_type'>) => (r.doc_type === 'INV' ? `/app/sales/${r.invoice_id}` : `/app/returns/${r.invoice_id}`)
+
+function StatusChips<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: readonly T[] }) {
+  return (
+    <div className="flex flex-wrap gap-1" role="group" aria-label="Status filter">
+      {options.map((s) => (
+        <button key={s || 'all'} type="button" onClick={() => onChange(s)} aria-pressed={value === s}
+          className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset transition cursor-pointer ${value === s ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-slate-600 ring-slate-200 hover:text-ink'}`}>
+          {s || 'All'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function EInvoiceEway({ gstin }: { gstin?: string }) {
   const canDo = usePerm()
+  const canLists = canDo(PERMS.reportRead)
+  const [view, setView] = useState<View>('sales')
   const [range, setRange] = useState<DateRange>(() => presetRange('this_month', todayIST()))
-  const [q, setQ] = useState('')
-  const dq = useDebounced(q)
-  const [offset, setOffset] = useState(0)
-  const [eway, setEway] = useState<Invoice | null>(null)
-  const [result, setResult] = useState<{ title: string; warnings?: string[]; note?: string } | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  useEffect(() => setOffset(0), [range.from, range.to, dq])
-  const list = useList<Invoice>(canDo(PERMS.invoiceRead) ? '/aadesh/v1/invoices' : null, { doc_type: 'sale', status: 'posted', from: range.from, to: range.to, q: dq, limit: 50, offset })
-  // aadesh has no "registered buyer" filter; B2B = party_gstin present.
-  const b2b = useMemo(() => (list.data?.items ?? []).filter((i) => !!i.party_gstin), [list.data])
-
-  const einv = useAction<EinvoiceResponse, Invoice>((inv) => post<EinvoiceResponse>(`/kar/v1/einvoices/${inv.id}/json`, {}), {
-    onSuccess: (r, inv) => { downloadJSON(`EINV_${inv.number.replace(/\//g, '-')}.json`, r.payload); setResult({ title: `e-Invoice JSON for ${inv.number} downloaded`, warnings: r.warnings }) },
-  })
-
+  const views: { value: View; label: string }[] = [{ value: 'sales', label: 'Sales' }, ...(canLists ? [{ value: 'einvoices' as View, label: 'e-Invoices' }, { value: 'eway' as View, label: 'e-Way bills' }] : [])]
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Tabs value={view} onChange={setView} options={views} />
         <DateRangePicker value={range} onChange={setRange} />
-        <SearchInput value={q} onChange={setQ} placeholder="Invoice no, party" className="md:w-56" />
-        <span className="ml-auto text-xs text-slate-500">Only B2B sales (buyer with a GSTIN) are shown.</span>
       </div>
+      {view === 'sales' && <SalesView gstin={gstin} range={range} />}
+      {view === 'einvoices' && canLists && <EInvoiceList gstin={gstin} range={range} />}
+      {view === 'eway' && canLists && <EWayList gstin={gstin} range={range} />}
+    </>
+  )
+}
+
+/* ---------------- sales of this GSTIN ---------------- */
+
+function SalesView({ gstin, range }: { gstin?: string; range: DateRange }) {
+  const canDo = usePerm()
+  const [q, setQ] = useState('')
+  const [b2bOnly, setB2bOnly] = useState(true)
+  const dq = useDebounced(q)
+  const [offset, setOffset] = useState(0)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<ComplianceDialog | null>(null)
+  const [warn, setWarn] = useState<{ doc: string; items: string[] } | null>(null)
+  useEffect(() => setOffset(0), [range.from, range.to, dq, gstin])
+  const list = useList<Invoice>('/aadesh/v1/invoices', { doc_type: 'sale', status: 'posted', store_gstin: gstin, from: range.from, to: range.to, q: dq, limit: 50, offset })
+  // aadesh has no "registered buyer" filter; B2B = party_gstin present (exports / SEZ carry a supply category).
+  const rows = useMemo(() => (list.data?.items ?? []).filter((i) => !b2bOnly || !!i.party_gstin || !!i.supply_category), [list.data, b2bOnly])
+  const gen = useGenerateIrn()
+  const json = useEinvoiceJson((items, doc) => setWarn({ doc: doc.number, items }))
+  const ref = (inv: Invoice): DocRef => ({ id: inv.id, number: inv.number, total_paise: inv.grand_total_paise, party_name: inv.party_name, store_state: inv.store_state })
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <SearchInput value={q} onChange={setQ} placeholder="Invoice no, party" className="md:w-56" />
+        <Toggle checked={b2bOnly} onChange={setB2bOnly} label={<span className="text-xs text-slate-600">B2B / export only</span>} />
+      </div>
+      {warn && <div className="mb-3"><WarningList items={warn.items.map((w) => `${warn.doc}: ${w}`)} /></div>}
+      {gen.error && <div className="mb-3"><ServerError error={gen.error} /></div>}
       <Card padded={false}>
         <QueryState isLoading={list.isLoading} error={list.error} data={list.data} retry={() => list.refetch()}>
-          {(d) => b2b.length === 0 ? <Empty icon={FileText} title="No B2B sales in this period" text={d.items.length ? `${d.items.length} sales found, none to a registered buyer.` : 'Sales to GST-registered buyers appear here for e-invoicing and e-way bills.'} /> : (
+          {(d) => rows.length === 0 ? <Empty icon={FileText} title={b2bOnly ? 'No B2B sales in this period' : 'No sales in this period'} text={d.items.length ? `${d.items.length} sales found, none to a registered buyer.` : 'Posted sales of this GSTIN appear here for e-invoicing and e-way bills.'} /> : (
             <>
               <Table>
-                <thead className="bg-slate-50/60"><tr><th className="th w-8" /><th className="th">Invoice</th><th className="th">Buyer</th><th className="th">GSTIN</th><th className="th text-right">Total</th><th className="th">IRN</th><th className="th text-right">Actions</th></tr></thead>
+                <thead className="bg-slate-50/60"><tr><th className="th w-8" /><th className="th">Invoice</th><th className="th">Buyer</th><th className="th text-right">Total</th><th className="th">e-Invoice</th><th className="th">e-Way bill</th><th className="th text-right">Actions</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {b2b.map((inv) => {
+                  {rows.map((inv) => {
                     const open = expanded === inv.id
+                    const es = inv.einvoice_status
+                    const busy = gen.isPending && gen.variables?.id === inv.id
                     return (
                       <Fragment key={inv.id}>
                         <tr className="hover:bg-slate-50/60">
-                          <td className="td"><button type="button" onClick={() => setExpanded(open ? null : inv.id)} aria-label={open ? 'Hide generated documents' : 'Show generated documents'} className="grid h-7 w-7 place-items-center rounded text-slate-400 hover:text-ink cursor-pointer">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button></td>
+                          <td className="td"><button type="button" onClick={() => setExpanded(open ? null : inv.id)} aria-label={open ? 'Hide e-invoice details' : 'Show e-invoice details'} aria-expanded={open} className="grid h-7 w-7 place-items-center rounded text-slate-400 hover:text-ink cursor-pointer">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button></td>
                           <td className="td"><Link href={`/app/sales/${inv.id}`} className="font-mono text-xs font-semibold text-brand-700 hover:underline">{inv.number}</Link><div className="text-xs text-slate-500">{fmtDate(inv.invoice_date)}{inv.inter_state && ' · inter-state'}</div></td>
-                          <td className="td">{inv.party_id ? <Link href={`/app/parties/${inv.party_id}`} className="font-medium hover:underline">{inv.party_name}</Link> : inv.party_name}</td>
-                          <td className="td font-mono text-xs">{inv.party_gstin}</td>
+                          <td className="td"><div className="font-medium">{inv.party_name}</div>{inv.party_gstin && <div className="font-mono text-[11px] text-slate-500">{inv.party_gstin}</div>}</td>
                           <td className="td num text-right font-semibold"><Money paise={inv.grand_total_paise} /></td>
-                          <td className="td">{inv.irn ? <Badge tone="green">IRN</Badge> : <span className="text-xs text-slate-400">—</span>}</td>
+                          <td className="td">
+                            {es ? <Badge tone={es === 'generated' ? 'green' : statusTone(es)}>{es === 'generated' ? 'IRN' : es}</Badge> : <span className="text-xs text-slate-400">—</span>}
+                            {es === 'failed' && inv.einvoice_error && <div className="mt-0.5 max-w-[16rem] truncate text-[11px] text-rose-600" title={inv.einvoice_error}>{inv.einvoice_error_code ? `${inv.einvoice_error_code}: ` : ''}{inv.einvoice_error}</div>}
+                          </td>
+                          <td className="td">{inv.ewb_no ? <><span className="font-mono text-xs">{inv.ewb_no}</span>{inv.ewb_status && inv.ewb_status !== 'generated' && <Badge tone={statusTone(inv.ewb_status)} className="ml-1">{inv.ewb_status}</Badge>}{inv.ewb_valid_upto && inv.ewb_status === 'generated' && <div className="text-[11px] text-slate-500">till {fmtDate(inv.ewb_valid_upto, true)}</div>}</> : <span className="text-xs text-slate-400">—</span>}</td>
                           <td className="td text-right">
                             <div className="flex justify-end gap-1.5">
-                              {canDo(PERMS.gstFile) && <Button size="sm" variant="secondary" icon={FileJson} loading={einv.isPending && einv.variables?.id === inv.id} onClick={() => einv.mutate(inv)}>e-Invoice</Button>}
-                              <Button size="sm" variant="secondary" icon={Truck} onClick={() => setEway(inv)}>e-Way</Button>
+                              {canDo(PERMS.gstFile) && (!es || es === 'failed') && <Button size="sm" variant="secondary" icon={es === 'failed' ? RefreshCw : FileCheck2} loading={busy} onClick={() => gen.mutate(ref(inv))}>{es === 'failed' ? 'Retry' : 'IRN'}</Button>}
+                              {canDo(PERMS.gstFile) && <Button size="sm" variant="ghost" icon={FileJson} loading={json.isPending && json.variables?.id === inv.id} onClick={() => json.mutate(ref(inv))} title="IRP JSON for offline upload">JSON</Button>}
+                              {inv.ewb_status !== 'generated' && <Button size="sm" variant="secondary" icon={Truck} onClick={() => setDialog({ kind: 'eway', doc: ref(inv) })}>e-Way</Button>}
                             </div>
                           </td>
                         </tr>
-                        {open && <tr className="bg-slate-50/50"><td colSpan={7} className="px-4 py-3"><Stored invoice={inv} /></td></tr>}
+                        {open && <tr className="bg-slate-50/50"><td colSpan={7} className="px-4 py-3"><CompliancePanel invoice={inv} /></td></tr>}
                       </Fragment>
                     )
                   })}
                 </tbody>
               </Table>
               <Pagination total={d.total} limit={d.limit} offset={d.offset} onChange={setOffset} />
-              {d.total > d.items.length && <p className="px-4 pb-3 text-[11px] text-slate-400">B2B filtering happens on this page of results; page through for more.</p>}
+              {b2bOnly && d.total > d.items.length && <p className="px-4 pb-3 text-[11px] text-slate-400">B2B filtering happens on this page of results; page through for more.</p>}
             </>
           )}
         </QueryState>
       </Card>
-      <EwayModal invoice={eway} onClose={() => setEway(null)} onDone={(r, inv) => { setEway(null); setResult({ title: `e-Way bill JSON for ${inv.number} downloaded`, warnings: r.warnings, note: r.below_threshold ? 'The consignment is below your e-way bill threshold — the JSON is generated anyway, but a bill is not mandatory.' : undefined }) }} />
-      <Modal open={!!result} onClose={() => setResult(null)} title={result?.title ?? ''} footer={<Button onClick={() => setResult(null)}>Done</Button>}>
-        {result?.note && <p className="mb-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800">{result.note}</p>}
-        {result?.warnings?.length ? <WarningList items={result.warnings} /> : <p className="text-sm text-slate-600">No warnings. Upload the file on the portal / through your GSP.</p>}
-      </Modal>
+      <ComplianceDialogs dialog={dialog} onClose={() => setDialog(null)} />
     </>
   )
 }
 
-function Stored({ invoice }: { invoice: Invoice }) {
+/* ---------------- kar e-invoice list ---------------- */
+
+function EInvoiceList({ gstin, range }: { gstin?: string; range: DateRange }) {
   const canDo = usePerm()
-  const file = invoice.number.replace(/\//g, '-')
+  const [status, setStatus] = useState<(typeof EINV_STATUSES)[number]>('')
+  const [offset, setOffset] = useState(0)
+  const [dialog, setDialog] = useState<ComplianceDialog | null>(null)
+  useEffect(() => setOffset(0), [range.from, range.to, status, gstin])
+  const list = useList<EInvoiceRecord>('/kar/v1/einvoices', { status, gstin, from: range.from, to: range.to, limit: 50, offset })
+  const gen = useGenerateIrn()
+  const canFile = canDo(PERMS.gstFile)
+  const ref = (r: EInvoiceRecord): DocRef => ({ id: r.invoice_id, number: r.invoice_number, total_paise: r.total_paise, party_name: r.party_name })
+
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {canDo(PERMS.gstFile) ? <StoredItem label="e-Invoice" path={`/kar/v1/einvoices/${invoice.id}`} file={`EINV_${file}.json`} /> : <div className="text-xs text-slate-400">e-Invoice records need GST filing access.</div>}
-      <StoredItem label="e-Way bill" path={`/kar/v1/eway-bills/${invoice.id}`} file={`EWB_${file}.json`} />
-    </div>
+    <>
+      <div className="mb-3"><StatusChips value={status} onChange={setStatus} options={EINV_STATUSES} /></div>
+      {gen.error && <div className="mb-3"><ServerError error={gen.error} /></div>}
+      <Card padded={false}>
+        <QueryState isLoading={list.isLoading} error={list.error} data={list.data} retry={() => list.refetch()}>
+          {(d) => d.items.length === 0 ? <Empty icon={FileCheck2} title="No e-invoices" text="IRNs generated (automatically or on request) for this GSTIN appear here." /> : (
+            <>
+              <Table>
+                <thead className="bg-slate-50/60"><tr><th className="th">Document</th><th className="th">Buyer</th><th className="th text-right">Value</th><th className="th">Status</th><th className="th">IRN / Ack</th><th className="th text-right">Actions</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {d.items.map((r) => {
+                    const cancel = irnCancelCheck(r, null)
+                    return (
+                      <tr key={r.invoice_id} className="align-top hover:bg-slate-50/60">
+                        <td className="td"><Link href={einvHref(r)} className="font-mono text-xs font-semibold text-brand-700 hover:underline">{r.invoice_number}</Link><div className="text-xs text-slate-500">{r.doc_type} · {fmtDate(r.doc_date)}{r.supply_type && r.supply_type !== 'B2B' ? ` · ${r.supply_type}` : ''}</div></td>
+                        <td className="td"><div className="font-medium">{r.party_name || '—'}</div>{r.party_gstin && <div className="font-mono text-[11px] text-slate-500">{r.party_gstin}</div>}</td>
+                        <td className="td num text-right"><Money paise={r.total_paise} /></td>
+                        <td className="td">
+                          <Badge tone={r.status === 'generated' ? 'green' : statusTone(r.status)}>{r.status}</Badge>
+                          <div className="mt-0.5 text-[11px] text-slate-400">{r.triggered_by}{r.attempts > 1 ? ` · ${r.attempts} attempts` : ''}</div>
+                        </td>
+                        <td className="td max-w-[22rem]">
+                          {r.irn && <div className="truncate font-mono text-[11px]" title={r.irn}>{r.irn}</div>}
+                          {r.ack_no && <div className="text-[11px] text-slate-500">Ack {r.ack_no} · {fmtDate(r.ack_date, true)}</div>}
+                          {r.status === 'generated' && r.cancellable_until && <div className="text-[11px] text-slate-400">cancellable until {fmtDate(r.cancellable_until, true)}</div>}
+                          {r.cancelled_at && <div className="text-[11px] text-slate-500">cancelled {fmtDate(r.cancelled_at, true)}{r.cancel_remark ? ` · ${r.cancel_remark}` : ''}</div>}
+                          {(r.status === 'failed' || r.status === 'pending') && (r.error_message || r.error_code) && <div className="mt-0.5 whitespace-normal break-words text-[11px] text-rose-600">{r.error_code && <span className="font-mono font-semibold">{r.error_code} </span>}{r.error_message}</div>}
+                        </td>
+                        <td className="td text-right">
+                          {canFile && (
+                            <div className="flex justify-end gap-1.5">
+                              {(r.status === 'failed' || r.status === 'pending') && <Button size="sm" variant="secondary" icon={RefreshCw} loading={gen.isPending && gen.variables?.id === r.invoice_id} onClick={() => gen.mutate(ref(r))}>Retry</Button>}
+                              {r.status === 'generated' && <Button size="sm" variant="ghost" icon={Ban} className="text-rose-700" disabled={!cancel.ok} title={cancel.ok ? 'Cancel the IRN (fails while an e-way bill is active)' : cancel.reason} onClick={() => setDialog({ kind: 'cancel-irn', doc: ref(r), einvoice: r })}>Cancel IRN</Button>}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Table>
+              <Pagination total={d.total} limit={d.limit} offset={d.offset} onChange={setOffset} />
+            </>
+          )}
+        </QueryState>
+      </Card>
+      <ComplianceDialogs dialog={dialog} onClose={() => setDialog(null)} />
+    </>
   )
 }
 
-/** One previously generated document (404 = not generated yet). */
-function StoredItem({ label, path, file }: { label: string; path: string; file: string }) {
-  const q = useGet<StoredCompliance>(path, undefined, { retry: false })
-  const missing = q.error instanceof ApiError && q.error.status === 404
-  const stored = q.data
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
-      <div className="text-sm">
-        <span className="font-semibold">{label}</span>{' '}
-        {q.isLoading ? <span className="text-xs text-slate-400">checking…</span>
-          : stored ? <span className="text-xs text-slate-500">generated {fmtDate(stored.created_at, true)}</span>
-          : missing ? <span className="text-xs text-slate-400">not generated yet</span>
-          : q.error ? <span className="text-xs text-rose-600">{(q.error as Error).message}</span> : null}
-      </div>
-      {stored && <Button size="sm" variant="ghost" icon={Download} onClick={() => downloadJSON(file, stored.payload)}>Download again</Button>}
-    </div>
-  )
-}
+/* ---------------- kar e-way bill list ---------------- */
 
-function EwayModal({ invoice, onClose, onDone }: { invoice: Invoice | null; onClose: () => void; onDone: (r: EwayResponse, inv: Invoice) => void }) {
-  const [t, setT] = useState<EwayTransportInput>({ trans_mode: 'road', trans_distance: 0 })
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => { if (invoice) { setT({ trans_mode: 'road', trans_distance: 0 }); setError(null) } }, [invoice])
-  const gen = useAction<EwayResponse, { inv: Invoice; body: EwayTransportInput }>((i) => post<EwayResponse>(`/kar/v1/eway-bills/${i.inv.id}/json`, i.body), {
-    onSuccess: (r, i) => { downloadJSON(`EWB_${i.inv.number.replace(/\//g, '-')}.json`, r.payload); onDone(r, i.inv) },
-  })
-  const set = <K extends keyof EwayTransportInput>(k: K, v: EwayTransportInput[K]) => setT((x) => ({ ...x, [k]: v }))
-  const submit = () => {
-    setError(null)
-    if (!invoice) return
-    if (!t.trans_distance || t.trans_distance <= 0) return setError('Approximate distance in km is required.')
-    if (t.trans_mode === 'road' && !t.vehicle_no?.trim() && !t.transporter_id?.trim()) return setError('For road, give the vehicle number or the transporter ID.')
-    const body: EwayTransportInput = { trans_mode: t.trans_mode, trans_distance: Math.round(t.trans_distance) }
-    if (t.vehicle_no?.trim()) body.vehicle_no = t.vehicle_no.trim().toUpperCase().replace(/\s+/g, '')
-    if (t.transporter_id?.trim()) body.transporter_id = t.transporter_id.trim().toUpperCase()
-    if (t.transporter_name?.trim()) body.transporter_name = t.transporter_name.trim()
-    if (t.trans_doc_no?.trim()) body.trans_doc_no = t.trans_doc_no.trim()
-    if (t.trans_doc_date) body.trans_doc_date = t.trans_doc_date
-    if (t.vehicle_type) body.vehicle_type = t.vehicle_type
-    if (t.from_pincode) body.from_pincode = t.from_pincode
-    if (t.to_pincode) body.to_pincode = t.to_pincode
-    gen.mutate({ inv: invoice, body })
-  }
-  const pin = (v: string) => { const n = Number(v.replace(/\D/g, '').slice(0, 6)); return n || undefined }
+function EWayList({ gstin, range }: { gstin?: string; range: DateRange }) {
+  const canDo = usePerm()
+  const [status, setStatus] = useState<(typeof EWB_STATUSES)[number]>('')
+  const [offset, setOffset] = useState(0)
+  const [dialog, setDialog] = useState<ComplianceDialog | null>(null)
+  useEffect(() => setOffset(0), [range.from, range.to, status, gstin])
+  const list = useList<EWayRecord>('/kar/v1/eway-bills', { status, gstin, from: range.from, to: range.to, limit: 50, offset })
+  const ref = (r: EWayRecord): DocRef => ({ id: r.invoice_id, number: r.invoice_number, store_state: r.gstin.slice(0, 2) })
+
   return (
-    <Modal open={!!invoice} onClose={onClose} title={invoice ? `e-Way bill · ${invoice.number}` : 'e-Way bill'} size="lg"
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit} loading={gen.isPending} icon={Truck}>Generate JSON</Button></>}>
-      {invoice && (
-        <div className="space-y-4">
-          <dl className="grid gap-x-6 rounded-xl bg-slate-50 px-4 py-2 sm:grid-cols-2"><KV k="Consignee" v={invoice.party_name} /><KV k="Value" v={<Money paise={invoice.grand_total_paise} />} /></dl>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Mode"><Select value={t.trans_mode} onChange={(e) => set('trans_mode', e.target.value as EwayTransportInput['trans_mode'])}><option value="road">Road</option><option value="rail">Rail</option><option value="air">Air</option><option value="ship">Ship</option></Select></Field>
-            <Field label="Distance (km)"><Input type="number" min={1} inputMode="numeric" value={t.trans_distance || ''} onChange={(e) => set('trans_distance', Number(e.target.value))} /></Field>
-            <Field label="Vehicle type"><Select value={t.vehicle_type ?? ''} onChange={(e) => set('vehicle_type', (e.target.value || undefined) as EwayTransportInput['vehicle_type'])}><option value="">Regular</option><option value="R">Regular (R)</option><option value="O">Over-dimensional (O)</option></Select></Field>
-            <Field label="Vehicle no"><Input value={t.vehicle_no ?? ''} onChange={(e) => set('vehicle_no', e.target.value)} placeholder="MH12AB1234" className="font-mono uppercase" /></Field>
-            <Field label="Transporter ID (GSTIN / TRANSIN)"><Input value={t.transporter_id ?? ''} onChange={(e) => set('transporter_id', e.target.value)} className="font-mono uppercase" placeholder="Optional" /></Field>
-            <Field label="Transporter name"><Input value={t.transporter_name ?? ''} onChange={(e) => set('transporter_name', e.target.value)} placeholder="Optional" /></Field>
-            <Field label="Transport doc no" hint="LR / RR / AWB"><Input value={t.trans_doc_no ?? ''} onChange={(e) => set('trans_doc_no', e.target.value)} placeholder="Optional" /></Field>
-            <Field label="Transport doc date"><Input type="date" value={t.trans_doc_date ?? ''} onChange={(e) => set('trans_doc_date', e.target.value || undefined)} /></Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="From PIN" hint="If not in the store address"><Input inputMode="numeric" value={t.from_pincode ?? ''} onChange={(e) => set('from_pincode', pin(e.target.value))} placeholder="411001" /></Field>
-              <Field label="To PIN"><Input inputMode="numeric" value={t.to_pincode ?? ''} onChange={(e) => set('to_pincode', pin(e.target.value))} placeholder="411002" /></Field>
-            </div>
-          </div>
-          {error && <p className="text-sm text-rose-600">{error}</p>}
-          <p className="text-xs text-slate-500">kar builds the NIC bulk-upload JSON (v1.0.0621). Upload it on ewaybillgst.gov.in; the EWB number is not fetched automatically yet.</p>
-        </div>
-      )}
-    </Modal>
+    <>
+      <div className="mb-3"><StatusChips value={status} onChange={setStatus} options={EWB_STATUSES} /></div>
+      <Card padded={false}>
+        <QueryState isLoading={list.isLoading} error={list.error} data={list.data} retry={() => list.refetch()}>
+          {(d) => d.items.length === 0 ? <Empty icon={Truck} title="No e-way bills" text="E-way bills generated for this GSTIN's documents appear here." /> : (
+            <>
+              <Table>
+                <thead className="bg-slate-50/60"><tr><th className="th">Document</th><th className="th">EWB</th><th className="th">Valid until</th><th className="th">Vehicle</th><th className="th">Status</th><th className="th text-right">Actions</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {d.items.map((r) => {
+                    const active = r.status === 'generated'
+                    const ext = ewayExtendCheck(r)
+                    const can = ewayCancelCheck(r)
+                    return (
+                      <tr key={r.invoice_id} className="align-top hover:bg-slate-50/60">
+                        <td className="td"><Link href={ewayHref(r)} className="font-mono text-xs font-semibold text-brand-700 hover:underline">{r.invoice_number}</Link><div className="text-xs text-slate-500">{fmtDate(r.doc_date)}{r.irn ? ' · from IRN' : ''}</div></td>
+                        <td className="td"><div className="font-mono text-xs font-semibold">{r.ewb_no || '—'}</div>{r.ewb_date && <div className="text-[11px] text-slate-500">{fmtDate(r.ewb_date, true)}</div>}</td>
+                        <td className="td text-xs">{r.valid_upto ? fmtDate(r.valid_upto, true) : <span className="text-slate-400">Part-A only</span>}{r.extensions > 0 && <div className="text-[11px] text-slate-400">{r.extensions} extension{r.extensions === 1 ? '' : 's'}</div>}</td>
+                        <td className="td text-xs"><span className="font-mono">{r.vehicle_no || '—'}</span><div className="text-[11px] text-slate-500">{ewayModeLabel(r.mode)} · {r.distance_km} km{r.vehicle_type === 'O' ? ' · ODC' : ''}</div></td>
+                        <td className="td max-w-[18rem]">
+                          <Badge tone={active ? 'green' : statusTone(r.status)}>{r.status}</Badge>
+                          {r.below_threshold && <Badge tone="gray" className="ml-1">below threshold</Badge>}
+                          {r.status === 'failed' && r.error_message && <div className="mt-0.5 whitespace-normal break-words text-[11px] text-rose-600">{r.error_code && <span className="font-mono font-semibold">{r.error_code} </span>}{r.error_message}</div>}
+                          {r.cancelled_at && <div className="text-[11px] text-slate-500">cancelled {fmtDate(r.cancelled_at, true)}</div>}
+                        </td>
+                        <td className="td text-right">
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            {active && <Button size="sm" variant="secondary" icon={Truck} onClick={() => setDialog({ kind: 'part-b', doc: ref(r), eway: r })}>Part-B</Button>}
+                            {active && <Button size="sm" variant="ghost" icon={Clock} disabled={!ext.ok} title={ext.ok ? undefined : ext.reason} onClick={() => setDialog({ kind: 'extend', doc: ref(r), eway: r })}>Extend</Button>}
+                            {active && canDo(PERMS.invoiceCancel) && <Button size="sm" variant="ghost" icon={Ban} className="text-rose-700" disabled={!can.ok} title={can.ok ? undefined : can.reason} onClick={() => setDialog({ kind: 'cancel-ewb', doc: ref(r), eway: r })}>Cancel</Button>}
+                            {(r.status === 'failed' || r.status === 'cancelled') && <Button size="sm" variant="secondary" icon={Truck} onClick={() => setDialog({ kind: 'eway', doc: ref(r) })}>New bill</Button>}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Table>
+              <Pagination total={d.total} limit={d.limit} offset={d.offset} onChange={setOffset} />
+            </>
+          )}
+        </QueryState>
+      </Card>
+      <ComplianceDialogs dialog={dialog} onClose={() => setDialog(null)} />
+    </>
   )
 }

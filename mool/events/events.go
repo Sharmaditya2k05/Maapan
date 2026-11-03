@@ -27,6 +27,7 @@ const (
 	TenantCreated       = "pehchaan.tenant.created"
 	EInvoiceGenerated   = "kar.einvoice.generated"
 	EWayGenerated       = "kar.eway.generated"
+	ReturnFiled         = "kar.return.filed"
 )
 
 // Envelope is the message format on every topic.
@@ -77,4 +78,5 @@ var Subscriptions = map[string][]string{
 	TenantCreated:       {"bahi", "bhandar", "kar"},
 	EInvoiceGenerated:   {"aadesh", "soochna"},
 	EWayGenerated:       {"aadesh"},
+	ReturnFiled:         {"bahi"},
 }

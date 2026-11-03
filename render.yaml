@@ -25,6 +25,8 @@ envVarGroups:
         value: https://maapan.vercel.app,http://localhost:3000
       - key: LOG_LEVEL
         value: info
+      - key: RELEASE # bump to redeploy every service on a blueprint sync
+        value: batch1-2026-11-03
       - key: SVC_TIMEOUT        # services sleep when idle; waking takes up to a minute
         value: 75s
       - key: DWAAR_URL

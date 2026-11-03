@@ -13,8 +13,9 @@ import (
 //
 // /v1/auth/* and /v1/onboarding are public on the gateway (onboarding checks its own token).
 func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
+	// User routes verify with pehchaan's keyring (current + previous JWT secret).
 	user := func(h httpx.HandlerFunc, perms ...string) http.Handler {
-		return v.User(auth.Require(httpx.H(h), perms...))
+		return s.userAuth(auth.Require(httpx.H(h), perms...))
 	}
 
 	mux.Handle("POST /v1/auth/otp/request", httpx.H(s.otpRequest))
@@ -44,11 +45,20 @@ func (s *Service) Routes(mux *http.ServeMux, v *auth.Verifier) {
 	mux.Handle("POST /v1/users", user(s.inviteUser, auth.PermUserManage))
 	mux.Handle("PATCH /v1/users/{id}", user(s.updateUser, auth.PermUserManage))
 	mux.Handle("DELETE /v1/users/{id}", user(s.removeUser, auth.PermUserManage))
+	mux.Handle("GET /v1/users/{id}/audit", user(s.userAudit, auth.PermUserManage))
+	mux.Handle("GET /v1/audit", user(s.listAudit, auth.PermUserManage))
+
+	// POS terminals: settings:manage for any store, store managers for their stores.
+	mux.Handle("GET /v1/devices", user(s.listDevices))
+	mux.Handle("GET /v1/devices/{id}", user(s.getDevice))
+	mux.Handle("POST /v1/devices", user(s.registerDevice))
+	mux.Handle("DELETE /v1/devices/{id}", user(s.revokeDevice))
 
 	mux.Handle("GET /internal/v1/stores/{id}", v.Internal(httpx.H(s.internalStore)))
 	mux.Handle("GET /internal/v1/tenants/{id}", v.Internal(httpx.H(s.internalTenant)))
 	mux.Handle("GET /internal/v1/registrations", v.Internal(httpx.H(s.internalRegistrations)))
 	mux.Handle("GET /internal/v1/registrations/{id}", v.Internal(httpx.H(s.internalRegistration)))
+	mux.Handle("GET /internal/v1/devices/{device_id}", v.Internal(httpx.H(s.internalDevice)))
 }
 
 func (s *Service) otpRequest(w http.ResponseWriter, r *http.Request) error {
@@ -215,7 +225,7 @@ func (s *Service) inviteUser(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	m, err := s.Invite(r.Context(), auth.FromContext(r.Context()), in)
+	m, err := s.Invite(r.Context(), auth.FromContext(r.Context()), in, httpx.ClientIP(r))
 	if err != nil {
 		return err
 	}
@@ -227,7 +237,7 @@ func (s *Service) updateUser(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	m, err := s.UpdateMember(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), in)
+	m, err := s.UpdateMember(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), in, httpx.ClientIP(r))
 	if err != nil {
 		return err
 	}
@@ -236,7 +246,7 @@ func (s *Service) updateUser(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Service) removeUser(w http.ResponseWriter, r *http.Request) error {
 	off := false
-	if _, err := s.UpdateMember(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), MemberUpdate{Active: &off}); err != nil {
+	if _, err := s.UpdateMember(r.Context(), auth.FromContext(r.Context()), r.PathValue("id"), MemberUpdate{Active: &off}, httpx.ClientIP(r)); err != nil {
 		return err
 	}
 	return httpx.NoContent(w)
@@ -256,8 +266,20 @@ func (s *Service) internalStore(w http.ResponseWriter, r *http.Request) error {
 	return httpx.OK(w, st)
 }
 
+// internalTenant serves GET /internal/v1/tenants/{id}. The caller's
+// X-Tenant-ID must name the same tenant: holding the service secret is not
+// enough to read every business (INTERNAL_TENANT_HEADER=optional tolerates a
+// missing header, never a mismatch).
 func (s *Service) internalTenant(w http.ResponseWriter, r *http.Request) error {
-	t, err := s.InternalTenant(r.Context(), r.PathValue("id"))
+	p := auth.FromContext(r.Context())
+	id := r.PathValue("id")
+	switch {
+	case p.TenantID == "" && !s.InternalTenantOptional:
+		return httpx.Forbidden("X-Tenant-ID is required")
+	case p.TenantID != "" && !strings.EqualFold(p.TenantID, id):
+		return httpx.NotFound("tenant not found")
+	}
+	t, err := s.InternalTenant(r.Context(), id)
 	if err != nil {
 		return err
 	}

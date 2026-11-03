@@ -38,6 +38,16 @@ func New(baseURL, serviceSecret string, useIDToken bool) *Client {
 	}
 }
 
+// ForTenant returns ctx acting for tenantID when it carries no tenant yet,
+// so internal calls send X-Tenant-ID. Use it in jobs and loops over tenants,
+// which run without a request principal.
+func ForTenant(ctx context.Context, tenantID string) context.Context {
+	if p := auth.FromContext(ctx); p != nil && p.TenantID != "" {
+		return ctx
+	}
+	return auth.WithPrincipal(ctx, &auth.Principal{Internal: true, TenantID: tenantID})
+}
+
 // WithRequestID stores the inbound request ID so outbound calls carry it.
 // The httpx.RequestID middleware already does this for every request, so
 // handlers never need to call it; it remains for jobs and tests.

@@ -15,8 +15,8 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// ErrUnsupported is returned for formats we cannot read (e.g. legacy .xls).
-var ErrUnsupported = errors.New("unsupported file type: save the sheet as .xlsx or .csv")
+// ErrUnsupported is returned for formats we cannot read.
+var ErrUnsupported = errors.New("unsupported file type: upload .xlsx, .xls, .csv or a Tally .xml export")
 
 // Workbook is an opened spreadsheet.
 type Workbook interface {
@@ -25,6 +25,21 @@ type Workbook interface {
 	Each(sheet string, fn func(rowNo int, cells []string) error) error
 	Close() error
 }
+
+// KindSheets is implemented by workbooks whose sheets are fixed tables (Tally
+// XML), so the sheet that feeds an import kind can be picked automatically.
+type KindSheets interface {
+	DefaultSheet(kind string) string
+}
+
+// Source names the program a workbook came from ("tally" for Tally XML), ""
+// when unknown.
+type Source interface {
+	Source() string
+}
+
+// Extensions accepted by Open.
+var Extensions = []string{".xlsx", ".xlsm", ".xls", ".csv", ".txt", ".tsv", ".xml"}
 
 // Open reads a workbook from r; the file name decides the format.
 func Open(r io.Reader, fileName string) (Workbook, error) {
@@ -35,14 +50,36 @@ func Open(r io.Reader, fileName string) (Workbook, error) {
 			return nil, fmt.Errorf("open xlsx: %w", err)
 		}
 		return &xlsx{f: f}, nil
-	case ".csv", ".txt":
+	case ".xls":
 		b, err := io.ReadAll(r)
 		if err != nil {
 			return nil, err
 		}
-		return &csvBook{data: bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), name: strings.TrimSuffix(filepath.Base(fileName), filepath.Ext(fileName))}, nil
+		return openXLS(b, baseName(fileName))
+	case ".xml":
+		b, err := io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+		return OpenTally(b)
+	case ".csv", ".txt", ".tsv":
+		b, err := io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+		return newCSV(b, baseName(fileName)), nil
 	}
 	return nil, ErrUnsupported
+}
+
+func baseName(fileName string) string {
+	return strings.TrimSuffix(filepath.Base(fileName), filepath.Ext(fileName))
+}
+
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+func newCSV(b []byte, name string) *csvBook {
+	return &csvBook{data: bytes.TrimPrefix(decodeText(b), utf8BOM), name: name}
 }
 
 type xlsx struct{ f *excelize.File }

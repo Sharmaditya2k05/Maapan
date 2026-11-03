@@ -1,0 +1,10 @@
+SHREE GANESH TRADERS (DEMO)
+Bill Wise Outstanding (Receivable) as on 31/03/2026
+Party Code,Party Name,Bill No,Bill Date,Due Date,Bill Amt,Pending Amt,Dr/Cr,Days
+C0001,Sharma Agencies - Pune,GT/2526/1041,10/02/2026,12/03/2026,"11,800.00","8,250.00",Dr,49
+C0001,Sharma Agencies - Pune,GT/2526/1102,02/03/2026,,"4,200.00","4,200.00",Dr,29
+C0002,Sharma Agencies - Nashik,GT/2526/0987,20/01/2026,19/02/2026,"3,200.50","3,200.50",Dr,70
+C0003,Gupta Kirana Stores,GT/2526/1150,15/03/2026,30/03/2026,"1,850.00",850.00,Dr,16
+C0003,Gupta Kirana Stores,GT/2526/0600,05/11/2025,,"2,000.00",0.00,,
+C0006,Rajdhani Traders,GT/2526/1170,25/03/2026,20/03/2026,"2,100.00","2,100.00",Dr,6
+C0001,Sharma Agencies - Pune,GT/2526/1041,10/02/2026,12/03/2026,"11,800.00","8,250.00",Dr,49

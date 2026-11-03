@@ -34,7 +34,10 @@ func NewMSG91(cfg Config) *MSG91 {
 func (m *MSG91) Name() string { return "msg91" }
 
 func (m *MSG91) Send(ctx context.Context, msg Message) (string, error) {
-	tid := m.templates[msg.Template]
+	tid := msg.TemplateID
+	if tid == "" {
+		tid = m.templates[msg.Template]
+	}
 	if tid == "" {
 		return "", fmt.Errorf("%w: no MSG91 template id for %q", ErrNotConfigured, msg.Template)
 	}
@@ -42,11 +45,15 @@ func (m *MSG91) Send(ctx context.Context, msg Message) (string, error) {
 	for k, v := range msg.Params {
 		recipient[k] = v
 	}
-	body, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"template_id": tid,
 		"short_url":   "0",
 		"recipients":  []map[string]string{recipient},
-	})
+	}
+	if msg.SenderID != "" { // per-tenant DLT header; must be linked to the template on MSG91
+		payload["sender"] = msg.SenderID
+	}
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/api/v5/flow", bytes.NewReader(body))
 	if err != nil {
 		return "", err

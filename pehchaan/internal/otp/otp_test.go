@@ -42,3 +42,17 @@ func TestGenerateAndHash(t *testing.T) {
 		t.Fatalf("mask %s", Mask("+919876543210"))
 	}
 }
+
+func TestDeriveKey(t *testing.T) {
+	root := []byte("local-dev-jwt-secret-change-me-32chars")
+	k := DeriveKey(root)
+	if len(k) != 32 || string(k) == string(root) || string(k) != string(DeriveKey(root)) {
+		t.Fatalf("derived key must be 32 bytes, stable and differ from the root")
+	}
+	if string(DeriveKey([]byte("other"))) == string(k) {
+		t.Fatal("different roots give different keys")
+	}
+	if Hash(k, "+919876543210", "123456") == Hash(root, "+919876543210", "123456") {
+		t.Fatal("OTP hash must not be keyed by the root secret")
+	}
+}

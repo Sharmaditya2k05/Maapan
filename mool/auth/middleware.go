@@ -56,6 +56,8 @@ func WithPrincipal(ctx context.Context, p *Principal) context.Context {
 type Verifier struct {
 	JWTSecret     []byte
 	ServiceSecret []byte
+	// PreviousJWTSecret, when set, is also accepted (key rotation).
+	PreviousJWTSecret []byte
 }
 
 // NewVerifier builds a Verifier.
@@ -88,7 +90,7 @@ func (v *Verifier) User(next http.Handler) http.Handler {
 			httpx.WriteError(w, r, httpx.Unauthorized("missing bearer token"))
 			return
 		}
-		c, err := Parse(v.JWTSecret, tok)
+		c, err := ParseAny(tok, v.JWTSecret, v.PreviousJWTSecret)
 		if err != nil {
 			httpx.WriteError(w, r, httpx.Unauthorized("invalid or expired token"))
 			return

@@ -15,6 +15,9 @@ import type { Party } from '@/lib/types'
 import type { InvoiceFull } from '@/lib/types.pos'
 import { CATEGORY_LABEL, DOC_SHORT, documentTitle, isNote, isPurchaseSide, stateName, summarizeByRate, TENDER_LABEL } from '@/lib/pos/invoice'
 
+/** Purchase lines whose GST is not claimable as ITC. */
+const ITC_LABEL: Record<string, string> = { ineligible_17_5: 'No ITC — blocked u/s 17(5)', ineligible_other: 'No ITC — ineligible' }
+
 export function InvoiceBadges({ inv }: { inv: InvoiceFull }) {
   return (
     <>
@@ -22,6 +25,10 @@ export function InvoiceBadges({ inv }: { inv: InvoiceFull }) {
       {inv.status === 'posted' && !isNote(inv.doc_type) && <Badge tone={statusTone(inv.payment_status)}>{inv.payment_status}</Badge>}
       {inv.inter_state && <Badge tone="blue">IGST</Badge>}
       {inv.reverse_charge && <Badge tone="amber">Reverse charge</Badge>}
+      {inv.einvoice_status === 'generated' && <Badge tone="green">IRN</Badge>}
+      {inv.einvoice_status === 'failed' && <Badge tone="red">IRN failed</Badge>}
+      {inv.einvoice_status === 'cancelled' && <Badge tone="gray">IRN cancelled</Badge>}
+      {inv.ewb_status === 'generated' && inv.ewb_no && <Badge tone="blue">EWB {inv.ewb_no}</Badge>}
     </>
   )
 }
@@ -47,7 +54,7 @@ export function InvoiceDetail({ invoice: inv, party, refInvoice, children }: { i
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold">{l.name}</div>
-                    <div className="text-xs text-slate-500">{[l.hsn && `HSN ${l.hsn}`, l.batch_no && `Batch ${l.batch_no}`, l.tax_category && l.tax_category !== 'taxable' ? CATEGORY_LABEL[l.tax_category] : `GST ${formatRate(l.tax_rate_bp)}`].filter(Boolean).join(' · ')}</div>
+                    <div className="text-xs text-slate-500">{[l.hsn && `HSN ${l.hsn}`, l.batch_no && `Batch ${l.batch_no}`, l.tax_category && l.tax_category !== 'taxable' ? CATEGORY_LABEL[l.tax_category] : `GST ${formatRate(l.tax_rate_bp)}`, ITC_LABEL[l.itc_eligibility ?? '']].filter(Boolean).join(' · ')}</div>
                     <div className="mt-0.5 text-xs text-slate-600">{fmtQty(l.qty)} {l.unit} × <Money paise={l.unit_price_paise} />{l.discount_paise ? <> − <Money paise={l.discount_paise} /></> : null}</div>
                   </div>
                   <Money paise={l.total_paise} className="shrink-0 text-sm font-bold" />
@@ -73,7 +80,7 @@ export function InvoiceDetail({ invoice: inv, party, refInvoice, children }: { i
                     <td className="td text-xs text-slate-400">{l.line_no}</td>
                     <td className="td">
                       <div className="font-semibold">{l.name}</div>
-                      <div className="text-xs text-slate-500">{[l.batch_no && `Batch ${l.batch_no}`, l.tax_category && l.tax_category !== 'taxable' ? CATEGORY_LABEL[l.tax_category] : `GST ${formatRate(l.tax_rate_bp)}`, l.price_includes_tax ? 'incl.' : ''].filter(Boolean).join(' · ')}</div>
+                      <div className="text-xs text-slate-500">{[l.batch_no && `Batch ${l.batch_no}`, l.tax_category && l.tax_category !== 'taxable' ? CATEGORY_LABEL[l.tax_category] : `GST ${formatRate(l.tax_rate_bp)}`, l.price_includes_tax ? 'incl.' : '', ITC_LABEL[l.itc_eligibility ?? '']].filter(Boolean).join(' · ')}</div>
                     </td>
                     <td className="td font-mono text-xs text-slate-500">{l.hsn || '—'}</td>
                     <td className="td num text-right">{fmtQty(l.qty)} <span className="text-xs text-slate-400">{l.unit}</span></td>
@@ -194,6 +201,8 @@ export function InvoiceDetail({ invoice: inv, party, refInvoice, children }: { i
             <dt className="text-slate-500">Store state</dt><dd>{stateName(inv.store_state)}</dd>
             {inv.supply_category && <><dt className="text-slate-500">Supply</dt><dd>{inv.supply_category.replace(/_/g, ' ')}</dd></>}
             {inv.irn && <><dt className="text-slate-500">IRN</dt><dd className="break-all font-mono">{inv.irn}</dd></>}
+            {inv.ack_no && <><dt className="text-slate-500">Ack no</dt><dd className="font-mono">{inv.ack_no}{inv.ack_date ? ` · ${fmtDate(inv.ack_date, true)}` : ''}</dd></>}
+            {inv.ewb_no && <><dt className="text-slate-500">e-Way bill</dt><dd className="font-mono">{inv.ewb_no}{inv.ewb_status && inv.ewb_status !== 'generated' ? ` (${inv.ewb_status})` : ''}</dd></>}
             {refInvoice && <><dt className="text-slate-500">Against</dt><dd>{refHref ? <Link href={refHref} className="link font-mono">{refInvoice.number}</Link> : refInvoice.number}</dd></>}
             {inv.client_uuid && <><dt className="text-slate-500">Client ref</dt><dd className="break-all font-mono text-[10px] text-slate-400">{inv.client_uuid}</dd></>}
           </dl>

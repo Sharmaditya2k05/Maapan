@@ -68,6 +68,30 @@ func Parse(secret []byte, token string) (*Claims, error) {
 	return c, nil
 }
 
+// ParseAny verifies a token against the current secret and, when that fails,
+// the previous one (empty secrets are skipped). It lets JWT_SECRET be rotated
+// without logging everyone out: sign with the new secret, keep the old one as
+// JWT_SECRET_PREVIOUS until its tokens have expired.
+func ParseAny(token string, secrets ...[]byte) (*Claims, error) {
+	var firstErr error
+	for _, s := range secrets {
+		if len(s) == 0 {
+			continue
+		}
+		c, err := Parse(s, token)
+		if err == nil {
+			return c, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		firstErr = errors.New("no signing secret configured")
+	}
+	return nil, firstErr
+}
+
 // RegisteredClaimsFor sets the subject (user ID); Issue fills the rest.
 func RegisteredClaimsFor(userID string) jwt.RegisteredClaims {
 	return jwt.RegisteredClaims{Subject: userID}

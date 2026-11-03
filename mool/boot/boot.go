@@ -56,9 +56,13 @@ func New(ctx context.Context, o Options) (*App, error) {
 	}
 	a := &App{
 		Cfg: cfg, Log: log,
-		Verifier: auth.NewVerifier(cfg.JWTSecret, cfg.ServiceSecret),
-		Pub:      events.NewPublisher(cfg, log),
-		checks:   map[string]httpx.Checker{},
+		Verifier: func() *auth.Verifier {
+			v := auth.NewVerifier(cfg.JWTSecret, cfg.ServiceSecret)
+			v.PreviousJWTSecret = []byte(cfg.JWTSecretPrevious)
+			return v
+		}(),
+		Pub:    events.NewPublisher(cfg, log),
+		checks: map[string]httpx.Checker{},
 	}
 	if o.DB {
 		pool, err := db.Connect(ctx, cfg.DatabaseURL)

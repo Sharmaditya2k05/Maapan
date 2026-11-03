@@ -65,3 +65,65 @@ func (m *Memory) Allow(_ context.Context, key string, limit int, window time.Dur
 	}
 	return w.count <= limit, w.reset.Sub(now), nil
 }
+
+// Fallback uses Primary (Redis) and switches to Secondary (process memory)
+// whenever Primary errors, so a Redis outage never removes the limits. While
+// Redis is down every instance limits on its own, so the effective limit is
+// up to N times the configured one with N instances — far better than none.
+type Fallback struct {
+	Primary   Limiter
+	Secondary Limiter
+	// OnFallback, when set, is called once each time the primary fails after
+	// having worked (and once at the first failure).
+	OnFallback func(err error)
+
+	mu       sync.Mutex
+	degraded bool
+}
+
+// NewFallback builds a Redis-first limiter with an in-memory fallback.
+func NewFallback(primary Limiter, onFallback func(error)) *Fallback {
+	return &Fallback{Primary: primary, Secondary: NewMemory(), OnFallback: onFallback}
+}
+
+// Allow implements Limiter. It never returns an error from the primary.
+func (f *Fallback) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, time.Duration, error) {
+	ok, retry, err := f.Primary.Allow(ctx, key, limit, window)
+	f.mu.Lock()
+	was := f.degraded
+	f.degraded = err != nil
+	f.mu.Unlock()
+	if err == nil {
+		return ok, retry, nil
+	}
+	if !was && f.OnFallback != nil {
+		f.OnFallback(err)
+	}
+	return f.Secondary.Allow(ctx, key, limit, window)
+}
+
+// Degraded reports whether the last decision came from the fallback.
+func (f *Fallback) Degraded() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.degraded
+}
+
+// Mode describes a limiter for /api/_status: "redis", "memory" or
+// "memory-fallback" (Redis configured but failing).
+func Mode(l Limiter) string {
+	switch v := l.(type) {
+	case *Fallback:
+		if v.Degraded() {
+			return "memory-fallback"
+		}
+		return "redis"
+	case *Redis:
+		return "redis"
+	case *Memory:
+		return "memory"
+	case nil:
+		return "none"
+	}
+	return "custom"
+}

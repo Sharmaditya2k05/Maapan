@@ -141,10 +141,16 @@ func ParseRateBP(s string) (int, error) {
 
 var excelEpoch = time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 
-var monthYear = regexp.MustCompile(`^(\d{1,2})[/\-.](\d{2}|\d{4})$`)
+var (
+	monthYear = regexp.MustCompile(`^(\d{1,2})[/\-.](\d{2}|\d{4})$`)
+	bareYear  = regexp.MustCompile(`^(19|20|21)\d{2}$`)
+	tallyDate = regexp.MustCompile(`^(19|20|21)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$`)
+)
 
 // ParseDate accepts dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy, yyyy-mm-dd, dd-Mon-yyyy,
-// Excel serial numbers and MargBooks expiry style MM/YY (→ last day of month).
+// Tally's yyyymmdd, Excel serial numbers (20000–79999) and MargBooks expiry
+// style MM/YY (→ last day of month). A bare year ("2027") is rejected rather
+// than read as an Excel serial.
 // It returns YYYY-MM-DD.
 func ParseDate(s string) (string, error) {
 	s = strings.TrimSpace(s)
@@ -161,11 +167,27 @@ func ParseDate(s string) (string, error) {
 			return time.Date(yr, time.Month(mon)+1, 0, 0, 0, 0, 0, time.UTC).Format(time.DateOnly), nil
 		}
 	}
-	if n, err := strconv.ParseFloat(s, 64); err == nil && n > 1000 && n < 100000 {
-		return excelEpoch.AddDate(0, 0, int(n)).Format(time.DateOnly), nil
+	if bareYear.MatchString(s) {
+		// "2027" is a year, not Excel serial 2027 (1905-07-19). A year alone is
+		// too vague for a books migration: ask for the full date.
+		return "", fmt.Errorf("%s is only a year; give the full date (dd/mm/yyyy, or mm/yy for an expiry)", strconvQuote(s))
+	}
+	if tallyDate.MatchString(s) { // Tally XML: 20260401
+		if t, err := time.Parse("20060102", s); err == nil {
+			return t.Format(time.DateOnly), nil
+		}
+	}
+	// Excel serials: 20000 = 1954-10-03 … 80000 = 2119-01-10. Anything outside
+	// is a typo or a different number, never a date in a migration.
+	if n, err := strconv.ParseFloat(s, 64); err == nil {
+		if n >= 20000 && n < 80000 {
+			return excelEpoch.AddDate(0, 0, int(n)).Format(time.DateOnly), nil
+		}
+		return "", fmt.Errorf("%s is a number, not a date (use dd/mm/yyyy)", strconvQuote(s))
 	}
 	for _, layout := range []string{"02/01/2006", "2/1/2006", "02-01-2006", "2-1-2006", "02.01.2006", "2006-01-02",
-		"02-Jan-2006", "2-Jan-2006", "02 Jan 2006", "02-Jan-06", "02/01/06", "02-01-06"} {
+		"02-Jan-2006", "2-Jan-2006", "02 Jan 2006", "2 Jan 2006", "02-Jan-06", "2-Jan-06", "02/01/06", "02-01-06",
+		"02-Jan-2006 15:04:05", "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t.Format(time.DateOnly), nil
 		}

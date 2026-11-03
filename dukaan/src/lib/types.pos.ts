@@ -6,7 +6,7 @@
  * contain only the keys listed on the *Input types here (see lib/pos/invoice.ts).
  */
 import type { GstLine, LineTax } from './gst'
-import type { CatalogItem, CreateInvoiceInput, Invoice, InvoiceLineInput, Item, Party, PaymentRequest, Tender } from './types'
+import type { CatalogItem, CreateInvoiceInput, Invoice, InvoiceLineInput, ItcEligibility, Item, Party, PaymentRequest, Tender } from './types'
 
 export type TaxCategory = 'taxable' | 'exempt' | 'nil_rated' | 'non_gst'
 
@@ -150,6 +150,8 @@ export interface CartLine {
   track_batches: boolean
   /** Not in the item master. */
   free_text?: boolean
+  /** Purchase bills / debit notes: GSTR-3B Table 4 eligibility (absent = eligible). */
+  itc_eligibility?: ItcEligibility
 }
 
 /** A parked counter bill (localStorage). */

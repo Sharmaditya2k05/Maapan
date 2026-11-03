@@ -51,7 +51,15 @@ func (s *Store) Put(ctx context.Context, tenantID, gstin string, in Input, by st
 	}
 	in.EInvoiceUsername, in.EWayUsername = strings.TrimSpace(in.EInvoiceUsername), strings.TrimSpace(in.EWayUsername)
 	if in.EInvoiceUsername == "" && in.EWayUsername == "" {
-		return Summary{}, errors.New("give an e-invoice and/or e-way API username")
+		// Usernames come back masked from GET, so an edit may send them blank:
+		// that keeps the stored ones. A first save still needs one.
+		var exists bool
+		if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM gsp_credentials WHERE tenant_id=$1 AND gstin=$2)`, tenantID, g).Scan(&exists); err != nil {
+			return Summary{}, err
+		}
+		if !exists {
+			return Summary{}, errors.New("give an e-invoice and/or e-way API username")
+		}
 	}
 	if len(in.EInvoicePassword) > 200 || len(in.EWayPassword) > 200 || len(in.EInvoiceUsername) > 100 || len(in.EWayUsername) > 100 {
 		return Summary{}, errors.New("username or password too long")
@@ -74,9 +82,9 @@ func (s *Store) Put(ctx context.Context, tenantID, gstin string, in Input, by st
 			(tenant_id, gstin, einvoice_username, einvoice_password_enc, eway_username, eway_password_enc, updated_by, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,now())
 		ON CONFLICT (tenant_id, gstin) DO UPDATE SET
-			einvoice_username = EXCLUDED.einvoice_username,
+			einvoice_username = COALESCE(NULLIF(EXCLUDED.einvoice_username,''), gsp_credentials.einvoice_username),
 			einvoice_password_enc = COALESCE(EXCLUDED.einvoice_password_enc, gsp_credentials.einvoice_password_enc),
-			eway_username = EXCLUDED.eway_username,
+			eway_username = COALESCE(NULLIF(EXCLUDED.eway_username,''), gsp_credentials.eway_username),
 			eway_password_enc = COALESCE(EXCLUDED.eway_password_enc, gsp_credentials.eway_password_enc),
 			updated_by = EXCLUDED.updated_by, updated_at = now()`,
 		tenantID, g, in.EInvoiceUsername, einv, in.EWayUsername, ewb, by); err != nil {

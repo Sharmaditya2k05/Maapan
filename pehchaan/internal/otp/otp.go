@@ -2,6 +2,7 @@
 package otp
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -76,4 +77,15 @@ func Mask(phone string) string {
 		return "****"
 	}
 	return phone[:3] + strings.Repeat("*", len(phone)-7) + phone[len(phone)-4:]
+}
+
+// DeriveKey derives the OTP HMAC key from root with HKDF-SHA256, so the OTP
+// hashes never use the JWT signing secret itself (one secret, one job). root
+// is OTP_SECRET when set, else JWT_SECRET.
+func DeriveKey(root []byte) []byte {
+	k, err := hkdf.Key(sha256.New, root, []byte("maapan/pehchaan"), "otp-hmac/v1", 32)
+	if err != nil { // only for absurd lengths
+		panic(err)
+	}
+	return k
 }

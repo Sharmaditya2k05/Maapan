@@ -19,18 +19,38 @@ import (
 
 // Limits configures rate limiting.
 type Limits struct {
-	PublicPerMinute int // per client IP on unauthenticated routes (OTP, refresh, webhooks)
-	UserPerMinute   int // per user on authenticated routes
+	PublicPerMinute  int // per client IP on OTP and token routes (one shared bucket)
+	WebhookPerMinute int // per client IP per webhook route (payments, SMS/WhatsApp delivery reports)
+	UserPerMinute    int // per user on authenticated routes
 }
+
+// Catalog modes for GET /api.
+const (
+	CatalogPublic = "public" // anyone (local, dev, demo)
+	CatalogAuth   = "auth"   // needs a valid access token (default in prod)
+	CatalogOff    = "off"    // 404
+)
 
 // Options configure the gateway.
 type Options struct {
-	JWTSecret       []byte
-	Upstreams       Upstreams
-	Limiter         ratelimit.Limiter
-	Limits          Limits
-	MaxBodyBytes    int64
-	UpstreamTimeout time.Duration
+	JWTSecret []byte
+	// PreviousJWTSecret is still accepted while JWT_SECRET is rotated. Access
+	// tokens live 15 minutes, so it can go 15 minutes after every signer switched.
+	PreviousJWTSecret []byte
+	Upstreams         Upstreams
+	Limiter           ratelimit.Limiter
+	Limits            Limits
+	MaxBodyBytes      int64
+	UpstreamTimeout   time.Duration
+	// TrustedProxies is how many proxies in front of dwaar append to
+	// X-Forwarded-For (see ClientIP). 0 uses the TCP peer address.
+	TrustedProxies int
+	// Catalog is CatalogPublic, CatalogAuth or CatalogOff ("" = public).
+	Catalog string
+	// StatusTTL caches GET /api/_status results (default 10s); StatusTimeout
+	// bounds each upstream probe (default 3s).
+	StatusTTL     time.Duration
+	StatusTimeout time.Duration
 	// EdgeRetry is how long to keep retrying requests a host's edge proxy
 	// rejected while a service was starting (0 = no retries).
 	EdgeRetry time.Duration
@@ -45,7 +65,11 @@ type Options struct {
 type Gateway struct {
 	opt     Options
 	proxies map[string]*httputil.ReverseProxy
+	stats   map[string]*upstreamStats
+	status  statusCache
 }
+
+type clientIPKey struct{}
 
 // New builds the gateway with one reverse proxy per configured upstream.
 func New(opt Options) *Gateway {
@@ -54,6 +78,12 @@ func New(opt Options) *Gateway {
 	}
 	if opt.UpstreamTimeout <= 0 {
 		opt.UpstreamTimeout = 60 * time.Second
+	}
+	if opt.StatusTTL <= 0 {
+		opt.StatusTTL = 10 * time.Second
+	}
+	if opt.StatusTimeout <= 0 {
+		opt.StatusTimeout = 3 * time.Second
 	}
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -66,9 +96,10 @@ func New(opt Options) *Gateway {
 		ResponseHeaderTimeout: opt.UpstreamTimeout,
 	}
 	retrying := edgeRetry{next: transport, budget: opt.EdgeRetry}
-	g := &Gateway{opt: opt, proxies: map[string]*httputil.ReverseProxy{}}
+	g := &Gateway{opt: opt, proxies: map[string]*httputil.ReverseProxy{}, stats: map[string]*upstreamStats{}}
 	for name, target := range opt.Upstreams {
 		target := target
+		g.stats[name] = &upstreamStats{}
 		g.proxies[name] = &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				rest := pr.In.Header.Get(hdrRest)
@@ -80,6 +111,12 @@ func New(opt Options) *Gateway {
 				pr.Out.URL.RawQuery = pr.In.URL.RawQuery
 				pr.Out.Host = target.Host
 				pr.SetXForwarded()
+				// The services read the first X-Forwarded-For hop (mool/httpx), so
+				// it must be the client dwaar resolved, not whatever the client sent.
+				if ip, _ := pr.In.Context().Value(clientIPKey{}).(string); ip != "" {
+					pr.Out.Header.Set("X-Forwarded-For", ip)
+					pr.Out.Header.Set("X-Real-IP", ip)
+				}
 				// CORS is answered here; upstream CORS would duplicate headers.
 				pr.Out.Header.Del("Origin")
 			},
@@ -110,6 +147,10 @@ func New(opt Options) *Gateway {
 // before the request leaves the gateway.
 const hdrRest = "X-Dwaar-Rest"
 
+// HeaderIdempotencyKey lets clients (POS retries) make a write safe to repeat.
+// dwaar validates it and passes it on; the service deduplicates.
+const HeaderIdempotencyKey = "Idempotency-Key"
+
 // ServeHTTP authenticates, rate limits and proxies one request.
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	securityHeaders(w.Header())
@@ -125,17 +166,26 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, &httpx.Error{Status: http.StatusRequestEntityTooLarge, Code: "body_too_large", Message: "request body too large"})
 		return
 	}
+	if err := checkIdempotencyKey(r); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, g.opt.MaxBodyBytes)
 
-	ctx := r.Context()
-	if IsPublic(r.Method, r.URL.Path) {
-		if !g.allow(w, r, "ip:"+httpx.ClientIP(r), g.opt.Limits.PublicPerMinute) {
+	ip := ClientIP(r, g.opt.TrustedProxies)
+	ctx := context.WithValue(r.Context(), clientIPKey{}, ip)
+	if class := PublicClass(r.Method, r.URL.Path); class != "" {
+		key, limit := "ip:"+ip, g.opt.Limits.PublicPerMinute
+		if class == ClassWebhook {
+			key, limit = "wh:"+t.Service+strings.TrimRight(t.Rest, "/")+":"+ip, g.opt.Limits.WebhookPerMinute
+		}
+		if !g.allow(w, r, key, limit, class == ClassOTP) {
 			return
 		}
 		// Authorization is passed through: onboarding carries pehchaan's own token,
 		// and the upstream decides what (if anything) to accept.
 	} else {
-		claims, err := auth.Parse(g.opt.JWTSecret, auth.BearerToken(r))
+		claims, err := g.parse(auth.BearerToken(r))
 		if err != nil {
 			httpx.WriteError(w, r, httpx.Unauthorized("invalid or expired token"))
 			return
@@ -148,7 +198,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			store = s
 		}
-		if !g.allow(w, r, "user:"+claims.Subject, g.opt.Limits.UserPerMinute) {
+		if !g.allow(w, r, "user:"+claims.Subject, g.opt.Limits.UserPerMinute, false) {
 			return
 		}
 		r.Header.Set(auth.HeaderTenantID, claims.TenantID)
@@ -178,15 +228,71 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-Serverless-Authorization", "Bearer "+tok)
 	}
 	r.Header.Set(hdrRest, t.Rest)
-	proxy.ServeHTTP(w, r.WithContext(ctx))
+	g.proxyMetered(t.Service, proxy, w, r.WithContext(ctx))
 }
 
-func (g *Gateway) allow(w http.ResponseWriter, r *http.Request, key string, perMinute int) bool {
-	if g.opt.Limiter == nil || perMinute <= 0 {
+// parse verifies an access token with the current secret, then the previous one.
+func (g *Gateway) parse(tok string) (*auth.Claims, error) {
+	c, err := auth.Parse(g.opt.JWTSecret, tok)
+	if err != nil && len(g.opt.PreviousJWTSecret) > 0 && tok != "" {
+		if prev, perr := auth.Parse(g.opt.PreviousJWTSecret, tok); perr == nil {
+			return prev, nil
+		}
+	}
+	return c, err
+}
+
+// checkIdempotencyKey keeps Idempotency-Key on writes (validated: 1-128
+// visible ASCII characters) and drops it on other methods, where it means nothing.
+func checkIdempotencyKey(r *http.Request) error {
+	vals := r.Header.Values(HeaderIdempotencyKey)
+	if len(vals) == 0 {
+		return nil
+	}
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+	default:
+		r.Header.Del(HeaderIdempotencyKey)
+		return nil
+	}
+	if len(vals) > 1 {
+		return httpx.BadRequest("send one Idempotency-Key")
+	}
+	k := strings.TrimSpace(vals[0])
+	if k == "" || len(k) > 128 {
+		return httpx.BadRequest("Idempotency-Key must be 1-128 characters")
+	}
+	for i := 0; i < len(k); i++ {
+		if k[i] < 0x21 || k[i] > 0x7e {
+			return httpx.BadRequest("Idempotency-Key must be visible ASCII")
+		}
+	}
+	r.Header.Set(HeaderIdempotencyKey, k)
+	return nil
+}
+
+// allow applies one rate limit. When the limiter fails (it should not: the
+// Redis limiter falls back to memory) the request passes, except on failClosed
+// routes (OTP), which are refused rather than left unlimited.
+func (g *Gateway) allow(w http.ResponseWriter, r *http.Request, key string, perMinute int, failClosed bool) bool {
+	if perMinute <= 0 {
 		return true
 	}
-	ok, retry, err := g.opt.Limiter.Allow(r.Context(), key, perMinute, time.Minute)
+	var (
+		ok    bool
+		retry time.Duration
+		err   = errors.New("no rate limiter configured")
+	)
+	if g.opt.Limiter != nil {
+		ok, retry, err = g.opt.Limiter.Allow(r.Context(), key, perMinute, time.Minute)
+	}
 	if err != nil {
+		if failClosed {
+			logx.From(r.Context()).Error("rate limiter unavailable, refusing OTP route", "error", err.Error())
+			w.Header().Set("Retry-After", "5")
+			httpx.WriteError(w, r, httpx.Unavailable("please retry in a few seconds"))
+			return false
+		}
 		logx.From(r.Context()).Warn("rate limiter unavailable, allowing", "error", err.Error())
 		return true
 	}
@@ -217,7 +323,6 @@ type ServiceInfo struct {
 	Configured bool   `json:"configured"`
 }
 
-// Catalog serves GET /api: which services this gateway can reach.
 // Wake asks every upstream's /healthz at once and answers when all have
 // replied (or 85s passed). Hosts that put idle services to sleep wake them on
 // the first request, so the app calls this before a demo session starts. It
@@ -253,7 +358,18 @@ func (g *Gateway) Wake(w http.ResponseWriter, r *http.Request) error {
 	return httpx.OK(w, map[string]any{"ready": ready, "services": out})
 }
 
-func (g *Gateway) Catalog(w http.ResponseWriter, _ *http.Request) error {
+// Catalog serves GET /api: which services this gateway can reach. In prod it
+// needs a valid access token (Options.Catalog).
+func (g *Gateway) Catalog(w http.ResponseWriter, r *http.Request) error {
+	securityHeaders(w.Header())
+	switch g.opt.Catalog {
+	case CatalogOff:
+		return httpx.NotFound("no such route")
+	case CatalogAuth:
+		if _, err := g.parse(auth.BearerToken(r)); err != nil {
+			return httpx.Unauthorized("invalid or expired token")
+		}
+	}
 	out := make([]ServiceInfo, 0, len(Services))
 	for _, s := range Services {
 		_, ok := g.proxies[s]

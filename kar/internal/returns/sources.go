@@ -97,7 +97,7 @@ func (p PehchaanRegistrations) Registrations(ctx context.Context, tenantID strin
 		GSTIN        string `json:"gstin"`
 		StateCode    string `json:"state_code"`
 	}
-	if err := p.C.Get(ctx, "/internal/v1/tenants/"+url.PathEscape(tenantID), &t); err != nil {
+	if err := p.C.Get(svc.ForTenant(ctx, tenantID), "/internal/v1/tenants/"+url.PathEscape(tenantID), &t); err != nil {
 		return nil, err
 	}
 	return []Registration{{ID: t.ID, TenantID: t.ID, GSTIN: t.GSTIN, LegalName: t.BusinessName, StateCode: t.StateCode,

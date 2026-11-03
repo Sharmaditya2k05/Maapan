@@ -94,9 +94,33 @@ type Posted struct {
 // source document are serialised on a transaction-scoped advisory lock so the
 // loser sees the winner's row instead of a unique violation. A voucher dated
 // inside the tenant's locked period is refused with 409 period_locked.
+//
+// Post also keeps the bill-wise ledger: a sales/purchase/opening voucher
+// raises a bill per party (due = v.DueDate or date + credit_days), and a
+// voucher with AgainstSourceID is allocated against that document's bill.
 func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Voucher) (Posted, error) {
+	return postVoucher(ctx, tx, tenantID, userID, v, postOpts{})
+}
+
+// postOpts are internal switches of Post.
+type postOpts struct {
+	skipLock bool // year-end close may post on the locked year-end date
+	reversal bool // mirror voucher: raises no bill and allocates nothing
+}
+
+// setActor records who is changing the books for the audit trigger
+// (transaction-local).
+func setActor(ctx context.Context, tx pgx.Tx, actor string) error {
+	_, err := tx.Exec(ctx, `SELECT set_config('bahi.actor', $1, true)`, actor)
+	return err
+}
+
+func postVoucher(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Voucher, o postOpts) (Posted, error) {
 	if err := v.Validate(); err != nil {
 		return Posted{}, httpx.Validation("%s", err.Error())
+	}
+	if err := setActor(ctx, tx, userID); err != nil {
+		return Posted{}, err
 	}
 	if err := EnsureChart(ctx, tx, tenantID); err != nil {
 		return Posted{}, err
@@ -120,8 +144,10 @@ func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Vou
 	if err != nil {
 		return Posted{}, httpx.Validation("date must be YYYY-MM-DD")
 	}
-	if err := checkPeriodLock(ctx, tx, tenantID, v.Date); err != nil {
-		return Posted{}, err
+	if !o.skipLock {
+		if err := checkPeriodLock(ctx, tx, tenantID, v.Date); err != nil {
+			return Posted{}, err
+		}
 	}
 	prefix, ok := voucherPrefix[v.Type]
 	if !ok {
@@ -207,6 +233,23 @@ func Post(ctx context.Context, tx pgx.Tx, tenantID, userID string, v posting.Vou
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return Posted{}, err
 	}
+	if o.reversal {
+		return p, nil
+	}
+	lines := make([]partyLine, 0, len(v.Entries))
+	for i, e := range v.Entries {
+		if res[i].partyID != nil {
+			lines = append(lines, partyLine{partyID: *res[i].partyID, debit: e.Debit, credit: e.Credit})
+		}
+	}
+	if err := raiseBills(ctx, tx, tenantID, p, v, lines); err != nil {
+		return Posted{}, err
+	}
+	if v.AgainstSourceID != "" {
+		if err := allocateAgainstSource(ctx, tx, tenantID, userID, p.ID, v.AgainstSource, v.AgainstSourceID); err != nil {
+			return Posted{}, err
+		}
+	}
 	return p, nil
 }
 
@@ -251,8 +294,17 @@ func Reverse(ctx context.Context, tx pgx.Tx, tenantID, userID, voucherID, date, 
 	}
 	rv := posting.Voucher{Type: vtype, Date: date, Narration: narr, Source: source, SourceID: sourceID,
 		SourceRef: number, Entries: posting.Swap(es)}
-	p, err := Post(ctx, tx, tenantID, userID, rv)
+	p, err := postVoucher(ctx, tx, tenantID, userID, rv, postOpts{reversal: true})
 	if err != nil {
+		return Posted{}, err
+	}
+	// A reversed bill is cancelled and frees whatever was allocated to it; a
+	// reversed settlement (bounced cheque, reversed receipt) frees its bills.
+	if _, err := tx.Exec(ctx, `DELETE FROM bill_allocations WHERE tenant_id=$1 AND (voucher_id=$2
+		OR bill_id IN (SELECT id FROM bills WHERE tenant_id=$1 AND voucher_id=$2))`, tenantID, voucherID); err != nil {
+		return Posted{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE bills SET status='cancelled' WHERE tenant_id=$1 AND voucher_id=$2`, tenantID, voucherID); err != nil {
 		return Posted{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE vouchers SET reversal_of=$2 WHERE tenant_id=$3 AND id=$1`, p.ID, voucherID, tenantID); err != nil {

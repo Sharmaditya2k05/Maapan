@@ -12,6 +12,7 @@ import type { InvoiceFull } from '@/lib/types.pos'
 import { openPrint } from '@/lib/pos/print'
 import { InvoiceBadges, InvoiceDetail } from '@/components/invoice/InvoiceDetail'
 import { CancelDialog } from '@/components/invoice/CancelDialog'
+import { CompliancePanel } from '@/components/compliance/CompliancePanel'
 
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -38,7 +39,7 @@ export default function PurchaseDetailPage() {
               </>
             } />
           {doc.status === 'cancelled' && <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"><Badge tone="red">Cancelled</Badge> {doc.cancel_reason}</div>}
-          <InvoiceDetail invoice={doc} party={party.data} />
+          <InvoiceDetail invoice={doc} party={party.data}><CompliancePanel invoice={doc} /></InvoiceDetail>
           <CancelDialog invoice={doc} open={cancelOpen} onClose={() => setCancelOpen(false)} onDone={() => toast(`${doc.number} cancelled`)} />
         </>
       )}

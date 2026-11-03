@@ -10,6 +10,7 @@ import { fmtDate, fmtQty } from '@/lib/hooks'
 import type { Party, Store } from '@/lib/types'
 import type { InvoiceFull } from '@/lib/types.pos'
 import { CATEGORY_LABEL, documentTitle, isNote, isPurchaseSide, stateName, summarizeByRate, TENDER_LABEL } from '@/lib/pos/invoice'
+import { QrSvg } from '@/components/compliance/QrSvg'
 
 export function InvoiceA4({ invoice: inv, store, businessName, party, copy = 'ORIGINAL FOR RECIPIENT', refNumber }: {
   invoice: InvoiceFull; store?: Store; businessName?: string; party?: Party; copy?: string; refNumber?: string
@@ -24,6 +25,8 @@ export function InvoiceA4({ invoice: inv, store, businessName, party, copy = 'OR
   const hasDisc = (inv.lines ?? []).some((l) => (l.discount_paise ?? 0) > 0)
   const cols = 8 + (inter ? 2 : 4) + (hasCess ? 1 : 0) + (hasDisc ? 1 : 0) - 1
   const buyerLabel = purchase ? 'Supplier (bill from)' : 'Bill to (recipient)'
+  // e-Invoice: IRN, Ack No/Date and the IRP's signed QR must be printed (Rule 48(4)).
+  const irnLive = !!inv.irn && inv.einvoice_status !== 'cancelled' && inv.einvoice_status !== 'failed'
 
   return (
     <article className="mx-auto w-full max-w-[186mm] bg-white text-[10.5pt] leading-snug text-black">
@@ -65,10 +68,27 @@ export function InvoiceA4({ invoice: inv, store, businessName, party, copy = 'OR
             {isNote(inv.doc_type) && (inv.ref_invoice_id || refNumber) && <><dt className="font-semibold">Against</dt><dd className="font-mono">{refNumber ?? inv.ref_invoice_id}</dd></>}
             <dt className="font-semibold">Place of supply</dt><dd>{stateName(inv.place_of_supply)}</dd>
             <dt className="font-semibold">Supply type</dt><dd>{inter ? 'Inter-state (IGST)' : 'Intra-state (CGST + SGST)'}</dd>
-            {inv.irn && <><dt className="font-semibold">IRN</dt><dd className="break-all font-mono text-[8pt]">{inv.irn}</dd></>}
+            {inv.ewb_no && inv.ewb_status !== 'cancelled' && <><dt className="font-semibold">e-Way bill</dt><dd className="font-mono">{inv.ewb_no}{inv.ewb_valid_upto ? ` · valid till ${fmtDate(inv.ewb_valid_upto, true)}` : ''}{inv.ewb_vehicle_no ? ` · ${inv.ewb_vehicle_no}` : ''}</dd></>}
           </dl>
         </div>
       </section>
+
+      {inv.irn && (
+        <section className="mt-3 flex items-start gap-3 border border-black p-2 text-xs" aria-label="e-Invoice details">
+          <dl className="grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <dt className="font-semibold">IRN</dt><dd className="break-all font-mono text-[8pt]">{inv.irn}</dd>
+            {inv.ack_no && <><dt className="font-semibold">Ack No.</dt><dd className="font-mono">{inv.ack_no}</dd></>}
+            {inv.ack_date && <><dt className="font-semibold">Ack Date</dt><dd>{fmtDate(inv.ack_date, true)}</dd></>}
+            {!irnLive && <><dt className="font-semibold">Status</dt><dd className="font-bold uppercase">IRN {inv.einvoice_status}{inv.irn_cancelled_at ? ` on ${fmtDate(inv.irn_cancelled_at, true)}` : ''}</dd></>}
+          </dl>
+          {irnLive && inv.signed_qr && (
+            <div className="shrink-0 text-center">
+              <QrSvg text={inv.signed_qr} size="32mm" title="e-Invoice signed QR code" />
+              <div className="text-[7pt]">e-Invoice QR (IRP signed)</div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* lines */}
       <table className="mt-3 w-full border-collapse text-[9.5pt]">

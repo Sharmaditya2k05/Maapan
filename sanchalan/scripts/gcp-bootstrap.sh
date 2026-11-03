@@ -60,13 +60,19 @@ have_secret jwt-secret     || secret jwt-secret "$(openssl rand -hex 32)"
 have_secret service-secret || secret service-secret "$(openssl rand -hex 32)"
 # lenden encrypts per-tenant gateway keys with this (AES-256-GCM); prod refuses to start without it.
 have_secret lenden-credentials-key || secret lenden-credentials-key "$(openssl rand -hex 32)"
+# soochna checks ?token= on provider callbacks with this; it is ours to choose, so generate it
+# (a CHANGE_ME placeholder would be a guessable token). Paste the value into the Gupshup/MSG91
+# callback URLs:  gcloud secrets versions access latest --secret=soochna-webhook-token
+have_secret soochna-webhook-token || secret soochna-webhook-token "$(openssl rand -hex 24)"
 if [[ "$REDIS_PROVIDER" == memorystore ]]; then
   have_secret redis-url || secret redis-url "redis://${REDIS_HOST}:6379/0"
 else
   have_secret redis-url || secret redis-url "CHANGE_ME_rediss://default:password@host:6379"
 fi
+# Provider credentials: placeholders until you paste the real values (soochna-smtp-password = the
+# e-mail provider's SMTP password / API key; soochna deploys reference it even with EMAIL_PROVIDER=console).
 for s in github-token razorpay-key-id razorpay-key-secret razorpay-webhook-secret cashfree-client-id cashfree-client-secret \
-         msg91-auth-key gupshup-api-key soochna-webhook-token gsp-client-id gsp-client-secret anthropic-api-key; do
+         msg91-auth-key gupshup-api-key soochna-smtp-password gsp-client-id gsp-client-secret anthropic-api-key; do
   have_secret "$s" || secret "$s" "CHANGE_ME"
 done
 
@@ -87,8 +93,17 @@ for svc in "${GO_SERVICES[@]}" dukaan; do
   ok gcloud iam service-accounts create "$svc" --display-name="Maapan $svc"
   sa="${svc}@${PROJECT_ID}.iam.gserviceaccount.com"
   ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/secretmanager.secretAccessor --condition=None
-  ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/pubsub.publisher --condition=None
-  ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/cloudsql.client --condition=None
+  # Only services that publish events get pubsub.publisher; earlier bootstraps granted it to every
+  # service (dwaar, dukaan, bahi, soochna, buddhi publish nothing), so remove it there.
+  if contains "$svc" "${PUBLISHER_SERVICES[@]}"; then
+    ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/pubsub.publisher --condition=None
+  else
+    ok gcloud projects remove-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/pubsub.publisher --condition=None
+  fi
+  # Cloud SQL client only when Cloud SQL is used, and only for services with a database.
+  if [[ "$DB_PROVIDER" == cloudsql ]] && contains "$svc" "${DB_SERVICES[@]}"; then
+    ok gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role=roles/cloudsql.client --condition=None
+  fi
 done
 # aayaat + buddhi read/write uploaded files.
 for svc in aayaat buddhi; do

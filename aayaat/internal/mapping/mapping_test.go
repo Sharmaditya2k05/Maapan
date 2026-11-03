@@ -62,3 +62,35 @@ func TestResolveAndRequired(t *testing.T) {
 		t.Fatalf("%v", req)
 	}
 }
+
+// The CSV template for each kind must map straight back onto its own fields.
+func TestTemplateLabelsRoundTrip(t *testing.T) {
+	for _, kind := range Kinds {
+		var labels []string
+		for _, f := range Fields[kind] {
+			labels = append(labels, f.Label)
+		}
+		got := Suggest(kind, labels)
+		for _, f := range Fields[kind] {
+			if got[f.Key] != f.Label {
+				t.Errorf("%s: %s → %q, want %q", kind, f.Key, got[f.Key], f.Label)
+			}
+		}
+	}
+}
+
+func TestSuggestMargRegisters(t *testing.T) {
+	m := Suggest(KindOpenBills, []string{"Party Code", "Party Name", "Bill No", "Bill Date", "Due Date", "Bill Amt", "Pending Amt", "Dr/Cr", "Days"})
+	for k, v := range map[string]string{"party_ref": "Party Code", "party_name": "Party Name", "bill_no": "Bill No", "bill_amount": "Bill Amt", "amount": "Pending Amt"} {
+		if m[k] != v {
+			t.Errorf("bills %s → %q want %q (%v)", k, m[k], v, m)
+		}
+	}
+	m = Suggest(KindInvoices, []string{"Date", "Bill No", "Party Name", "GSTIN", "Taxable Amt", "CGST Amt", "SGST Amt", "IGST Amt", "Cess", "R/Off", "Net Amt"})
+	for k, v := range map[string]string{"date": "Date", "number": "Bill No", "party_gstin": "GSTIN", "taxable": "Taxable Amt", "cgst": "CGST Amt",
+		"round_off": "R/Off", "total": "Net Amt"} {
+		if m[k] != v {
+			t.Errorf("invoices %s → %q want %q (%v)", k, m[k], v, m)
+		}
+	}
+}

@@ -157,7 +157,7 @@ func (d *Directory) Store(ctx context.Context, id string) (Store, error) {
 // Tenant fetches a tenant.
 func (d *Directory) Tenant(ctx context.Context, id string) (Tenant, error) {
 	var t Tenant
-	err := d.Pehchaan.Get(ctx, "/internal/v1/tenants/"+url.PathEscape(id), &t)
+	err := d.Pehchaan.Get(svc.ForTenant(ctx, id), "/internal/v1/tenants/"+url.PathEscape(id), &t)
 	return t, err
 }
 

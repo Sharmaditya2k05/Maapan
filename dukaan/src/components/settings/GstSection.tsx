@@ -9,6 +9,8 @@ import { validateGSTIN } from '@/lib/gst'
 import { PERMS } from '@/lib/rbac'
 import type { TaxSettings, TaxSettingsUpdate } from '@/lib/types.stock'
 import { StateSelect } from './StateSelect'
+import { GspCredentials } from './GspCredentials'
+import { HsnImport } from './HsnImport'
 
 function GstForm({ s }: { s: TaxSettings }) {
   const canDo = usePerm()
@@ -54,12 +56,22 @@ function GstForm({ s }: { s: TaxSettings }) {
 }
 
 export function GstSection() {
-  const settings = useGet<TaxSettings>('/kar/v1/settings')
+  const canDo = usePerm()
+  const canRead = canDo(PERMS.reportRead) || canDo(PERMS.gstFile)
+  const settings = useGet<TaxSettings>(canRead ? '/kar/v1/settings' : null)
+  const manage = canDo(PERMS.settingsManage)
   return (
-    <Card title="GST settings">
-      <QueryState isLoading={settings.isLoading} error={settings.error} data={settings.data} retry={() => settings.refetch()}>
-        {(s) => <GstForm key={s.updated_at} s={s} />}
-      </QueryState>
-    </Card>
+    <div className="space-y-5">
+      {canRead && (
+        <Card title="GST settings">
+          <QueryState isLoading={settings.isLoading} error={settings.error} data={settings.data} retry={() => settings.refetch()}>
+            {(s) => <GstForm key={s.updated_at} s={s} />}
+          </QueryState>
+        </Card>
+      )}
+      {manage && <GspCredentials />}
+      {manage && <HsnImport />}
+      {!canRead && !manage && <Card><p className="text-sm text-slate-500">You do not have access to GST settings.</p></Card>}
+    </div>
   )
 }

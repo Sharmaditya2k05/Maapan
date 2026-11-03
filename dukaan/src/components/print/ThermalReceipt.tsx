@@ -98,6 +98,12 @@ export function ThermalReceipt({ invoice: inv, store, businessName, width = 80, 
       {inv.notes && <div className="mt-1 break-words">{inv.notes}</div>}
       {queued && <div className="mt-1 text-center">* Saved on this device; uploads when online *</div>}
 
+      {inv.irn && inv.einvoice_status !== 'cancelled' && (
+        <div className="mt-1 border-t border-dashed border-black pt-0.5 text-[0.85em]">
+          <div className="break-all">IRN: {inv.irn}</div>
+          {inv.ack_no && <div>Ack: {inv.ack_no}{inv.ack_date ? ` · ${fmtDate(inv.ack_date, true)}` : ''}</div>}
+        </div>
+      )}
       <div className="mt-2 text-center">
         <div className="font-bold">Thank you, visit again!</div>
         <div>{inv.amount_in_words}</div>

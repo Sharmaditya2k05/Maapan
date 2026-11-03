@@ -28,6 +28,7 @@ type StatementLine struct {
 type Statement struct {
 	AccountID    string          `json:"account_id,omitempty"`
 	AccountName  string          `json:"account_name"`
+	StoreID      string          `json:"store_id,omitempty"`
 	From         string          `json:"from"`
 	To           string          `json:"to"`
 	OpeningPaise int64           `json:"opening_balance_paise"`
@@ -39,16 +40,22 @@ type Statement struct {
 
 // statement builds a running-balance ledger for the given accounts.
 func (s *Service) statement(ctx context.Context, tenantID string, accountIDs []string, from, to string) (*Statement, error) {
-	st := &Statement{From: from, To: to, Lines: []StatementLine{}}
+	return s.storeStatement(ctx, tenantID, accountIDs, from, to, "")
+}
+
+// storeStatement is statement restricted to entries tagged storeID ("" = all stores).
+func (s *Service) storeStatement(ctx context.Context, tenantID string, accountIDs []string, from, to, storeID string) (*Statement, error) {
+	st := &Statement{From: from, To: to, Lines: []StatementLine{}, StoreID: storeID}
 	if err := s.DB.QueryRow(ctx, `SELECT COALESCE(sum(debit_paise - credit_paise),0) FROM voucher_entries
-		WHERE tenant_id=$1 AND account_id = ANY($2::uuid[]) AND vdate < $3`, tenantID, accountIDs, from).Scan(&st.OpeningPaise); err != nil {
+		WHERE tenant_id=$1 AND account_id = ANY($2::uuid[]) AND vdate < $3 AND ($4 = '' OR store_id::text = $4)`,
+		tenantID, accountIDs, from, storeID).Scan(&st.OpeningPaise); err != nil {
 		return nil, err
 	}
 	rows, err := s.DB.Query(ctx, `SELECT e.vdate, v.id, v.number, v.vtype, COALESCE(v.narration,''), COALESCE(v.source_ref,''),
 		e.debit_paise, e.credit_paise
 		FROM voucher_entries e JOIN vouchers v ON v.id=e.voucher_id
-		WHERE e.tenant_id=$1 AND e.account_id = ANY($2::uuid[]) AND e.vdate BETWEEN $3 AND $4
-		ORDER BY e.vdate, v.created_at, e.line_no`, tenantID, accountIDs, from, to)
+		WHERE e.tenant_id=$1 AND e.account_id = ANY($2::uuid[]) AND e.vdate BETWEEN $3 AND $4 AND ($5 = '' OR e.store_id::text = $5)
+		ORDER BY e.vdate, v.created_at, e.line_no`, tenantID, accountIDs, from, to, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +132,9 @@ func (s *Service) handlePartyStatement(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
+	if httpx.Query(r, "view") == "bills" {
+		return s.handleBillwiseStatement(w, r, party)
+	}
 	st, err := s.statement(r.Context(), p.TenantID, []string{party.AccountID}, from, to)
 	if err != nil {
 		return err
@@ -172,7 +182,11 @@ func (s *Service) moneyBook(w http.ResponseWriter, r *http.Request, flag, title 
 		}
 		rows.Close()
 	}
-	st, err := s.statement(r.Context(), p.TenantID, ids, from, to)
+	storeID := httpx.Query(r, "store_id")
+	if storeID != "" && !validUUID(storeID) {
+		return httpx.Validation("store_id must be a UUID")
+	}
+	st, err := s.storeStatement(r.Context(), p.TenantID, ids, from, to, storeID)
 	if err != nil {
 		return err
 	}

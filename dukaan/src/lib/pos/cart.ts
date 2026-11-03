@@ -169,6 +169,7 @@ export function toInvoiceLine(l: CartLine): PosLineInput {
   if (l.cess_per_unit_paise > 0) out.cess_per_unit_paise = l.cess_per_unit_paise
   if (l.price_includes_tax) out.price_includes_tax = true
   if (l.tax_category !== 'taxable') out.tax_category = l.tax_category
+  if (l.itc_eligibility && l.itc_eligibility !== 'eligible') out.itc_eligibility = l.itc_eligibility
   return out
 }
 

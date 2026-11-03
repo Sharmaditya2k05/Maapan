@@ -104,6 +104,12 @@ type manualVoucher struct {
 	Narration string          `json:"narration"`
 	Reference string          `json:"reference"`
 	Entries   []posting.Entry `json:"entries"`
+	// Allocations settle specific bills (against reference); the rest of the
+	// party movement stays on account.
+	Allocations []allocationInput `json:"allocations,omitempty"`
+	// TDS deducted on this payment/purchase: adds Dr party / Cr TDS Payable
+	// lines and records the deduction (see /v1/tds).
+	TDS *voucherTDS `json:"tds,omitempty"`
 }
 
 var manualTypes = map[string]bool{posting.VJournal: true, posting.VReceipt: true, posting.VPayment: true, posting.VContra: true}
@@ -120,7 +126,7 @@ func (in *manualVoucher) Validate() error {
 			return httpx.Validation("manual entries use account_id or party_id")
 		}
 	}
-	return nil
+	return (&allocationsInput{Allocations: in.Allocations}).Validate()
 }
 
 func (s *Service) handleCreateVoucher(w http.ResponseWriter, r *http.Request) error {
@@ -141,9 +147,27 @@ func (s *Service) handleCreateVoucher(w http.ResponseWriter, r *http.Request) er
 	}
 	var posted Posted
 	err := s.WithTx(r.Context(), func(tx pgx.Tx) error {
+		var tdsLine *tdsApplied
+		if in.TDS != nil {
+			var err error
+			if v, tdsLine, err = s.applyVoucherTDS(r.Context(), tx, p.TenantID, v, *in.TDS); err != nil {
+				return err
+			}
+		}
 		var err error
 		posted, err = Post(r.Context(), tx, p.TenantID, p.UserID(), v)
-		return err
+		if err != nil {
+			return err
+		}
+		if tdsLine != nil {
+			if err := s.recordVoucherTDS(r.Context(), tx, p.TenantID, p.UserID(), posted.ID, *tdsLine); err != nil {
+				return err
+			}
+		}
+		if len(in.Allocations) > 0 {
+			return replaceAllocations(r.Context(), tx, p.TenantID, p.UserID(), posted.ID, in.Allocations)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

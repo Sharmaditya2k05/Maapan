@@ -20,6 +20,7 @@ import { cleanCreateInput, lineToCart, toPreviewLine } from '@/lib/pos/invoice'
 import { PartyPicker } from './PartyPicker'
 import { LineGrid } from './LineGrid'
 import { PreviewPanel } from './PreviewPanel'
+import { noGstinItcWarning } from '@/lib/compliance'
 
 const OVERRIDE_ROLES = new Set(['super_admin', 'store_manager', 'accountant'])
 const SUPPLY: { v: NonNullable<CreateInvoiceInput['supply_category']>; l: string }[] = [
@@ -141,6 +142,7 @@ export function InvoiceEditor({ docType, draft, draftKey, refInvoice, afterSave 
   }, [store, validLines, posEffective, discountPaise, discountBP, tcsBP, supply, rcm, date])
 
   const summary = preview?.summary ?? local
+  const noGstinWarn = purchase && party ? noGstinItcWarning(party.gstin, summary.cgst_paise + summary.sgst_paise + summary.igst_paise + summary.cess_paise, rcm) : null
   const canOverride = OVERRIDE_ROLES.has(user?.role ?? '')
 
   /* ---------------- save ---------------- */
@@ -235,6 +237,7 @@ export function InvoiceEditor({ docType, draft, draftKey, refInvoice, afterSave 
 
         <Card padded={false} title="Items" actions={<span className="text-xs text-slate-500">{validLines.length} line{validLines.length === 1 ? '' : 's'}{purchase ? ' · prices exclusive of GST by default; the supplier’s rate wins' : ' · item rates follow the master'}</span>}>
           <LineGrid lines={lines} onChange={setLines} mode={purchase ? 'purchase' : 'sale'} storeState={store.state_code} placeOfSupply={posEffective} />
+          {noGstinWarn && <p role="alert" className="mx-3 mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:mx-4">{noGstinWarn}</p>}
         </Card>
 
         <div className="grid gap-5 md:grid-cols-2 sm:gap-6">

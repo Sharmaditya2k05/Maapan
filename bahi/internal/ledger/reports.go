@@ -20,6 +20,17 @@ type accountTotals struct {
 
 // totals sums entries per account over [from, to]. from="" means since inception.
 func (s *Service) totals(ctx context.Context, tenantID, from, to string) ([]accountTotals, error) {
+	return s.totalsFor(ctx, tenantID, from, to, totalsFilter{})
+}
+
+// totalsFilter narrows totals: one store's entries, and/or leaving out the
+// year-end closing vouchers (so a closed year's P&L still reads as earned).
+type totalsFilter struct {
+	storeID        string
+	excludeClosing bool
+}
+
+func (s *Service) totalsFor(ctx context.Context, tenantID, from, to string, f totalsFilter) ([]accountTotals, error) {
 	if from == "" {
 		from = "1900-01-01"
 	}
@@ -27,7 +38,9 @@ func (s *Service) totals(ctx context.Context, tenantID, from, to string) ([]acco
 			COALESCE(sum(e.debit_paise),0), COALESCE(sum(e.credit_paise),0)
 		FROM accounts a JOIN voucher_entries e ON e.account_id=a.id AND e.tenant_id=a.tenant_id
 		WHERE a.tenant_id=$1 AND e.vdate BETWEEN $2 AND $3
-		GROUP BY a.id ORDER BY a.code`, tenantID, from, to)
+		  AND ($4 = '' OR e.store_id::text = $4)
+		  AND (NOT $5 OR NOT EXISTS (SELECT 1 FROM vouchers v WHERE v.id=e.voucher_id AND v.source=$6))
+		GROUP BY a.id ORDER BY a.code`, tenantID, from, to, f.storeID, f.excludeClosing, posting.SrcYearEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +114,7 @@ type PLLine struct {
 type ProfitLoss struct {
 	From             string   `json:"from"`
 	To               string   `json:"to"`
+	StoreID          string   `json:"store_id,omitempty"`
 	Income           []PLLine `json:"income"`
 	Expenses         []PLLine `json:"expenses"`
 	TotalIncome      int64    `json:"total_income_paise"`
@@ -137,7 +151,13 @@ func (s *Service) grossProfitCodes(ctx context.Context, tenantID string) (map[st
 }
 
 func (s *Service) profitLoss(ctx context.Context, tenantID, from, to string) (*ProfitLoss, error) {
-	ts, err := s.totals(ctx, tenantID, from, to)
+	return s.profitLossFor(ctx, tenantID, from, to, "")
+}
+
+// profitLossFor is the P&L of one store ("" = all). Year-end closing
+// vouchers are left out, so a closed year still shows what it earned.
+func (s *Service) profitLossFor(ctx context.Context, tenantID, from, to, storeID string) (*ProfitLoss, error) {
+	ts, err := s.totalsFor(ctx, tenantID, from, to, totalsFilter{storeID: storeID, excludeClosing: true})
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +165,7 @@ func (s *Service) profitLoss(ctx context.Context, tenantID, from, to string) (*P
 	if err != nil {
 		return nil, err
 	}
-	pl := &ProfitLoss{From: from, To: to, Income: []PLLine{}, Expenses: []PLLine{}}
+	pl := &ProfitLoss{From: from, To: to, StoreID: storeID, Income: []PLLine{}, Expenses: []PLLine{}}
 	for _, t := range ts {
 		switch t.Group {
 		case "income":
@@ -174,7 +194,11 @@ func (s *Service) handleProfitLoss(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	pl, err := s.profitLoss(r.Context(), p.TenantID, from, to)
+	storeID := httpx.Query(r, "store_id")
+	if storeID != "" && !validUUID(storeID) {
+		return httpx.Validation("store_id must be a UUID")
+	}
+	pl, err := s.profitLossFor(r.Context(), p.TenantID, from, to, storeID)
 	if err != nil {
 		return err
 	}
@@ -263,8 +287,20 @@ type AgingRow struct {
 	posting.Buckets
 }
 
-// handleAging: ?kind=receivables (default) or payables.
+// handleAging: ?kind=receivables (default) or payables; ?basis=due (default:
+// bill-wise, by days past each bill's due date) or basis=date (FIFO by
+// voucher date, the phase-1 report).
 func (s *Service) handleAging(w http.ResponseWriter, r *http.Request) error {
+	switch httpx.Query(r, "basis") {
+	case "", "due":
+		return s.handleDueAging(w, r)
+	case "date":
+		return s.handleDateAging(w, r)
+	}
+	return httpx.Validation("basis must be due or date")
+}
+
+func (s *Service) handleDateAging(w http.ResponseWriter, r *http.Request) error {
 	p := auth.FromContext(r.Context())
 	kind := orDefault(httpx.Query(r, "kind"), "receivables")
 	if kind != "receivables" && kind != "payables" {
@@ -463,4 +499,75 @@ func (s *Service) handleSummary(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return httpx.OK(w, sum)
+}
+
+// StorePL is one store's line of the store-wise P&L.
+type StorePL struct {
+	StoreID          string `json:"store_id"` // "" = entries not tagged with a store (manual journals …)
+	IncomePaise      int64  `json:"income_paise"`
+	ExpensesPaise    int64  `json:"expenses_paise"`
+	GrossProfitPaise int64  `json:"gross_profit_paise"`
+	NetProfitPaise   int64  `json:"net_profit_paise"`
+}
+
+// handleStorePL: GET /v1/reports/profit-loss/stores?from=&to= — P&L by
+// store_id; use /v1/reports/profit-loss?store_id= for one store's detail.
+func (s *Service) handleStorePL(w http.ResponseWriter, r *http.Request) error {
+	p := auth.FromContext(r.Context())
+	from, to, err := s.dateRange(r)
+	if err != nil {
+		return err
+	}
+	direct, err := s.grossProfitCodes(r.Context(), p.TenantID)
+	if err != nil {
+		return err
+	}
+	rows, err := s.DB.Query(r.Context(), `SELECT COALESCE(e.store_id::text,''), a.code, a.grp, COALESCE(sum(e.debit_paise - e.credit_paise),0)
+		FROM voucher_entries e JOIN accounts a ON a.id=e.account_id JOIN vouchers v ON v.id=e.voucher_id
+		WHERE e.tenant_id=$1 AND e.vdate BETWEEN $2 AND $3 AND a.grp IN ('income','expense') AND v.source <> $4
+		GROUP BY 1, a.code, a.grp ORDER BY 1`, p.TenantID, from, to, posting.SrcYearEnd)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byStore := map[string]*StorePL{}
+	var order []string
+	for rows.Next() {
+		var store, code, grp string
+		var bal int64
+		if err := rows.Scan(&store, &code, &grp, &bal); err != nil {
+			return err
+		}
+		x, ok := byStore[store]
+		if !ok {
+			x = &StorePL{StoreID: store}
+			byStore[store] = x
+			order = append(order, store)
+		}
+		if grp == "income" {
+			x.IncomePaise -= bal
+		} else {
+			x.ExpensesPaise += bal
+		}
+		if direct[code] {
+			x.GrossProfitPaise -= bal
+		}
+		x.NetProfitPaise -= bal
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	out := []StorePL{}
+	for _, k := range order {
+		out = append(out, *byStore[k])
+	}
+	if wantsCSV(r) {
+		var csvRows [][]string
+		for _, x := range out {
+			csvRows = append(csvRows, []string{orDefault(x.StoreID, "(no store)"), paiseStr(x.IncomePaise), paiseStr(x.ExpensesPaise),
+				paiseStr(x.GrossProfitPaise), paiseStr(x.NetProfitPaise)})
+		}
+		return writeCSV(w, "store-pl-"+from+"-"+to, []string{"Store", "Income", "Expenses", "Gross profit", "Net profit"}, csvRows)
+	}
+	return httpx.OK(w, map[string]any{"from": from, "to": to, "stores": out})
 }

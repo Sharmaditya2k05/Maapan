@@ -1,0 +1,11 @@
+SHREE GANESH TRADERS (DEMO)
+Batch Wise Stock as on 31/03/2026
+Item Code,Item Name,Godown,Batch,Mfg Date,Expiry,Qty,Purc Rate,MRP,Value
+I0001,Parle-G 100g,Main Godown,PG2601,01/2026,12/26,"1,200",8.50,10.00,"10,200.00"
+I0001,Parle-G 100g,Counter,PG2601,01/2026,12/26,48,8.50,10.00,408.00
+I0002,Tata Salt 1kg,Main Godown,,,,300 Pcs,,28.00,"7,500.00"
+I0003,Amul Butter 500g,Cold Room,AB0326,03/2026,09/26,24,245.00,285.00,"5,880.00"
+I0004,Dettol Soap 75g,Main Godown,DS11,,2027,60,32.00,40.00,
+I0005,Fortune Oil 1L,Main Godown,FO22,,03/27,0,140.00,165.00,0
+I0006,Vim Bar 200g,Back Store,VB01,,,12,18.00,20.00,216
+I0001,Parle-G 100g,Main Godown,PG2601,01/2026,12/26,10,8.50,10.00,85

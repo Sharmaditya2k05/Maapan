@@ -1,8 +1,9 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import { ArrowRight, FileText, Search, Settings, ShieldCheck, Truck } from 'lucide-react'
-import { Badge, Card, Input, PageHeader, QueryState, Skeleton, Tabs } from '@/components/ui'
+import Link from 'next/link'
+import { ArrowRight, FileCheck2, FileText, Search, Settings, ShieldCheck, Truck } from 'lucide-react'
+import { Badge, Card, PageHeader, QueryState, Skeleton, Tabs } from '@/components/ui'
 import { fmtDate, useGet, usePerm } from '@/lib/hooks'
 import { PERMS } from '@/lib/rbac'
 import { STATES } from '@/lib/gst'
@@ -13,11 +14,13 @@ import { KV, NoPermission, useTabParam } from '@/components/ledger/bits'
 import { defaultPeriod, PeriodPicker } from '@/components/ledger/gst/shared'
 import { Gstr1View } from '@/components/ledger/gst/Gstr1View'
 import { Gstr3bView } from '@/components/ledger/gst/Gstr3bView'
+import { Gstr2bView } from '@/components/ledger/gst/Gstr2bView'
 import { EInvoiceEway } from '@/components/ledger/gst/EInvoiceEway'
 import { TaxSettingsForm } from '@/components/ledger/gst/TaxSettingsForm'
 import { GstinCheck, HsnFinder } from '@/components/ledger/gst/Tools'
+import { RegistrationPicker, useRegistrations } from '@/components/compliance/registrations'
 
-const TABS = ['overview', 'gstin', 'hsn', 'gstr1', 'gstr3b', 'einvoice', 'settings'] as const
+const TABS = ['overview', 'gstin', 'hsn', 'gstr1', 'gstr3b', 'gstr2b', 'einvoice', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
 export default function GstPage() {
@@ -28,28 +31,37 @@ function GstInner() {
   const canDo = usePerm()
   const [tab, setTab] = useTabParam<Tab>(TABS, 'overview')
   const [period, setPeriod] = useState(defaultPeriod)
+  // '' = the primary registration (kar's default when gstin= is empty).
   const [gstin, setGstin] = useState('')
   const canReturns = canDo(PERMS.reportRead) || canDo(PERMS.gstFile)
   const settings = useGet<TaxSettings>(canReturns ? '/kar/v1/settings' : null)
+  const regs = useRegistrations()
+  const selected = (gstin ? regs.fileable.find((r) => r.gstin === gstin) : undefined) ?? regs.primary
+  const many = regs.fileable.length > 1
 
-  if (!canReturns && !canDo(PERMS.partyManage)) return <><PageHeader title="GST" /><Card><NoPermission what="GST" /></Card></>
+  if (!canReturns && !canDo(PERMS.partyManage) && !canDo(PERMS.invoiceRead)) return <><PageHeader title="GST" /><Card><NoPermission what="GST" /></Card></>
 
-  const returnsBar = (
+  const regBar = (withPeriod: boolean) => (
     <div className="no-print mb-4 flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Period</span>
-      <PeriodPicker value={period} onChange={setPeriod} />
-      <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="w-48 input-sm font-mono uppercase" placeholder={settings.data?.gstin || 'GSTIN (default)'} aria-label="GSTIN for a second registration" maxLength={15} />
-      {gstin && gstin !== settings.data?.gstin && <Badge tone="amber">filing for another registration</Badge>}
+      {withPeriod && <><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Period</span><PeriodPicker value={period} onChange={setPeriod} /></>}
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">GSTIN</span>
+      <RegistrationPicker value={gstin} onChange={setGstin} />
+      {selected && !selected.is_primary && <Badge tone="amber">filing for another registration</Badge>}
+      {selected?.composition && <Badge tone="amber">composition</Badge>}
     </div>
   )
+  const subtitle = selected
+    ? <>{selected.gstin || 'Unregistered'} · {STATES[selected.state_code] ?? selected.state_code}{selected.city ? ` · ${selected.city}` : ''}{selected.composition ? ' · composition' : ''}{selected.einvoice_applicable ? ' · e-invoicing' : ''}{many ? ` · ${regs.fileable.length} registrations` : ''}</>
+    : settings.data ? `${settings.data.gstin || 'Unregistered'} · ${STATES[settings.data.state_code] ?? settings.data.state_code}` : 'Returns, e-invoicing and tax tools'
+  const g = gstin || undefined
 
   return (
     <>
-      <PageHeader title="GST" subtitle={settings.data ? `${settings.data.gstin || 'Unregistered'} · ${STATES[settings.data.state_code] ?? settings.data.state_code}${settings.data.composition ? ' · composition' : ''}` : 'Returns, e-invoicing and tax tools'} />
+      <PageHeader title="GST" subtitle={subtitle} />
       <div className="no-print mb-4">
         <Tabs value={tab} onChange={setTab} options={[
           { value: 'overview', label: 'Overview' }, { value: 'gstin', label: 'GSTIN check' }, { value: 'hsn', label: 'HSN finder' },
-          ...(canReturns ? [{ value: 'gstr1' as Tab, label: 'GSTR-1' }, { value: 'gstr3b' as Tab, label: 'GSTR-3B' }] : []),
+          ...(canReturns ? [{ value: 'gstr1' as Tab, label: 'GSTR-1' }, { value: 'gstr3b' as Tab, label: 'GSTR-3B' }, { value: 'gstr2b' as Tab, label: 'GSTR-2B & IMS' }] : []),
           ...(canDo(PERMS.invoiceRead) ? [{ value: 'einvoice' as Tab, label: 'e-Invoice & e-Way' }] : []),
           ...(canReturns ? [{ value: 'settings' as Tab, label: 'Settings' }] : []),
         ]} />
@@ -57,31 +69,41 @@ function GstInner() {
 
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <Card title="This registration">
-            {!canReturns ? <NoPermission what="tax settings" /> : (
-              <QueryState isLoading={settings.isLoading} error={settings.error} data={settings.data} retry={() => settings.refetch()}>
+          <Card title="This registration" actions={many ? <RegistrationPicker value={gstin} onChange={setGstin} /> : null}>
+            {regs.isLoading ? <Skeleton rows={4} /> : selected ? (
+              <dl className="divide-y divide-slate-100">
+                <KV k="GSTIN" v={selected.gstin || 'Not registered'} mono />
+                {(selected.legal_name || selected.trade_name) && <KV k="Name" v={selected.trade_name || selected.legal_name} />}
+                <KV k="State" v={`${STATES[selected.state_code] ?? selected.state_code} (${selected.state_code})`} />
+                <KV k="City / PIN" v={selected.city || selected.pin ? `${selected.city || '—'} ${selected.pin}` : <Badge tone="amber">missing — needed for e-invoices</Badge>} />
+                <KV k="Scheme" v={<Badge tone={selected.composition ? 'amber' : 'green'}>{selected.composition ? 'Composition' : 'Regular'}</Badge>} />
+                <KV k="e-Invoicing" v={<Badge tone={selected.einvoice_applicable ? 'green' : 'gray'}>{selected.einvoice_applicable ? 'applies' : 'off'}</Badge>} />
+                <KV k="Stores" v={selected.store_count} />
+                {canReturns && settings.data && <><KV k="e-Way bill threshold" v={formatINR(settings.data.eway_threshold_paise)} /><KV k="B2CL threshold" v={formatINR(settings.data.b2cl_threshold_paise)} /></>}
+                <KV k="Updated" v={fmtDate(selected.updated_at, true)} />
+              </dl>
+            ) : !canReturns ? <NoPermission what="tax settings" /> : (
+              <QueryState isLoading={settings.isLoading} error={settings.error ?? regs.error} data={settings.data} retry={() => settings.refetch()}>
                 {(s) => (
                   <dl className="divide-y divide-slate-100">
                     <KV k="GSTIN" v={s.gstin || 'Not registered'} mono />
                     <KV k="State" v={`${STATES[s.state_code] ?? s.state_code} (${s.state_code})`} />
-                    <KV k="Scheme" v={<Badge tone={s.composition ? 'amber' : 'green'}>{s.composition ? 'Composition' : 'Regular'}</Badge>} />
-                    <KV k="e-Invoicing" v={<Badge tone={s.einvoice_enabled ? 'green' : 'gray'}>{s.einvoice_enabled ? 'enabled' : 'off'}</Badge>} />
                     <KV k="e-Way bill threshold" v={formatINR(s.eway_threshold_paise)} />
-                    <KV k="B2CL threshold" v={formatINR(s.b2cl_threshold_paise)} />
-                    <KV k="Updated" v={fmtDate(s.updated_at, true)} />
                   </dl>
                 )}
               </QueryState>
             )}
+            {canDo(PERMS.settingsManage) && <Link href="/app/settings?tab=registrations" className="link mt-3 inline-block text-xs">Manage registrations</Link>}
           </Card>
           <div className="space-y-3">
             <Card title="Return period">
               <div className="flex flex-wrap items-center gap-2"><PeriodPicker value={period} onChange={setPeriod} /><span className="text-xs text-slate-500">Filing {monthLabel(period)}</span></div>
-              <p className="mt-2 text-xs text-slate-500">GSTR-1 is due on the 11th and GSTR-3B on the 20th of the following month for monthly filers.</p>
+              <p className="mt-2 text-xs text-slate-500">GSTR-1 is due on the 11th and GSTR-3B on the 20th of the following month for monthly filers. Act on GSTR-2B documents in IMS before filing GSTR-3B.</p>
             </Card>
             {([
               ['gstr1', 'GSTR-1 — outward supplies', FileText, canReturns], ['gstr3b', 'GSTR-3B — summary & tax payable', FileText, canReturns],
-              ['einvoice', 'e-Invoice & e-Way bill JSON', Truck, canDo(PERMS.invoiceRead)], ['gstin', 'Verify a GSTIN', ShieldCheck, canDo(PERMS.partyManage)],
+              ['gstr2b', 'GSTR-2B match & IMS actions', FileCheck2, canReturns],
+              ['einvoice', 'e-Invoices (IRN) & e-Way bills', Truck, canDo(PERMS.invoiceRead)], ['gstin', 'Verify a GSTIN', ShieldCheck, canDo(PERMS.partyManage)],
               ['hsn', 'Find HSN / SAC codes and rates', Search, true], ['settings', 'Tax settings', Settings, canReturns],
             ] as const).filter((x) => x[3]).map(([t, label, Icon]) => (
               <button key={t} type="button" onClick={() => setTab(t)} className="card flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold hover:border-brand-300 cursor-pointer">
@@ -93,9 +115,10 @@ function GstInner() {
       )}
       {tab === 'gstin' && <GstinCheck />}
       {tab === 'hsn' && <HsnFinder />}
-      {tab === 'gstr1' && canReturns && <>{returnsBar}<Gstr1View period={period} gstin={gstin.length === 15 ? gstin : undefined} /></>}
-      {tab === 'gstr3b' && canReturns && <>{returnsBar}<Gstr3bView period={period} gstin={gstin.length === 15 ? gstin : undefined} /></>}
-      {tab === 'einvoice' && canDo(PERMS.invoiceRead) && <EInvoiceEway />}
+      {tab === 'gstr1' && canReturns && <>{regBar(true)}<Gstr1View period={period} gstin={g} /></>}
+      {tab === 'gstr3b' && canReturns && <>{regBar(true)}<Gstr3bView period={period} gstin={g} /></>}
+      {tab === 'gstr2b' && canReturns && <>{regBar(true)}<Gstr2bView period={period} gstin={g} /></>}
+      {tab === 'einvoice' && canDo(PERMS.invoiceRead) && <>{regBar(false)}<EInvoiceEway gstin={selected?.gstin || g} /></>}
       {tab === 'settings' && canReturns && <TaxSettingsForm />}
     </>
   )

@@ -63,11 +63,17 @@ func TestGupshupTemplateAndText(t *testing.T) {
 
 func TestBuild(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s, w, err := Build(Config{}, log)
-	if err != nil || s.Name() != "console" || w.Name() != "console" {
+	b, err := Build(Config{}, log)
+	if err != nil || b.SMS.Name() != "console" || b.WhatsApp.Name() != "console" || b.Email.Name() != "console" {
 		t.Fatal("default must be console")
 	}
-	if _, _, err := Build(Config{SMSProvider: "msg91"}, log); err == nil {
+	if _, err := Build(Config{SMSProvider: "msg91"}, log); err == nil {
 		t.Fatal("msg91 without key must fail")
+	}
+	if _, err := Build(Config{EmailProvider: "smtp"}, log); err == nil {
+		t.Fatal("smtp without host must fail")
+	}
+	if b, err := Build(Config{EmailProvider: "smtp", SMTP: SMTPConfig{Host: "smtp.example.com", From: "bills@example.com"}}, log); err != nil || b.Email.Name() != "smtp" {
+		t.Fatalf("smtp: %v", err)
 	}
 }

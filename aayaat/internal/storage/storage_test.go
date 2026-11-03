@@ -27,3 +27,20 @@ func TestLocalRoundTrip(t *testing.T) {
 		t.Fatal("path traversal must fail")
 	}
 }
+
+func TestLocalDelete(t *testing.T) {
+	l := Local{Dir: t.TempDir()}
+	ctx := context.Background()
+	if _, err := l.Put(ctx, "a/b.csv", strings.NewReader("x"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Delete(ctx, "a/b.csv"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Open(ctx, "a/b.csv"); err == nil {
+		t.Fatal("file must be gone")
+	}
+	if err := l.Delete(ctx, "a/b.csv"); err != nil {
+		t.Fatal("deleting a missing file is not an error")
+	}
+}

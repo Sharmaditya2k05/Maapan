@@ -220,7 +220,7 @@ export interface Tenant {
 /** pehchaan TenantInput (PUT /v1/tenant). */
 export interface TenantInput { business_name: string; gstin?: string; state_code: string; address?: string; email?: string; phone?: string }
 /** pehchaan StoreInput (POST /v1/stores, PUT /v1/stores/{id}). */
-export interface StoreInput { name: string; code: string; state_code: string; gstin?: string; address?: string; phone?: string; active?: boolean }
+export interface StoreInput { name: string; code: string; state_code: string; gstin?: string; address?: string; phone?: string; active?: boolean; registration_id?: string }
 /** pehchaan Member (GET /v1/users). */
 export interface Member { id: string; phone: string; name?: string | null; email?: string | null; status: string; last_login_at?: string | null; role: Role; store_ids: string[]; active: boolean }
 /** pehchaan InviteInput (POST /v1/users). */

@@ -50,6 +50,37 @@ const (
 	OtherIndirectExpenses = "5590"
 	DiscountAllowed       = "5800"
 	RoundOff              = "5900"
+
+	// Phase 4 chart additions (migrations/0003_phase4.up.sql backfills them).
+	AdvanceToSuppliers   = "1250"
+	TDSReceivable        = "1420" // TDS customers deducted from our receipts (Form 26AS credit)
+	TCSReceivable        = "1425" // TCS suppliers collected from us
+	ElectronicCash       = "1450" // group: GST electronic cash ledger, one leaf per head
+	ElectronicCashIGST   = "1451"
+	ElectronicCashCGST   = "1452"
+	ElectronicCashSGST   = "1453"
+	ElectronicCashCess   = "1454"
+	FixedAssets          = "1500" // group
+	FurnitureFixtures    = "1510"
+	PlantMachinery       = "1520"
+	ComputersEquipment   = "1530"
+	Vehicles             = "1540"
+	AccumDepreciation    = "1590" // contra asset (credit balance)
+	AdvanceFromCustomers = "2150"
+	TDSPayable           = "2220" // TDS we deducted from suppliers, until deposited by challan
+	TCSPayable           = "2225" // TCS collected on sales (206C), until deposited
+	Loans                = "2400" // group
+	SecuredLoans         = "2410"
+	UnsecuredLoans       = "2420"
+	Drawings             = "3200"
+	DiscountReceived     = "4200"
+	FreightInward        = "5210" // direct
+	Salaries             = "5520"
+	Rent                 = "5530"
+	Electricity          = "5540"
+	Depreciation         = "5550"
+	FreightOutward       = "5560"
+	InterestExpense      = "5570"
 )
 
 // Inventory is the stock account bhandar.stock.moved reclassifies against.
@@ -88,6 +119,20 @@ var DefaultChart = []SeedAccount{
 	{Code: InputSGST, Name: "Input SGST", Group: "asset", Parent: InputTaxes},
 	{Code: InputIGST, Name: "Input IGST", Group: "asset", Parent: InputTaxes},
 	{Code: InputCess, Name: "Input Cess", Group: "asset", Parent: InputTaxes},
+	{Code: TDSReceivable, Name: "TDS Receivable", Group: "asset", Parent: InputTaxes},
+	{Code: TCSReceivable, Name: "TCS Receivable", Group: "asset", Parent: InputTaxes},
+	{Code: AdvanceToSuppliers, Name: "Advance to Suppliers", Group: "asset", Parent: GroupAssets},
+	{Code: ElectronicCash, Name: "GST Electronic Cash Ledger", Group: "asset", Parent: GroupAssets, IsGroup: true},
+	{Code: ElectronicCashIGST, Name: "Electronic Cash Ledger - IGST", Group: "asset", Parent: ElectronicCash},
+	{Code: ElectronicCashCGST, Name: "Electronic Cash Ledger - CGST", Group: "asset", Parent: ElectronicCash},
+	{Code: ElectronicCashSGST, Name: "Electronic Cash Ledger - SGST", Group: "asset", Parent: ElectronicCash},
+	{Code: ElectronicCashCess, Name: "Electronic Cash Ledger - Cess", Group: "asset", Parent: ElectronicCash},
+	{Code: FixedAssets, Name: "Fixed Assets", Group: "asset", Parent: GroupAssets, IsGroup: true},
+	{Code: FurnitureFixtures, Name: "Furniture & Fixtures", Group: "asset", Parent: FixedAssets},
+	{Code: PlantMachinery, Name: "Plant & Machinery", Group: "asset", Parent: FixedAssets},
+	{Code: ComputersEquipment, Name: "Computers & Office Equipment", Group: "asset", Parent: FixedAssets},
+	{Code: Vehicles, Name: "Vehicles", Group: "asset", Parent: FixedAssets},
+	{Code: AccumDepreciation, Name: "Accumulated Depreciation", Group: "asset", Parent: FixedAssets},
 
 	{Code: GroupLiabilities, Name: "Liabilities", Group: "liability", IsGroup: true},
 	{Code: SundryCreditors, Name: "Sundry Creditors", Group: "liability", Parent: GroupLiabilities, IsGroup: true},
@@ -97,15 +142,23 @@ var DefaultChart = []SeedAccount{
 	{Code: OutputSGST, Name: "Output SGST", Group: "liability", Parent: OutputTaxes},
 	{Code: OutputIGST, Name: "Output IGST", Group: "liability", Parent: OutputTaxes},
 	{Code: OutputCess, Name: "Output Cess", Group: "liability", Parent: OutputTaxes},
+	{Code: TDSPayable, Name: "TDS Payable", Group: "liability", Parent: OutputTaxes},
+	{Code: TCSPayable, Name: "TCS Payable", Group: "liability", Parent: OutputTaxes},
+	{Code: AdvanceFromCustomers, Name: "Advance from Customers", Group: "liability", Parent: GroupLiabilities},
+	{Code: Loans, Name: "Loans (Liability)", Group: "liability", Parent: GroupLiabilities, IsGroup: true},
+	{Code: SecuredLoans, Name: "Secured Loans", Group: "liability", Parent: Loans},
+	{Code: UnsecuredLoans, Name: "Unsecured Loans", Group: "liability", Parent: Loans},
 
 	{Code: GroupEquity, Name: "Capital & Equity", Group: "equity", IsGroup: true},
 	{Code: Capital, Name: "Capital Account", Group: "equity", Parent: GroupEquity},
 	{Code: OpeningDiff, Name: "Opening Balance Difference", Group: "equity", Parent: GroupEquity},
+	{Code: Drawings, Name: "Drawings", Group: "equity", Parent: GroupEquity},
 
 	{Code: GroupIncome, Name: "Income", Group: "income", IsGroup: true},
 	{Code: Sales, Name: "Sales", Group: "income", Parent: GroupIncome},
 	{Code: SalesReturns, Name: "Sales Returns", Group: "income", Parent: GroupIncome},
 	{Code: StockGain, Name: "Stock Gain", Group: "income", Parent: GroupIncome},
+	{Code: DiscountReceived, Name: "Discount Received", Group: "income", Parent: GroupIncome},
 	{Code: OtherIncome, Name: "Other Income", Group: "income", Parent: GroupIncome},
 
 	{Code: GroupExpenses, Name: "Expenses", Group: "expense", IsGroup: true},
@@ -115,9 +168,16 @@ var DefaultChart = []SeedAccount{
 	{Code: COGS, Name: "Cost of Goods Sold", Group: "expense", Parent: DirectExpenses},
 	{Code: StockLoss, Name: "Stock Loss / Write-off", Group: "expense", Parent: DirectExpenses},
 	{Code: OtherDirectExpenses, Name: "Other Direct Expenses", Group: "expense", Parent: DirectExpenses},
+	{Code: FreightInward, Name: "Freight Inward", Group: "expense", Parent: DirectExpenses},
 	{Code: IndirectExpenses, Name: "Indirect Expenses", Group: "expense", Parent: GroupExpenses, IsGroup: true},
 	{Code: BankCharges, Name: "Bank Charges", Group: "expense", Parent: IndirectExpenses},
 	{Code: OtherIndirectExpenses, Name: "Other Indirect Expenses", Group: "expense", Parent: IndirectExpenses},
+	{Code: Salaries, Name: "Salaries & Wages", Group: "expense", Parent: IndirectExpenses},
+	{Code: Rent, Name: "Rent", Group: "expense", Parent: IndirectExpenses},
+	{Code: Electricity, Name: "Electricity", Group: "expense", Parent: IndirectExpenses},
+	{Code: Depreciation, Name: "Depreciation", Group: "expense", Parent: IndirectExpenses},
+	{Code: FreightOutward, Name: "Freight Outward", Group: "expense", Parent: IndirectExpenses},
+	{Code: InterestExpense, Name: "Interest on Loans", Group: "expense", Parent: IndirectExpenses},
 	{Code: DiscountAllowed, Name: "Discount Allowed", Group: "expense", Parent: IndirectExpenses},
 	{Code: RoundOff, Name: "Round Off", Group: "expense", Parent: IndirectExpenses},
 }

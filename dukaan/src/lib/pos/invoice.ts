@@ -100,6 +100,7 @@ export function lineToCart(l: Partial<InvoiceLine> & PosLineInput, extra: Partia
     tax_category: normCategory(l.tax_category as string | undefined) as TaxCategory,
     track_batches: !!l.batch_no,
     free_text: !l.item_id,
+    ...(l.itc_eligibility && l.itc_eligibility !== 'eligible' ? { itc_eligibility: l.itc_eligibility } : {}),
     ...extra,
   }
 }

@@ -74,7 +74,7 @@ type Tenant struct {
 // Tenant calls pehchaan GET /internal/v1/tenants/{id}.
 func (c *Clients) Tenant(ctx context.Context, id string) (Tenant, error) {
 	var t Tenant
-	err := c.Pehchaan.Get(ctx, "/internal/v1/tenants/"+url.PathEscape(id), &t)
+	err := c.Pehchaan.Get(svc.ForTenant(ctx, id), "/internal/v1/tenants/"+url.PathEscape(id), &t)
 	return t, err
 }
 

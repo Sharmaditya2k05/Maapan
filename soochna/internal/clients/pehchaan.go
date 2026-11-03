@@ -43,7 +43,7 @@ func (t *Tenants) Get(ctx context.Context, id string) (Tenant, error) {
 	}
 	t.mu.Unlock()
 	var out Tenant
-	if err := t.C.Get(ctx, "/internal/v1/tenants/"+url.PathEscape(id), &out); err != nil {
+	if err := t.C.Get(svc.ForTenant(ctx, id), "/internal/v1/tenants/"+url.PathEscape(id), &out); err != nil {
 		return Tenant{}, err
 	}
 	t.mu.Lock()

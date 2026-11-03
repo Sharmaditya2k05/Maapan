@@ -156,6 +156,7 @@ Envelope (JSON, same for Pub/Sub and local direct delivery):
 | `pehchaan.tenant.created` | pehchaan | bahi, bhandar, kar | seed chart of accounts, default store/units, tax slabs |
 | `kar.einvoice.generated` | kar | aadesh, soochna | IRN, ack no/date and signed QR stored on the invoice (or the IRP's error) |
 | `kar.eway.generated` | kar | aadesh | e-way bill number and validity stored on the invoice |
+| `kar.return.filed` | kar | bahi | GST return filed; for GSTR-3B carries the Rule 88A set-off (paise) so bahi posts the set-off journal |
 
 The subscription matrix is also coded in `mool/events/events.go` (`Subscriptions`) (used by the local
 direct driver) and in `sanchalan/scripts/pubsub-setup.sh`. Keep the three in sync.
@@ -205,6 +206,7 @@ bahi      POST /internal/v1/bulk/parties          {"parties":[{"name","type","ph
 bahi      POST /internal/v1/bulk/opening-balances {"as_of":"YYYY-MM-DD","balances":[{"account_code"|"party_external_ref","amount_paise","type":"dr|cr"}]}
           → same result shape
 bahi      GET  /internal/v1/reports/summary?from=&to=  → {"sales_paise","purchases_paise","receivables_paise","payables_paise","cash_paise","bank_paise"}
+bahi      GET  /internal/v1/parties/{id}/credit   → {"credit_limit_paise","credit_days","balance_paise","overdue_paise","available_paise","over_limit"}
 
 bhandar   POST /internal/v1/items/lookup          {"ids":["uuid"],"barcodes":["..."]}
           → {"items":[{"id","name","sku","barcode","hsn","unit","sale_price_paise","mrp_paise","purchase_price_paise","tax_rate_bp","cess_rate_bp","price_includes_tax","track_batches"}]}

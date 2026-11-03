@@ -9,10 +9,13 @@ What it does, in order, for every request:
 2. **Security headers** (HSTS, nosniff, frame deny, no-store) and a **body size limit** (`MAX_BODY_MB`)
 3. **Header hygiene** — strips client-sent `X-Service-Secret`, `X-Tenant-ID`, `X-User-ID`, `X-Role`, `X-Serverless-Authorization` (no spoofing)
 4. **Route check** — `/api/{service}/...` for known services only; `/internal/*` and `/events` are never reachable from outside (404)
-5. **Auth** — verifies the HS256 access token with `mool/auth` (except the public routes below)
+5. **Auth** — verifies the HS256 access token with `mool/auth` (except the public routes below); during a key rotation tokens signed with `JWT_SECRET_PREVIOUS` are accepted too
 6. **Store check** — `X-Store-ID` must be one of the cashier's/manager's stores (403 otherwise)
-7. **Rate limiting** — per IP on public routes (default 20/min), per user elsewhere (default 600/min); Redis-backed, in-memory when `REDIS_URL` is empty
-8. **Proxy** — forwards `Authorization` and adds `X-Tenant-ID`, `X-User-ID`, `X-Role`, `X-Store-ID`, `X-Forwarded-*`; on Cloud Run adds a Google ID token as `X-Serverless-Authorization`. Streams responses (SSE from buddhi)
+7. **Rate limiting** — three buckets: OTP + token routes per client IP (default 20/min, shared), each webhook route per IP (default 1200/min, so MSG91/Gupshup delivery-report bursts are not 429'd), per user elsewhere (default 600/min). Redis-backed; **when Redis fails the limits move to process memory** (per instance) instead of disappearing, and the OTP routes are refused (503) rather than ever running unlimited. In-memory only when `REDIS_URL` is empty
+8. **Client IP** — taken from `X-Forwarded-For` counting `TRUSTED_PROXIES` hops from the right (the hops our own proxies appended); entries a client typed are ignored. Upstreams receive this single IP as `X-Forwarded-For` / `X-Real-IP`
+9. **Idempotency** — `Idempotency-Key` on `POST`/`PUT`/`PATCH` is checked (1–128 visible ASCII chars, one value; 400 otherwise) and passed to the service, which deduplicates (POS retries). It is dropped on other methods. A write with a key is also retried after a broken upstream connection
+10. **Proxy** — forwards `Authorization` and adds `X-Tenant-ID`, `X-User-ID`, `X-Role`, `X-Store-ID`, `X-Forwarded-*`; on Cloud Run adds a Google ID token as `X-Serverless-Authorization`. Streams responses (SSE from buddhi). Requests a sleeping host's edge rejected (502/503/504 without `X-Request-ID`) are retried for up to `EDGE_RETRY`
+11. **Metrics** — one `upstream` log line per proxied request (`service, method, status, req_bytes, resp_bytes, ms`: build Cloud Logging log-based metrics on it) plus per-instance counters shown in `/api/_status`
 
 | | |
 |---|---|
@@ -25,13 +28,15 @@ What it does, in order, for every request:
 
 ### Public routes (no JWT)
 
-| Route | Why |
-|---|---|
-| `POST /api/pehchaan/v1/auth/otp/request` | start OTP login |
-| `POST /api/pehchaan/v1/auth/otp/verify` | finish OTP login |
-| `POST /api/pehchaan/v1/auth/refresh` | rotate refresh token |
-| `POST /api/pehchaan/v1/auth/logout` | revoke refresh token |
-| `POST /api/lenden/v1/webhooks/razorpay` | Razorpay webhook (lenden verifies the signature) |
+| Route | Why | Rate-limit bucket |
+|---|---|---|
+| `POST /api/pehchaan/v1/auth/otp/request` | start OTP login | `otp` — per IP, shared with `auth`; fails closed |
+| `POST /api/pehchaan/v1/auth/otp/verify` | finish OTP login | `otp` |
+| `POST /api/pehchaan/v1/auth/refresh` | rotate refresh token | `auth` — per IP |
+| `POST /api/pehchaan/v1/auth/logout` | revoke refresh token | `auth` |
+| `POST /api/pehchaan/v1/onboarding` | create the business (pehchaan checks its onboarding token) | `auth` |
+| `POST /api/lenden/v1/webhooks/razorpay` · `.../cashfree` | payment webhooks (lenden verifies the signature) | `webhook` — per IP per route |
+| `POST /api/soochna/v1/webhooks/msg91` · `.../gupshup` | SMS/WhatsApp delivery reports (soochna checks `?token=`) | `webhook` |
 
 ## Run locally
 
@@ -42,6 +47,7 @@ cd ../sanchalan && docker compose up -d redis && cd ../dwaar
 cp .env.example .env     # upstream URLs point at localhost:7001..7010
 make run                 # → http://localhost:8000/healthz
 curl -s localhost:8000/api | jq   # which services are configured
+curl -s localhost:8000/api/_status | jq   # which upstreams are up
 ```
 
 Run whichever services you need; unconfigured or stopped ones answer `503`/`502`. The frontend
@@ -57,27 +63,38 @@ curl -s localhost:8000/api/aadesh/v1/invoices -H "Authorization: Bearer $TOKEN" 
 | Method & path | Auth | Purpose |
 |---|---|---|
 | `ANY /api/{service}/{rest}` | JWT (except public routes) | Proxied to `{SERVICE}_URL/{rest}` |
-| `GET /api` | none | Lists services and whether each is configured |
+| `GET /api` | none locally; **JWT in prod** (`API_CATALOG`) | Lists services and whether each is configured |
+| `GET /api/_status` | none (JWT adds traffic counters) | Health of every upstream for the app: `{status: ok\|degraded, checked_at, rate_limiter: redis\|memory\|memory-fallback, services: {aadesh: {status: up\|down\|starting\|not_configured, latency_ms, traffic?}}}`. Probes each `/healthz` (3 s), cached 10 s so it cannot flood the services. With a valid token each service also carries `traffic: {requests, errors_4xx, errors_5xx, bytes_in, bytes_out, avg_latency_ms}` of this instance |
+| `GET /wake` | none | Wakes sleeping upstreams (Render demo) and waits until all answer `/healthz` |
 | `GET /healthz` | none | Liveness |
 | `GET /readyz` | none | Redis ping (when configured) |
 
-Errors use the platform shape `{"error":{"code","message"}}`: `401 unauthorized`, `403 forbidden`,
-`404 not_found`, `413 body_too_large`, `429 rate_limited` (+ `Retry-After`), `502 upstream_error`,
-`503 unavailable`, `504 upstream_timeout`.
+Errors use the platform shape `{"error":{"code","message"}}`: `400 bad_request` (bad `Idempotency-Key`),
+`401 unauthorized`, `403 forbidden`, `404 not_found`, `413 body_too_large`, `429 rate_limited` (+ `Retry-After`),
+`502 upstream_error`, `503 unavailable` (also: OTP route while no rate limiter works), `504 upstream_timeout`.
 
 ## Environment
 
-See `.env.example`. Key variables: `JWT_SECRET`, `SERVICE_SECRET`, `CORS_ORIGINS`, `REDIS_URL`,
-`RATE_LIMIT_PUBLIC_PER_MIN`, `RATE_LIMIT_USER_PER_MIN`, `MAX_BODY_MB`, `UPSTREAM_TIMEOUT`,
-`USE_ID_TOKENS`, and one `<SERVICE>_URL` per upstream.
+See `.env.example`. Key variables: `JWT_SECRET`, `JWT_SECRET_PREVIOUS` (rotation), `SERVICE_SECRET`, `CORS_ORIGINS`,
+`REDIS_URL`, `RATE_LIMIT_PUBLIC_PER_MIN` (20), `RATE_LIMIT_WEBHOOK_PER_MIN` (1200), `RATE_LIMIT_USER_PER_MIN` (600),
+`TRUSTED_PROXIES` (1; 2 behind the Google HTTPS load balancer), `API_CATALOG` (`public|auth|off`; default `auth` in prod),
+`STATUS_CACHE` (10s), `STATUS_TIMEOUT` (3s), `MAX_BODY_MB`, `UPSTREAM_TIMEOUT`, `EDGE_RETRY` (75s), `USE_ID_TOKENS`,
+and one `<SERVICE>_URL` per upstream.
+
+**Rotating `JWT_SECRET`:** set `JWT_SECRET_PREVIOUS=<old>` and `JWT_SECRET=<new>` on dwaar and pehchaan, deploy, and
+drop `JWT_SECRET_PREVIOUS` 15 minutes later. Other services verify with `mool/auth` and the current secret only
+(until mool learns the previous secret), so they reject old tokens during those 15 minutes — the app refreshes on 401.
 
 ## Code layout
 
 ```
-cmd/server/main.go            wiring (boot, limiter, upstreams)
-internal/gateway/routes.go    service list, public routes, path parsing, blocked paths, header stripping
-internal/gateway/gateway.go   auth → store check → rate limit → reverse proxy
-internal/ratelimit/           Redis and in-memory fixed-window limiters
+cmd/server/main.go            wiring (boot, limiter + fallback, upstreams, catalog mode)
+internal/gateway/routes.go    service list, public routes + their rate-limit class, path parsing, blocked paths, header stripping
+internal/gateway/gateway.go   auth → store check → rate limit → reverse proxy; Idempotency-Key; catalog
+internal/gateway/clientip.go  trusted-proxy-aware client IP
+internal/gateway/status.go    per-upstream metrics, GET /api/_status
+internal/gateway/retry.go     edge retry for sleeping hosts
+internal/ratelimit/           Redis, in-memory and Redis→memory fallback fixed-window limiters
 ```
 
 ## Deploy (Cloud Run)
@@ -86,6 +103,7 @@ internal/ratelimit/           Redis and in-memory fixed-window limiters
 
 - `--allow-unauthenticated` (dwaar checks JWTs itself); ingress `all` until the HTTPS load
   balancer exists, then set `_INGRESS=internal-and-cloud-load-balancing` so Cloud Armor cannot be bypassed
+  — and set `TRUSTED_PROXIES=2` at the same time (the load balancer appends "client, lb" to `X-Forwarded-For`)
 - `--vpc-egress=all-traffic` — upstreams have **internal** ingress and IAM auth, so dwaar reaches
   them through the VPC with an ID token (`USE_ID_TOKENS=true`); its service account needs
   `roles/run.invoker` on every upstream

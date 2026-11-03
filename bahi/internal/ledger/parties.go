@@ -36,18 +36,23 @@ type Party struct {
 	Archived         bool      `json:"archived"`
 	BalancePaise     int64     `json:"balance_paise"` // + receivable (party owes us), − payable
 	CreatedAt        time.Time `json:"created_at"`
+	PAN              string    `json:"pan,omitempty"`
+	TDSSection       string    `json:"tds_section,omitempty"`   // default TDS section for bills/payments to this party
+	DeducteeType     string    `json:"deductee_type,omitempty"` // individual | huf | company | firm | other
+	LowerTDSRateBP   *int      `json:"lower_tds_rate_bp,omitempty"`
 }
 
 const partyCols = `p.id, p.account_id, p.name, p.type, COALESCE(p.phone,''), COALESCE(p.email,''), COALESCE(p.gstin,''),
 	COALESCE(p.state_code,''), COALESCE(p.address,''), p.credit_limit_paise, p.credit_days, p.gst_verified,
 	COALESCE(p.legal_name,''), COALESCE(p.external_ref,''), p.archived,
 	COALESCE((SELECT sum(debit_paise - credit_paise) FROM voucher_entries e WHERE e.tenant_id=p.tenant_id AND e.account_id=p.account_id),0),
-	p.created_at`
+	p.created_at, COALESCE(p.pan,''), COALESCE(p.tds_section,''), COALESCE(p.deductee_type,''), p.lower_tds_rate_bp`
 
 func scanParty(row pgx.Row) (*Party, error) {
 	var p Party
 	err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Type, &p.Phone, &p.Email, &p.GSTIN, &p.StateCode, &p.Address,
-		&p.CreditLimitPaise, &p.CreditDays, &p.GSTVerified, &p.LegalName, &p.ExternalRef, &p.Archived, &p.BalancePaise, &p.CreatedAt)
+		&p.CreditLimitPaise, &p.CreditDays, &p.GSTVerified, &p.LegalName, &p.ExternalRef, &p.Archived, &p.BalancePaise, &p.CreatedAt,
+		&p.PAN, &p.TDSSection, &p.DeducteeType, &p.LowerTDSRateBP)
 	return &p, err
 }
 
@@ -74,6 +79,38 @@ type PartyInput struct {
 	OpeningType         string `json:"opening_type"` // dr | cr
 	OpeningAsOf         string `json:"opening_as_of"`
 	ExternalRef         string `json:"external_ref"`
+	PAN                 string `json:"pan"`
+	TDSSection          string `json:"tds_section"`
+	DeducteeType        string `json:"deductee_type"`
+	LowerTDSRateBP      *int   `json:"lower_tds_rate_bp"`
+}
+
+// validateTDS normalises PAN / TDS section / deductee type.
+func validateTDS(pan, section, dtype *string, lower *int) error {
+	if pan != nil {
+		*pan = strings.ToUpper(strings.TrimSpace(*pan))
+		if *pan != "" && !posting.ValidPAN(*pan) {
+			return httpx.Validation("pan must look like AAAAA9999A")
+		}
+	}
+	if section != nil && strings.TrimSpace(*section) != "" {
+		sec, ok := posting.LookupSection(*section)
+		if !ok {
+			return httpx.Validation("unknown tds_section %q", *section)
+		}
+		*section = sec.Code
+	}
+	if dtype != nil && *dtype != "" {
+		switch *dtype {
+		case "individual", "huf", "company", "firm", "other":
+		default:
+			return httpx.Validation("deductee_type must be individual, huf, company, firm or other")
+		}
+	}
+	if lower != nil && (*lower < 0 || *lower > 10000) {
+		return httpx.Validation("lower_tds_rate_bp must be 0..10000")
+	}
+	return nil
 }
 
 // Validate normalises and checks the input.
@@ -106,7 +143,7 @@ func (in *PartyInput) Validate() error {
 	if in.OpeningBalancePaise > 0 && in.OpeningType != "dr" && in.OpeningType != "cr" {
 		return httpx.Validation(`opening_type must be "dr" or "cr"`)
 	}
-	return nil
+	return validateTDS(&in.PAN, &in.TDSSection, &in.DeducteeType, in.LowerTDSRateBP)
 }
 
 // gstinInfo is kar's /internal/v1/gstin/verify response.
@@ -121,6 +158,9 @@ type gstinInfo struct {
 
 // createParty inserts the party and its ledger account (and opening voucher) inside tx.
 func (s *Service) createParty(ctx context.Context, tx pgx.Tx, tenantID, userID string, in PartyInput, verified *gstinInfo) (string, error) {
+	if err := setActor(ctx, tx, userID); err != nil {
+		return "", err
+	}
 	if err := EnsureChart(ctx, tx, tenantID); err != nil {
 		return "", err
 	}
@@ -145,11 +185,12 @@ func (s *Service) createParty(ctx context.Context, tx pgx.Tx, tenantID, userID s
 	}
 	var id string
 	err = tx.QueryRow(ctx, `INSERT INTO parties (tenant_id, account_id, name, type, phone, email, gstin, state_code, address,
-		credit_limit_paise, credit_days, gst_verified, legal_name, external_ref)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+		credit_limit_paise, credit_days, gst_verified, legal_name, external_ref, pan, tds_section, deductee_type, lower_tds_rate_bp)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
 		tenantID, acctID, in.Name, in.Type, nilIfEmpty(in.Phone), nilIfEmpty(in.Email), nilIfEmpty(in.GSTIN),
 		nilIfEmpty(in.StateCode), nilIfEmpty(in.Address), in.CreditLimitPaise, in.CreditDays, gstOK,
-		nilIfEmpty(legal), nilIfEmpty(in.ExternalRef)).Scan(&id)
+		nilIfEmpty(legal), nilIfEmpty(in.ExternalRef), nilIfEmpty(in.PAN), nilIfEmpty(in.TDSSection),
+		nilIfEmpty(in.DeducteeType), in.LowerTDSRateBP).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -298,6 +339,10 @@ type partyPatch struct {
 	CreditDays       *int    `json:"credit_days"`
 	Type             *string `json:"type"`
 	Archived         *bool   `json:"archived"`
+	PAN              *string `json:"pan"`
+	TDSSection       *string `json:"tds_section"`
+	DeducteeType     *string `json:"deductee_type"`
+	LowerTDSRateBP   *int    `json:"lower_tds_rate_bp"`
 }
 
 func (in *partyPatch) Validate() error {
@@ -321,7 +366,7 @@ func (in *partyPatch) Validate() error {
 	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
 		return httpx.Validation("name cannot be empty")
 	}
-	return nil
+	return validateTDS(in.PAN, in.TDSSection, in.DeducteeType, in.LowerTDSRateBP)
 }
 
 func (s *Service) handleUpdateParty(w http.ResponseWriter, r *http.Request) error {
@@ -332,6 +377,18 @@ func (s *Service) handleUpdateParty(w http.ResponseWriter, r *http.Request) erro
 	p := auth.FromContext(r.Context())
 	id := r.PathValue("id")
 	err := s.WithTx(r.Context(), func(tx pgx.Tx) error {
+		if err := setActor(r.Context(), tx, p.UserID()); err != nil {
+			return err
+		}
+		if in.PAN != nil || in.TDSSection != nil || in.DeducteeType != nil || in.LowerTDSRateBP != nil {
+			if _, err := tx.Exec(r.Context(), `UPDATE parties SET pan=CASE WHEN $3::text IS NULL THEN pan ELSE NULLIF($3,'') END,
+				tds_section=CASE WHEN $4::text IS NULL THEN tds_section ELSE NULLIF($4,'') END,
+				deductee_type=CASE WHEN $5::text IS NULL THEN deductee_type ELSE NULLIF($5,'') END,
+				lower_tds_rate_bp=COALESCE($6, lower_tds_rate_bp) WHERE tenant_id=$1 AND id::text=$2`,
+				p.TenantID, id, in.PAN, in.TDSSection, in.DeducteeType, in.LowerTDSRateBP); err != nil {
+				return err
+			}
+		}
 		tag, err := tx.Exec(r.Context(), `UPDATE parties SET name=COALESCE($3,name), phone=COALESCE($4,phone),
 			email=COALESCE($5,email), gstin=COALESCE(NULLIF($6,''),gstin), state_code=COALESCE($7,state_code),
 			address=COALESCE($8,address), credit_limit_paise=COALESCE($9,credit_limit_paise),

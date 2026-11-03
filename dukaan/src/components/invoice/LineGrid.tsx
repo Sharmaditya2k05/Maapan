@@ -12,6 +12,8 @@ import { GST_SLABS_BP } from '@/lib/gst'
 import { formatRate } from '@/lib/money'
 import type { CartLine, ItemFull } from '@/lib/types.pos'
 import { cartTotals, freeTextLine, lineFromItem, newKey, round3, updateLine } from '@/lib/pos/cart'
+import { ITC_ELIGIBILITY } from '@/lib/compliance'
+import type { ItcEligibility } from '@/lib/types'
 import { ItemPicker } from './ItemPicker'
 
 export type LineMode = 'sale' | 'purchase'
@@ -98,6 +100,12 @@ export function LineGrid({ lines, onChange, mode, storeState, placeOfSupply, dis
       {!GST_SLABS_BP.includes(l.tax_rate_bp) && <option value={l.tax_rate_bp}>{formatRate(l.tax_rate_bp)}</option>}
     </Select>
   )
+  const itcCell = (l: CartLine) => (
+    <Select className={`input-sm ${l.itc_eligibility && l.itc_eligibility !== 'eligible' ? 'text-amber-800' : ''}`} value={l.itc_eligibility ?? 'eligible'} disabled={disabled}
+      onChange={(e) => set(l.key, { itc_eligibility: e.target.value === 'eligible' ? undefined : (e.target.value as ItcEligibility) })} aria-label="Input tax credit" title={ITC_ELIGIBILITY.find((o) => o.value === (l.itc_eligibility ?? 'eligible'))?.label}>
+      {ITC_ELIGIBILITY.map((o) => <option key={o.value} value={o.value} title={o.label}>{o.short}</option>)}
+    </Select>
+  )
   const batchCell = (l: CartLine) => (
     <input className="input input-sm font-mono" value={l.batch_no ?? ''} disabled={disabled} placeholder={l.track_batches ? 'Batch *' : 'Batch'} onChange={(e) => set(l.key, { batch_no: e.target.value || undefined })} aria-label="Batch number" />
   )
@@ -121,6 +129,7 @@ export function LineGrid({ lines, onChange, mode, storeState, placeOfSupply, dis
               <label className="block"><span className="label">Disc</span>{discCell(l)}</label>
               <label className="block"><span className="label">GST</span>{taxCell(l)}</label>
               {showBatch && <label className="block col-span-2"><span className="label">Batch</span>{batchCell(l)}</label>}
+              {purchase && <label className="block"><span className="label">ITC</span>{itcCell(l)}</label>}
             </div>
             <div className="flex justify-end pl-8 text-sm font-bold"><Money paise={amount(l) ?? 0} /></div>
           </div>
@@ -128,12 +137,13 @@ export function LineGrid({ lines, onChange, mode, storeState, placeOfSupply, dis
       </div>
       {/* desktop */}
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[900px]">
+        <table className={`w-full ${purchase ? 'min-w-[1020px]' : 'min-w-[900px]'}`}>
           <thead className="bg-slate-50/60">
             <tr>
               <th className="th w-8">#</th><th className="th min-w-[260px]">Item</th><th className="th w-24">HSN</th><th className="th w-24">Qty</th><th className="th w-20">Unit</th>
               <th className="th w-28">{purchase ? 'Cost ₹' : 'Price ₹'}</th><th className="th w-32">Discount</th><th className="th w-24">GST</th>
               {showBatch && <th className="th w-28">Batch</th>}
+              {purchase && <th className="th w-32" title="Input tax credit (GSTR-3B Table 4)">ITC</th>}
               <th className="th text-right">Amount</th><th className="w-10" />
             </tr>
           </thead>
@@ -150,6 +160,7 @@ export function LineGrid({ lines, onChange, mode, storeState, placeOfSupply, dis
                   <td className="px-2 py-2.5">{discCell(l)}</td>
                   <td className="px-2 py-2.5">{taxCell(l)}</td>
                   {showBatch && <td className="px-2 py-2.5">{batchCell(l)}</td>}
+                  {purchase && <td className="px-2 py-2.5">{itcCell(l)}</td>}
                   <td className="td num pt-4 text-right font-semibold"><Money paise={amount(l) ?? 0} /></td>
                   <td className="py-2.5 pr-2">{!disabled && <IconButton icon={Trash2} label="Remove line" onClick={() => remove(l.key)} className="text-slate-400 hover:text-rose-600" />}</td>
                 </tr>

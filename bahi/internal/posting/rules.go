@@ -36,6 +36,15 @@ const (
 	SrcBank       = "bank"
 	SrcCheque     = "cheque"
 	SrcReversal   = "reversal"
+
+	SrcChequeClear  = "cheque.clear"   // Dr Bank / Cr Cheques in Hand when a received cheque clears
+	SrcChequeBounce = "cheque.bounce"  // reversal of the cheque's party voucher
+	SrcBankLine     = "bank.statement" // voucher created from an unmatched bank statement line
+	SrcTDS          = "tds"            // TDS/TCS deduction journal
+	SrcTDSChallan   = "tds.challan"    // challan deposit settling TDS/TCS payable
+	SrcGSTCash      = "gst.cash"       // PMT-06 deposit into the electronic cash ledger
+	SrcGSTSetOff    = "gst.setoff"     // month-end GSTR-3B set-off (Rule 88A)
+	SrcYearEnd      = "year_end"       // year-end close: P&L to Capital
 )
 
 // Entry is one debit or credit line. Exactly one of AccountCode, AccountID or
@@ -58,6 +67,15 @@ type Voucher struct {
 	SourceID  string
 	SourceRef string
 	Entries   []Entry
+	// DueDate (YYYY-MM-DD) is the due date of the bill this voucher raises
+	// (sales/purchase/opening); empty means voucher date + party credit_days.
+	DueDate string `json:"-"`
+	// AgainstSource/AgainstSourceID name the bill a settling voucher (receipt,
+	// payment, credit/debit note) is allocated against, e.g. the invoice a
+	// lenden payment or a sales return refers to. Post allocates up to the
+	// bill's outstanding; the rest stays on account.
+	AgainstSource   string `json:"-"`
+	AgainstSourceID string `json:"-"`
 }
 
 // Total is the sum of debits.
@@ -173,13 +191,16 @@ func ReceiptAccount(gateway, method string) string {
 // saleShape builds entries shaped like a sale: revenue and output-side taxes on
 // the credit side, money/party on the debit side. Other document types are this
 // shape swapped and/or with different accounts.
-func saleShape(p events.InvoicePayload, revenue string, taxes [4]string, fallbackParty string) []Entry {
+func saleShape(p events.InvoicePayload, revenue string, taxes [5]string, fallbackParty string) []Entry {
 	x := &b{store: p.StoreID}
 	x.cr(revenue, "", p.TaxablePaise)
 	x.cr(taxes[0], "", p.CGSTPaise)
 	x.cr(taxes[1], "", p.SGSTPaise)
 	x.cr(taxes[2], "", p.IGSTPaise)
 	x.cr(taxes[3], "", p.CessPaise)
+	// Income-tax TCS (206C) charged on the bill is part of the grand total:
+	// collected for the government on a sale, recoverable on a purchase.
+	x.cr(taxes[4], "", p.TCSPaise)
 	// Positive round-off increases what the customer pays: income side (credit Round Off).
 	x.cr(RoundOff, "", p.RoundOffPaise)
 
@@ -209,8 +230,8 @@ func saleShape(p events.InvoicePayload, revenue string, taxes [4]string, fallbac
 }
 
 var (
-	outputTaxes = [4]string{OutputCGST, OutputSGST, OutputIGST, OutputCess}
-	inputTaxes  = [4]string{InputCGST, InputSGST, InputIGST, InputCess}
+	outputTaxes = [5]string{OutputCGST, OutputSGST, OutputIGST, OutputCess, TCSPayable}
+	inputTaxes  = [5]string{InputCGST, InputSGST, InputIGST, InputCess, TCSReceivable}
 )
 
 // Invoice turns aadesh.invoice.created / aadesh.note.created into a voucher.
@@ -220,7 +241,10 @@ var (
 //	purchase        Dr Purchases, Input GST   Cr Cash/Bank/Supplier
 //	purchase_return Dr Cash/Bank/Supplier     Cr Purchase Returns, Input GST
 func Invoice(p events.InvoicePayload) (Voucher, error) {
-	v := Voucher{Date: p.InvoiceDate, Source: SrcInvoice, SourceID: p.InvoiceID, SourceRef: p.Number}
+	v := Voucher{Date: p.InvoiceDate, Source: SrcInvoice, SourceID: p.InvoiceID, SourceRef: p.Number, DueDate: p.DueDate}
+	if (p.DocType == "sale_return" || p.DocType == "purchase_return") && p.RefInvoiceID != "" {
+		v.AgainstSource, v.AgainstSourceID, v.DueDate = SrcInvoice, p.RefInvoiceID, ""
+	}
 	switch p.DocType {
 	case "sale":
 		v.Type = VSales
@@ -258,7 +282,11 @@ func Payment(p events.PaymentPayload, partyID, storeID, date string, refund bool
 	}
 	v := Voucher{Type: VReceipt, Date: date, Source: SrcPayment, SourceID: p.PaymentID, SourceRef: p.GatewayRef,
 		Narration: fmt.Sprintf("Online payment %s via %s", p.GatewayRef, p.Method), Entries: x.es}
+	if p.InvoiceID != "" && partyID != "" {
+		v.AgainstSource, v.AgainstSourceID = SrcInvoice, p.InvoiceID
+	}
 	if refund {
+		v.AgainstSource, v.AgainstSourceID = "", ""
 		v.Type, v.Source, v.Entries = VPayment, SrcRefund, Swap(x.es)
 		v.Narration = "Refund of " + p.GatewayRef
 		if p.RefundID != "" {

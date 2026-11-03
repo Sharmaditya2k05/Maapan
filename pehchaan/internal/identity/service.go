@@ -42,9 +42,32 @@ type Service struct {
 	Relay       *events.Relay
 	Log         *slog.Logger
 	JWTSecret   []byte
-	Env         string
+	// Keys signs and verifies access/onboarding tokens (kid + previous secret
+	// for rotation). nil = JWTSecret only.
+	Keys *tokens.Keyring
+	// OTPKey keys the OTP hashes (HKDF-derived, never the JWT secret itself).
+	// nil = derived from JWTSecret.
+	OTPKey []byte
+	// InternalTenantOptional lets /internal/v1/tenants/{id} answer callers
+	// that send no X-Tenant-ID (INTERNAL_TENANT_HEADER=optional). Default: required.
+	InternalTenantOptional bool
+	Env                    string
 	DevFixedOTP string // only honoured when Env == "local"
 	Now         func() time.Time
+}
+
+func (s *Service) keys() *tokens.Keyring {
+	if s.Keys != nil {
+		return s.Keys
+	}
+	return tokens.NewKeyring(s.JWTSecret, nil)
+}
+
+func (s *Service) otpHashKey() []byte {
+	if len(s.OTPKey) > 0 {
+		return s.OTPKey
+	}
+	return otp.DeriveKey(s.JWTSecret)
 }
 
 func otpKey(phone string) string      { return "pehchaan:otp:" + phone }
@@ -81,7 +104,7 @@ func (s *Service) RequestOTP(ctx context.Context, rawPhone, channel, ip string) 
 		}
 	}
 	pipe := s.Redis.TxPipeline()
-	pipe.Set(ctx, otpKey(phone), otp.Hash(s.JWTSecret, phone, code), otpTTL)
+	pipe.Set(ctx, otpKey(phone), otp.Hash(s.otpHashKey(), phone, code), otpTTL)
 	pipe.Del(ctx, attemptsKey(phone))
 	if _, err := pipe.Exec(ctx); err != nil {
 		return nil, httpx.Unavailable("could not store OTP")
@@ -127,24 +150,22 @@ func (s *Service) VerifyOTP(ctx context.Context, in otpVerifyInput, ip string) (
 	if locked, _ := s.Redis.Exists(ctx, lockKey(phone)).Result(); locked > 0 {
 		return nil, httpx.TooMany("too many wrong attempts, try again in 15 minutes")
 	}
-	stored, err := s.Redis.Get(ctx, otpKey(phone)).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil, httpx.Unauthorized("OTP expired or not requested")
-	}
+	// Compare and count in one atomic step (Lua): parallel guesses cannot
+	// share one attempt.
+	outcome, n, err := checkOTP(ctx, s.Redis, phone, otp.Hash(s.otpHashKey(), phone, in.OTP), maxWrongAttempts, otpTTL, lockAfterTooMany)
 	if err != nil {
+		s.Log.Error("otp check", "error", err.Error())
 		return nil, httpx.Unavailable("could not verify OTP")
 	}
-	if !otp.Equal(stored, otp.Hash(s.JWTSecret, phone, in.OTP)) {
-		n, _ := s.Redis.Incr(ctx, attemptsKey(phone)).Result()
-		s.Redis.Expire(ctx, attemptsKey(phone), otpTTL)
-		if n >= maxWrongAttempts {
-			s.Redis.Set(ctx, lockKey(phone), "1", lockAfterTooMany)
-			s.Redis.Del(ctx, otpKey(phone), attemptsKey(phone))
-			return nil, httpx.TooMany("too many wrong attempts, try again in 15 minutes")
-		}
+	switch outcome {
+	case otpMatch:
+	case otpMissing:
+		return nil, httpx.Unauthorized("OTP expired or not requested")
+	case otpLocked:
+		return nil, httpx.TooMany("too many wrong attempts, try again in 15 minutes")
+	default:
 		return nil, httpx.Unauthorized("wrong OTP").WithDetails(map[string]any{"attempts_left": maxWrongAttempts - n})
 	}
-	s.Redis.Del(ctx, otpKey(phone), attemptsKey(phone))
 
 	user, err := upsertUser(ctx, s.DB, phone, nil)
 	if err != nil {
@@ -158,7 +179,7 @@ func (s *Service) VerifyOTP(ctx context.Context, in otpVerifyInput, ip string) (
 		return nil, err
 	}
 	if len(ms) == 0 {
-		tok, err := tokens.IssueOnboarding(s.JWTSecret, user.ID, phone, s.Now())
+		tok, err := s.keys().IssueOnboarding(user.ID, phone, s.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +229,7 @@ func (s *Service) issueSession(ctx context.Context, user User, m Membership, sto
 		TenantID: m.TenantID, StoreID: storeID, Role: m.Role, Stores: m.StoreIDs, Phone: user.Phone,
 		RegisteredClaims: auth.RegisteredClaimsFor(user.ID),
 	}
-	access, err := auth.Issue(s.JWTSecret, claims, now)
+	access, err := s.keys().IssueAccess(claims, now)
 	if err != nil {
 		return nil, err
 	}
@@ -285,9 +306,9 @@ func (s *Service) Switch(ctx context.Context, p *auth.Principal, in switchInput)
 // (existing user adding another business).
 func (s *Service) Onboard(ctx context.Context, bearer string, in OnboardingInput, ip string) (*Session, error) {
 	var userID string
-	if oc, err := tokens.ParseOnboarding(s.JWTSecret, bearer); err == nil {
+	if oc, err := s.keys().ParseOnboarding(bearer); err == nil {
 		userID = oc.Subject
-	} else if c, err := auth.Parse(s.JWTSecret, bearer); err == nil {
+	} else if c, err := s.keys().ParseAccess(bearer); err == nil {
 		userID = c.Subject
 	} else {
 		return nil, httpx.Unauthorized("verify your phone first")
@@ -378,7 +399,9 @@ func (s *Service) Me(ctx context.Context, p *auth.Principal) (map[string]any, er
 // --- users ---
 
 // Invite adds (or re-activates) a member by phone.
-func (s *Service) Invite(ctx context.Context, p *auth.Principal, in InviteInput) (*Member, error) {
+// The invitee logs in with OTP on that phone and lands in this business with
+// the given role and stores. A previously removed member is re-activated.
+func (s *Service) Invite(ctx context.Context, p *auth.Principal, in InviteInput, ip string) (*Member, error) {
 	phone, err := otp.NormalizePhone(in.Phone)
 	if err != nil {
 		return nil, httpx.Validation("%s", err.Error())
@@ -396,16 +419,36 @@ func (s *Service) Invite(ctx context.Context, p *auth.Principal, in InviteInput)
 			return err
 		}
 		userID = u.ID
-		tag, err := tx.Exec(ctx, `INSERT INTO memberships (tenant_id, user_id, role, store_ids, invited_by)
-			VALUES ($1,$2,$3,$4::uuid[],$5) ON CONFLICT (tenant_id, user_id) DO NOTHING`,
-			p.TenantID, u.ID, in.Role, in.StoreIDs, p.UserID())
-		if err != nil {
+		if u.Status != "active" {
+			return httpx.Conflict("this account is disabled")
+		}
+		after := membershipState{Role: in.Role, StoreIDs: in.StoreIDs, Active: true}
+		old, err := getMembership(ctx, tx, p.TenantID, u.ID)
+		switch {
+		case err == nil && old.Active:
+			return httpx.Conflict("this phone is already a member; update it instead")
+		case err == nil:
+			// A removed member invited again: re-activate with the new role and stores.
+			if _, err := tx.Exec(ctx, `UPDATE memberships SET role=$3, store_ids=$4::uuid[], active=true, invited_by=$5, updated_at=now()
+				WHERE tenant_id=$1 AND user_id=$2`, p.TenantID, u.ID, in.Role, in.StoreIDs, nilIfEmpty(principalUserUUID(p))); err != nil {
+				return err
+			}
+			before := membershipState{Role: old.Role, StoreIDs: old.StoreIDs, Active: false}
+			audit(ctx, tx, &p.TenantID, p.UserID(), "user.reactivate", u.ID, ip, map[string]any{
+				"phone": otp.Mask(phone), "before": before, "after": after, "changes": membershipChanges(before, after)})
+			return nil
+		case !db.IsNotFound(err):
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return httpx.Conflict("this phone is already a member; update it instead")
+		if _, err := tx.Exec(ctx, `INSERT INTO memberships (tenant_id, user_id, role, store_ids, invited_by)
+			VALUES ($1,$2,$3,$4::uuid[],$5)`, p.TenantID, u.ID, in.Role, in.StoreIDs, nilIfEmpty(principalUserUUID(p))); err != nil {
+			if isUniqueViolation(err) {
+				return httpx.Conflict("this phone is already a member; update it instead")
+			}
+			return err
 		}
-		audit(ctx, tx, &p.TenantID, p.UserID(), "user.invite", u.ID, "", map[string]any{"role": in.Role})
+		audit(ctx, tx, &p.TenantID, p.UserID(), "user.invite", u.ID, ip, map[string]any{
+			"phone": otp.Mask(phone), "after": after})
 		return nil
 	})
 	if err != nil {
@@ -415,7 +458,7 @@ func (s *Service) Invite(ctx context.Context, p *auth.Principal, in InviteInput)
 }
 
 // UpdateMember changes role/stores/active/name of a member.
-func (s *Service) UpdateMember(ctx context.Context, p *auth.Principal, userID string, in MemberUpdate) (*Member, error) {
+func (s *Service) UpdateMember(ctx context.Context, p *auth.Principal, userID string, in MemberUpdate, ip string) (*Member, error) {
 	if userID == p.UserID() && (in.Role != nil || (in.Active != nil && !*in.Active)) {
 		return nil, httpx.Forbidden("you cannot change your own role or deactivate yourself")
 	}
@@ -463,7 +506,22 @@ func (s *Service) UpdateMember(ctx context.Context, p *auth.Principal, userID st
 				return err
 			}
 		}
-		audit(ctx, tx, &p.TenantID, p.UserID(), "user.update", userID, "", map[string]any{"role": role, "active": active})
+		before := membershipState{Role: m.Role, StoreIDs: m.StoreIDs, Active: m.Active}
+		after := membershipState{Role: role, StoreIDs: stores, Active: active}
+		action := "user.update"
+		switch {
+		case before.Active && !after.Active:
+			action = "user.deactivate"
+		case !before.Active && after.Active:
+			action = "user.reactivate"
+		case before.Role != after.Role:
+			action = "user.role_change"
+		}
+		details := map[string]any{"before": before, "after": after, "changes": membershipChanges(before, after)}
+		if in.Name != nil {
+			details["name_changed"] = true
+		}
+		audit(ctx, tx, &p.TenantID, p.UserID(), action, userID, ip, details)
 		return nil
 	})
 	if err != nil {

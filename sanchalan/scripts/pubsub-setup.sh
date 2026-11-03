@@ -22,6 +22,7 @@ SUBS=(
   "pehchaan.tenant.created|bahi bhandar kar"
   "kar.einvoice.generated|aadesh soochna"
   "kar.eway.generated|aadesh"
+  "kar.return.filed|bahi"
 )
 PUSHER="pubsub-pusher@${PROJECT_ID}.iam.gserviceaccount.com"
 

@@ -1,0 +1,14 @@
+SHREE GANESH TRADERS (DEMO)
+Party Master as on 31/03/2026
+,,,,,,,,,,,,,,,,
+S.No.,Party Name,Code,Group,Address,Address 2,City,Pincode,State,Mobile,Email,GSTIN No.,PAN,Credit Limit,Credit Days,Opening Bal,Dr/Cr
+1,Sharma Agencies - Pune,C0001,Sundry Debtors,Shop 4 Laxmi Road,Near Mandai,Pune,411002,Maharashtra,98220 11223,accounts@sharma-agencies.example,27AAKFS4821M1ZQ,,"50,000.00",30,"12,450.00",Dr
+2,Sharma Agencies - Nashik,C0002,Sundry Debtors,College Road,,Nashik,422005,Maharashtra,0253-2571234,,27AAKFS4821M1ZQ,AAKFS4821M,"25,000.00",30 Days,"3,200.50",Dr
+3,Gupta Kirana Stores,C0003,Sundry Debtors,Main Bazar,,Satara,415001,27-Maharashtra,"9890012345 / 02162-234567",gupta.kirana@example,27ABCPG7310Q1ZH,,,15,850,Dr
+4,Patel Distributors,S0001,Sundry Creditors,GIDC Estate,Phase 2,Vapi,396195,Gujarat,9825098250,orders@pateldist.example,24AAHCM5521R1Z2,,,45,"(18,900.00)",
+5,Konkan Fresh Foods,S0002,Sundry Creditors,MIDC Area,,Ratnagiri,415639,Maharashtra,02352-220011,,27AAJFK9034L1ZU,,,,"7,500.00",Cr
+6,Ramesh Cash Customer,C0004,Sundry Debtors,,,Pune,,Maharashtra,12345,not-an-email,,,,,0,
+7,Nandi Wholesale,S0003,Sundry Creditors,Peenya Industrial Area,,Bengaluru,560058,Karnataka,+91 99000 12121,,29AACCN6612P1ZY,,,30,"1,05,000.00",Cr
+8,Gupta Kirana Stores,C0005,Sundry Debtors,Duplicate entry,,Satara,,Maharashtra,,,,,,,,
+9,Rajdhani Traders,C0006,Sundry Debtors,Karol Bagh,,New Delhi,110005,Delhi,9811198111,,07AAEFR3378H1Z0,ZZZZZ9999Z,,30,"2,100.00",Dr
+10,Bad GSTIN Stores,C0007,Sundry Debtors,,,Pune,,Kerala,9822012345,,27AAKFS4821M1ZA,,,,100,Dr

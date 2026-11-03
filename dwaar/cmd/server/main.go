@@ -42,19 +42,46 @@ func run(ctx context.Context) error {
 	}
 	var limiter ratelimit.Limiter = ratelimit.NewMemory()
 	if app.Redis != nil {
-		limiter = &ratelimit.Redis{Client: app.Redis}
+		// Redis first; when it fails the limits move to process memory instead
+		// of disappearing (OTP routes must never be unlimited).
+		limiter = ratelimit.NewFallback(&ratelimit.Redis{Client: app.Redis}, func(err error) {
+			app.Log.Error("Redis rate limiter failing: using in-memory limits (per instance)", "error", err.Error())
+		})
 	} else {
 		app.Log.Warn("REDIS_URL not set: using in-memory rate limits (per instance)")
 	}
 
+	catalog := config.String("API_CATALOG", "")
+	if catalog == "" {
+		catalog = gateway.CatalogPublic
+		if app.Cfg.IsProd() {
+			catalog = gateway.CatalogAuth
+		}
+	}
+	switch catalog {
+	case gateway.CatalogPublic, gateway.CatalogAuth, gateway.CatalogOff:
+	default:
+		return fmt.Errorf("API_CATALOG must be public, auth or off, got %q", catalog)
+	}
+	var previous []byte
+	if p := config.String("JWT_SECRET_PREVIOUS", ""); p != "" {
+		previous = []byte(p)
+	}
+
 	opt := gateway.Options{
-		JWTSecret: []byte(app.Cfg.JWTSecret),
-		Upstreams: upstreams,
-		Limiter:   limiter,
+		JWTSecret:         []byte(app.Cfg.JWTSecret),
+		PreviousJWTSecret: previous,
+		Upstreams:         upstreams,
+		Limiter:           limiter,
 		Limits: gateway.Limits{
-			PublicPerMinute: config.Int("RATE_LIMIT_PUBLIC_PER_MIN", 20),
-			UserPerMinute:   config.Int("RATE_LIMIT_USER_PER_MIN", 600),
+			PublicPerMinute:  config.Int("RATE_LIMIT_PUBLIC_PER_MIN", 20),
+			WebhookPerMinute: config.Int("RATE_LIMIT_WEBHOOK_PER_MIN", 1200),
+			UserPerMinute:    config.Int("RATE_LIMIT_USER_PER_MIN", 600),
 		},
+		TrustedProxies:  config.Int("TRUSTED_PROXIES", 1),
+		Catalog:         catalog,
+		StatusTTL:       config.Duration("STATUS_CACHE", 10*time.Second),
+		StatusTimeout:   config.Duration("STATUS_TIMEOUT", 3*time.Second),
 		MaxBodyBytes:    int64(config.Int("MAX_BODY_MB", 25)) << 20,
 		UpstreamTimeout: config.Duration("UPSTREAM_TIMEOUT", 0),
 		EdgeRetry:       config.Duration("EDGE_RETRY", 75*time.Second),
@@ -72,6 +99,7 @@ func run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /api", httpx.H(gw.Catalog))
+	mux.Handle("GET /api/_status", httpx.H(gw.Status))
 	mux.Handle("GET /wake", httpx.H(gw.Wake))
 	mux.Handle("/api/", gw)
 	return app.Run(ctx, mux)

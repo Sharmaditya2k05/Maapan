@@ -15,16 +15,18 @@ import (
 
 // Base is the configuration every Maapan Go service shares.
 type Base struct {
-	ServiceName   string
-	Env           string // local | dev | staging | prod
-	Port          string
-	DatabaseURL   string
-	RedisURL      string
-	JWTSecret     string
-	ServiceSecret string
-	AutoMigrate   bool
-	LogLevel      string
-	CORSOrigins   []string
+	ServiceName string
+	Env         string // local | dev | staging | prod
+	Port        string
+	DatabaseURL string
+	RedisURL    string
+	JWTSecret   string
+	// JWTSecretPrevious is still accepted while JWT_SECRET is being rotated.
+	JWTSecretPrevious string
+	ServiceSecret     string
+	AutoMigrate       bool
+	LogLevel          string
+	CORSOrigins       []string
 
 	EventsDriver string // direct | pubsub | log
 	GCPProject   string
@@ -37,19 +39,20 @@ type Base struct {
 func LoadBase(serviceName, defaultPort string) Base {
 	LoadDotEnv(".env")
 	b := Base{
-		ServiceName:   serviceName,
-		Env:           String("APP_ENV", "local"),
-		Port:          String("PORT", defaultPort),
-		DatabaseURL:   String("DATABASE_URL", ""),
-		RedisURL:      String("REDIS_URL", ""),
-		JWTSecret:     String("JWT_SECRET", ""),
-		ServiceSecret: String("SERVICE_SECRET", ""),
-		AutoMigrate:   Bool("AUTO_MIGRATE", true),
-		LogLevel:      String("LOG_LEVEL", "info"),
-		CORSOrigins:   List("CORS_ORIGINS", []string{"http://localhost:3000"}),
-		EventsDriver:  String("EVENTS_DRIVER", "direct"),
-		GCPProject:    String("GCP_PROJECT", ""),
-		UseIDTokens:   Bool("USE_ID_TOKENS", false),
+		ServiceName:       serviceName,
+		Env:               String("APP_ENV", "local"),
+		Port:              String("PORT", defaultPort),
+		DatabaseURL:       String("DATABASE_URL", ""),
+		RedisURL:          String("REDIS_URL", ""),
+		JWTSecret:         String("JWT_SECRET", ""),
+		JWTSecretPrevious: String("JWT_SECRET_PREVIOUS", ""),
+		ServiceSecret:     String("SERVICE_SECRET", ""),
+		AutoMigrate:       Bool("AUTO_MIGRATE", true),
+		LogLevel:          String("LOG_LEVEL", "info"),
+		CORSOrigins:       List("CORS_ORIGINS", []string{"http://localhost:3000"}),
+		EventsDriver:      String("EVENTS_DRIVER", "direct"),
+		GCPProject:        String("GCP_PROJECT", ""),
+		UseIDTokens:       Bool("USE_ID_TOKENS", false),
 	}
 	return b
 }

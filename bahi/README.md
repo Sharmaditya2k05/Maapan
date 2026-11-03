@@ -14,17 +14,24 @@
   never dropped and never retried forever
 - **Period lock** — nothing is posted on or before the locked date: manual entries get `409`, events are quarantined
 - **Books** — party/account statements with running balance, cash book, bank book, day book
-- **Bank** — deposits/withdrawals/charges/interest, reconciliation; **cheques** lifecycle (received → deposited → cleared/bounced, issued → cleared/bounced)
-- **Reports** — trial balance, P&L (gross + net), balance sheet, receivables/payables aging (FIFO, 0-30/31-60/61-90/90+), cash-flow; all with `?format=csv`
+- **Bank** — deposits/withdrawals/charges/interest; **bank statement import** (CSV/XLSX, SBI/HDFC/ICICI/Axis/Kotak presets)
+  with rule-based auto-matching and a real **BRS**; **cheque register** (Cheques in Hand → Bank, bounce reverses, PDC report)
+- **Bill-wise** — against-reference / on-account allocation of receipts and payments, outstanding per bill, bill-wise
+  party statement, aging by **due date**
+- **TDS / TCS** — 194Q / 194C / 194J(a)(b) with FY thresholds per party and the no-PAN rate, 206C(1H) tracking,
+  challans, 26Q-ready CSV
+- **GST set-off** — month-end Rule 88A set-off journal and PMT-06 cash deposit from kar's GSTR-3B computation
+- **Year-end close**, **Tally Prime XML export**, trigger-based **edit audit trail**
+- **Reports** — trial balance, P&L (gross + net, per store), balance sheet, receivables/payables aging, cash-flow; all with `?format=csv`
 
 | | |
 |---|---|
 | Port (local) | `7002` |
 | Database | `maapan_bahi` |
 | Publishes | — |
-| Subscribes | `pehchaan.tenant.created`, `aadesh.invoice.created`, `aadesh.note.created`, `aadesh.invoice.cancelled`, `lenden.payment.captured`, `lenden.payment.refunded`, `lenden.settlement.processed`, `bhandar.stock.moved`, `nirmaan.production.completed` |
-| Calls | `kar` (`POST /internal/v1/gstin/verify`, only for `?verify=true`) |
-| Called by | `aadesh` (party lookup), `aayaat` (bulk import), `buddhi` (summary) |
+| Subscribes | `pehchaan.tenant.created`, `aadesh.invoice.created`, `aadesh.note.created`, `aadesh.invoice.cancelled`, `lenden.payment.captured`, `lenden.payment.refunded`, `lenden.settlement.processed`, `bhandar.stock.moved`, `nirmaan.production.completed`, `kar.return.filed` |
+| Calls | `kar` (`POST /internal/v1/gstin/verify` for `?verify=true`; `GET /v1/returns/gstr3b` with the caller's token for `POST /v1/gst/setoff` without a computation) |
+| Called by | `aadesh` (party lookup, credit check), `aayaat` (bulk import), `buddhi` (summary), `soochna` (overdue receivables) |
 | Gateway prefix | `https://api.maapan.in/api/bahi/...` |
 | First deployed | **Week 4** (accounts master & parties) → Week 6 (purchase posting) → **Week 7** (cashbook & banking) → **Week 8** (reports) |
 
@@ -82,6 +89,16 @@ curl -s "localhost:7002/v1/reports/aging?kind=receivables&format=csv" -H "Author
 | `bhandar.stock.moved` | Journal `JV/` | perpetual-inventory reclassification, see below. `source_id` = `<source>/<source_id>` (+`/rev` for reversals) |
 | `nirmaan.production.completed` | Production `MF/` | Dr Stock-FG (total cost) · Cr Stock-RM (consumed) · Cr WIP (overhead absorbed) |
 | `pehchaan.tenant.created` | — | seeds the chart of accounts |
+| `kar.return.filed` (GSTR-3B) | Journal `JV/` | set-off journal from the payload's utilisation + cash (paise), dated the filing date; skipped if the period was already set off by hand |
+
+**TCS on invoices.** `tcs_paise` on an invoice (part of its grand total) is credited to *TCS Payable* 2225 on a sale and
+debited to *TCS Receivable* 1425 on a purchase (returns mirror it). Before phase 4 such invoices did not balance and
+were quarantined.
+
+**Bills.** Every sales, purchase and opening voucher raises a **bill** per party (due date = aadesh's `due_date`, else
+voucher date + party `credit_days`). A `lenden.payment.captured` with an `invoice_id`, and a credit/debit note with a
+`ref_invoice_id`, are allocated against that invoice's bill automatically (up to its outstanding; the rest stays on
+account). Reversing a voucher cancels its bill and frees every allocation to or from it.
 
 **Counter tenders vs. lenden captures.** A tender that carries a `payment_request_id` was collected through a
 lenden QR / payment link; lenden's `payment.captured` books it (Dr Gateway Clearing, Cr Party), so the sale
@@ -141,6 +158,106 @@ envelope, resolving the row on success (or answering `409` with the new reason).
 Unknown parties are **not** re-pointed at Walk-in Customers / Cash Suppliers any more — that silently kept the
 receivable off the party's ledger.
 
+### Bill-wise accounting
+
+Party ledger balance = Σ bill outstanding + unallocated movements. `PUT /v1/vouchers/{id}/allocations` sets a settling
+voucher's against-reference allocations (the rest is on account); `POST /v1/vouchers` and `POST /v1/cheques` accept
+the same `allocations` inline; `POST /v1/parties/{id}/allocations/auto` settles open bills FIFO by due date with
+unallocated receipts/payments. Allocating more than a bill's outstanding or a voucher's unallocated amount is `422`.
+Aging (`basis=due`, default) buckets each bill's outstanding by days **past its due date** (not due / 0-30 / 31-60 /
+61-90 / 90+) and shows on-account money separately (`net` = ledger balance); `basis=date` keeps the phase-1 FIFO report.
+
+### Cheque register
+
+| Step | Voucher |
+|---|---|
+| received (cheque date reached) | receipt Dr *Cheques in Hand* / Cr party |
+| received, post-dated | nothing until deposited on/after its date (earlier deposit is `409`) |
+| deposited → cleared | receipt Dr Bank / Cr *Cheques in Hand* (`source=cheque.clear`) |
+| deposited → bounced, received → cancelled | reversal of the receipt (Dr party / Cr Cheques in Hand), `bounce_reason` kept |
+| issued (cheque date reached) | payment Dr party / Cr Bank (BRS then shows it unpresented until the bank debits it) |
+| issued, post-dated | payment booked when it clears |
+| issued → bounced / cancelled | reversal of the payment |
+
+Cheques recorded before phase 4 have no party voucher; they keep the old behaviour (Dr Bank / Cr party on clearing).
+`GET /v1/cheques/pdc` buckets pending cheques by cheque date: `overdue` (date reached, not presented), `due_soon`
+(within `days`, default 7), `later`, `awaiting_clearance` (deposited).
+
+### Bank statement import and BRS
+
+`POST /v1/bank/statements/import` takes multipart (`file`, `bank_account_id`, `preset`, optional `mapping` JSON) or JSON
+(`content_base64`). CSV (comma/semicolon/tab) and `.xlsx` (first sheet; Excel serial dates) are read; `.xls` is
+refused. Presets `sbi`, `hdfc`, `icici`, `axis`, `kotak`, `generic`; the header row is found among the first 60 rows,
+preamble and footer rows are skipped, and a `mapping` (`date, value_date, description, reference, debit, credit,
+amount, drcr, balance, date_format`) overrides any column. Re-importing the same file adds nothing (line hash).
+Auto-match (after import, or `POST /v1/bank/auto-match`) pairs a line with an unreconciled posting on that bank account
+of the same amount within −3/+10 days: first when a reference matches (cheque no. with leading zeros ignored, UTR,
+voucher number, bank-transaction reference — also inside the narration), then when the amount+date pairing is unique
+both ways; anything ambiguous stays for manual `match`/`unmatch`/`ignore`. `POST …/{id}/voucher` books an unmatched
+line (charges, interest, a direct deposit from a party) and matches it.
+
+**BRS** (`GET /v1/reports/brs?bank_account_id=&as_of=[&from=]`): balance per books, + cheques issued not presented,
+− deposits not credited, + bank credits / − bank debits not in the books = computed bank balance, compared with the
+last imported running balance on or before `as_of` (`difference_paise` 0 = reconciled). A posting is cleared as of a
+date when its matched line is dated on/before it (or a legacy `bank_transactions.reconciled_at` is). Pass `from` to
+treat postings older than your first imported statement as cleared.
+
+### TDS / TCS
+
+| Section | Rate | Threshold (per party, per FY) | No PAN |
+|---|---|---|---|
+| 194Q purchase of goods | 0.1 % | only the part of purchases above ₹50 lakh | 5 % |
+| 194C contractors | 1 % individual/HUF, 2 % others | single > ₹30,000 or aggregate > ₹1,00,000 (catch-up on crossing) | 20 % |
+| 194J(a) technical / 194J(b) professional (`194J` = b) | 2 % / 10 % | aggregate > ₹50,000 (catch-up) | 20 % |
+| 206C(1H) TCS on sale of goods | 0.1 % | receipts above ₹50 lakh | 1 % |
+
+Parties carry `pan`, `tds_section`, `deductee_type` (else from the PAN's 4th letter) and `lower_tds_rate_bp` (Sec 197).
+Every bill/payment tested is recorded in `tds_entries`, so the FY aggregate is the sum of recorded bases; TDS is rounded
+to the rupee. A deduction posts Dr party / Cr *TDS Payable* 2220 (and is allocated against the bill named in
+`ref_voucher_id`); TDS a customer deducted from us (`direction: receivable`) posts Dr *TDS Receivable* 1420 / Cr party.
+`POST /v1/vouchers` takes `tds: {party_id, section, base_paise}` to add the deduction to a payment. With
+`PUT /v1/settings/tds {"auto_194q":true}`, purchase bills from suppliers tagged 194Q are deducted automatically on the
+taxable value. A challan (`POST /v1/tds/challans`, by `entry_ids` or `month`) posts Dr TDS/TCS Payable (+ Interest on
+Loans for `interest_paise`) / Cr Bank and links the entries; `GET /v1/tds/26q?fy=&quarter=&format=csv` is the 26Q
+deductee annexure (section code, deductee code, PAN or PANNOTAVBL, amounts, rate, challan BSR/date/serial, reason `C`
+for the higher rate). 206C(1H) was omitted from 1 April 2025 (Finance Act 2025): bahi still books TCS an invoice
+carries and `GET /v1/tcs/206c1h` tracks buyers against the threshold, but proposes no collection after that date.
+Section codes are the 1961-Act numbers the RPU/TRACES use; the Income-tax Act 2025 renumbers them from 1 April 2026.
+
+### GST set-off
+
+`POST /v1/gst/setoff {gstin, period:"MMYYYY", date?, computation?, pay_from_bank_account_id?}` (`ledger:write` +
+`gst:file`). `computation` is kar's GSTR-3B `computation` block as kar returns it (rupees); when omitted bahi fetches
+`GET /v1/returns/gstr3b?period=&gstin=` from kar with the caller's token. Posted:
+
+| Voucher | Entries |
+|---|---|
+| PMT-06 deposit (with `pay_from_bank_account_id`) | Dr *Electronic Cash Ledger* IGST/CGST/SGST/Cess (1451-1454) · Cr Bank |
+| Set-off journal (`source=gst.setoff`, key `GSTIN/period`) | per utilisation Dr Output ‹liability head› / Cr Input ‹credit head›; cash part Dr Output / Cr Electronic Cash Ledger |
+
+Utilisation breaking Sec 49/49A (CGST↔SGST, cess paying other heads) is `422`; a second set-off for the period is
+`409`. Warnings flag a set-off larger than the book liability or ITC. The Input GST accounts are the books' electronic
+credit ledger (unutilised ITC stays there). Reverse-charge tax (cash only) is reported, not posted.
+
+### Year-end close
+
+`POST /v1/year-end/close {"fy":"25-26", "close_drawings":true, "lock":true}` (`settings:manage`, FY must have ended):
+one journal dated 31 March zeroes every income/expense account (and Drawings) and carries the net to *Capital* 3100;
+the period lock moves to 31 March. The P&L report leaves closing vouchers out (a closed year still shows its profit);
+trial balance and balance sheet include them. Balance-sheet accounts need no carry-forward (statements open with all
+earlier entries). `POST /v1/year-end/{fy}/reopen` reverses it (unlock first); closing twice is `409`.
+
+### Tally export and audit trail
+
+`GET /v1/export/tally?from=&to=&company=` returns a Tally Prime "Import Data" XML: ledgers used in the period (mapped to
+Tally's primary groups, opening balance at `from`, party GSTIN/PAN/address, bill-wise on with credit period) followed by
+every voucher (debits negative, `ISDEEMEDPOSITIVE`), with bill allocations as New Ref / Agst Ref / On Account.
+
+Every insert/update/delete of accounts, parties, vouchers, cheques, period lock, bill allocations, bank statements,
+TDS entries/challans/settings and GST set-offs, and every update/delete of voucher entries, bills, statement lines and
+bank transactions, is written to `audit_log` by a Postgres trigger with before/after images and the actor
+(`bahi.actor`, set per transaction). `GET /v1/audit?entity=&entity_id=&actor=&action=&from=&to=` reads it.
+
 ### Period lock
 
 `PUT /v1/settings/period-lock {"locked_until":"YYYY-MM-DD"}` (`settings:manage`) locks the books up to and
@@ -171,17 +288,44 @@ Dates are `YYYY-MM-DD`; `from`/`to` default to the start of the current financia
 | `GET/POST /v1/bank/transactions` | read / `ledger:write` | deposit · withdrawal · charges · interest |
 | `POST /v1/bank/transactions/{id}/reconcile` | `ledger:write` | `{cleared_on}` |
 | `GET/POST /v1/cheques` | read / `payment:collect` | Record received/issued cheques |
-| `POST /v1/cheques/{id}/status` | `ledger:write` | `{status,date}` — posts receipt/payment on `cleared` |
 | `GET /v1/reports/trial-balance` | `report:read` | `?as_of=` |
 | `GET /v1/reports/profit-loss` | `report:read` | `?from=&to=` |
 | `GET /v1/reports/balance-sheet` | `report:read` | `?as_of=` |
-| `GET /v1/reports/aging` | `report:read` | `?kind=receivables|payables&as_of=` |
 | `GET /v1/reports/cash-flow` | `report:read` | Cash + bank in/out by voucher type |
 | `GET /v1/reports/summary` | `report:read` | Sales, purchases, receivables, payables, cash, bank |
 | `GET /v1/quarantine` | `ledger:read` | Unresolved quarantined events (`event_id, event_type, reason, payload, created_at`) |
 | `POST /v1/quarantine/{event_id}/retry` | `ledger:write` | Replay the stored envelope through its handler; `200` resolved, `409` still failing |
 | `GET /v1/settings/period-lock` | `ledger:read` | `{locked_until, locked_by, locked_at}` (`locked_until` empty = open) |
 | `PUT /v1/settings/period-lock` | `settings:manage` | `{"locked_until":"YYYY-MM-DD"}`; `""` unlocks |
+| `GET /v1/parties/{id}/bills` | `ledger:read` | Bills with allocated/outstanding/overdue days; `?status=all`, `?as_of=`, `?format=csv` |
+| `GET /v1/parties/{id}/statement?view=bills` | `ledger:read` | Bill-wise statement: bills with their settlements, on-account vouchers, balance, overdue |
+| `POST /v1/parties/{id}/allocations/auto` | `ledger:write` | FIFO-by-due-date allocation of unallocated receipts/payments |
+| `GET/PUT /v1/vouchers/{id}/allocations` | read / `ledger:write` | `{allocations:[{bill_id,amount_paise}]}` replaces the voucher's against-reference allocations |
+| `GET /v1/reports/aging` | `report:read` | `?kind=receivables|payables&as_of=&basis=due|date` (due-date buckets + on account by default) |
+| `GET /v1/reports/profit-loss?store_id=` · `GET /v1/reports/profit-loss/stores` | `report:read` | One store's P&L · P&L per store |
+| `GET /v1/cashbook?store_id=` · `GET /v1/bankbook?store_id=` | `ledger:read` | Store-wise books |
+| `GET /v1/cheques?status=pending` · `GET /v1/cheques/pdc` | `ledger:read` | Register (`?format=csv`) · PDC due-date report (`?as_of=&days=&direction=`) |
+| `POST /v1/cheques/{id}/status` | `ledger:write` | `{status: deposited|cleared|bounced|cancelled, date, reason}` |
+| `GET /v1/bank/statement-presets` | `ledger:read` | Column presets |
+| `POST /v1/bank/statements/import` · `GET /v1/bank/statements` | `ledger:write` / read | Import (auto-matches) · imports with line/duplicate/matched counts |
+| `GET /v1/bank/statement-lines` | `ledger:read` | `?bank_account_id=&status=unmatched|matched|ignored&statement_id=&from=&to=` |
+| `POST /v1/bank/auto-match` | `ledger:write` | `{bank_account_id, from, to, before_days, after_days}` |
+| `POST /v1/bank/statement-lines/{id}/match` · `/unmatch` · `/ignore` | `ledger:write` | Manual match `{entry_id|voucher_id}` (amounts must agree) |
+| `POST /v1/bank/statement-lines/{id}/voucher` | `ledger:write` | `{account_id|party_id, narration, allocations}` book the line and match it |
+| `GET /v1/reports/brs` | `report:read` | `?bank_account_id=&as_of=&from=` bank reconciliation statement (`?format=csv`) |
+| `GET/PUT /v1/settings/tds` | read / `settings:manage` | `{tan, deductor_name, auto_194q}` |
+| `GET /v1/tds/sections` · `POST /v1/tds/compute` | `ledger:read` | Sections · preview `{party_id, section?, base_paise, date}` with the FY history |
+| `POST /v1/tds/deductions` | `ledger:write` | `{party_id, section?, base_paise, date, direction: payable|receivable, tds_paise?, ref_voucher_id?, key?}` |
+| `GET /v1/tds/entries` · `GET /v1/tds/summary` | read | `?fy=&section=&kind=&direction=&party_id=&open=true` · by section, deposited vs pending |
+| `POST/GET /v1/tds/challans` | `ledger:write` / read | `{kind, bsr_code, challan_no, paid_on, bank_account_id, entry_ids | month, section?, interest_paise}` |
+| `GET /v1/tds/26q` | `report:read` | `?fy=26-27&quarter=1..4&format=csv` |
+| `GET /v1/tcs/206c1h` | `report:read` | `?fy=` buyers vs the ₹50 lakh threshold, TCS booked |
+| `POST /v1/gst/setoff` · `GET /v1/gst/setoffs` | `ledger:write`+`gst:file` / read | Set-off journal (+ PMT-06 deposit) · periods set off |
+| `POST /v1/year-end/close` · `GET /v1/year-end` · `POST /v1/year-end/{fy}/reopen` | `settings:manage` / read | Year-end close |
+| `GET /v1/export/tally` | `report:read` | `?from=&to=&company=` Tally Prime XML |
+| `GET /v1/audit` | `ledger:read` | Edit audit trail |
+| `GET /internal/v1/parties/{id}/credit` | service secret | `{credit_limit_paise, credit_days, balance_paise, overdue_paise, available_paise (−1 = no limit), over_limit}` |
+| `GET /internal/v1/receivables/overdue` | service secret | `?as_of=` → `{rows:[{party_id, party_name, phone, email, overdue_paise, oldest_due_date, days_overdue}]}`: customers with bill-wise outstanding past due (for soochna reminders) |
 | `GET /internal/v1/parties/{id}` | service secret | Party for billing (ARCHITECTURE §6) + `credit_days` so aadesh can compute due dates and enforce credit |
 | `POST /internal/v1/bulk/parties` | service secret | Upsert by `external_ref`, optional opening balance |
 | `POST /internal/v1/bulk/opening-balances` | service secret | One opening voucher per line; re-runs are no-ops |
@@ -204,7 +348,19 @@ internal/ledger/events.go      Pub/Sub handlers (handle = once per event id, cla
 internal/ledger/quarantine.go  quarantined_events, event_attempts, list/retry endpoints
 internal/ledger/periodlock.go  period_locks, the 409 check Post applies, settings endpoints
 internal/ledger/integration_test.go  DB-backed tests (TEST_DATABASE_URL)
-migrations/                    schema + balance trigger; 0002 = phase-1 accounts, reversed_by, quarantine, period lock
+internal/ledger/bills.go       bill-wise allocation, bill-wise statement, credit check
+internal/ledger/aging.go       due-date aging, overdue receivables feed
+internal/ledger/cheques.go     cheque register, PDC report
+internal/ledger/bankrec.go     statement import, matching, BRS
+internal/ledger/tds.go         TDS/TCS deductions, challans, 26Q, 206C(1H)
+internal/ledger/gstsetoff.go   GSTR-3B set-off (+ kar.return.filed)
+internal/ledger/yearend.go     year-end close / reopen
+internal/ledger/tally.go       Tally Prime XML export
+internal/ledger/audit.go       audit trail reader
+internal/posting/tds.go, setoff.go, bankmatch.go   pure TDS rules, set-off voucher, auto-match
+internal/bankstmt/             CSV/XLSX statement parser with bank presets
+migrations/                    schema + balance trigger; 0002 = phase-1 accounts, reversed_by, quarantine, period lock;
+                               0003 = phase-4 accounts, bills, bank statements, cheque columns, TDS, GST set-off, audit trail
 ```
 
 ### Chart of accounts added in phase 1
@@ -218,6 +374,24 @@ migrations/                    schema + balance trigger; 0002 = phase-1 accounts
 | 5160 | Stock Loss / Write-off | Direct Expenses (group) | shrinkage, expiry write-offs |
 | 5290 | Other Direct Expenses | Direct Expenses (group) | manual direct costs (5200 is a group now) |
 | 5590 | Other Indirect Expenses | Indirect Expenses (group) | manual overheads (5500 is a group now; its old entries moved here) |
+
+### Chart of accounts added in phase 4
+
+`migrations/0003_phase4.up.sql` adds these to every existing tenant (idempotent); new tenants get them from the seed.
+
+| Code | Account | Group |
+|---|---|---|
+| 1250 | Advance to Suppliers | Assets |
+| 1420 / 1425 | TDS Receivable / TCS Receivable | Duties & Taxes (Input) |
+| 1450 (group) 1451-1454 | GST Electronic Cash Ledger — IGST / CGST / SGST / Cess | Assets |
+| 1500 (group) 1510-1540, 1590 | Fixed Assets: Furniture & Fixtures, Plant & Machinery, Computers & Office Equipment, Vehicles; Accumulated Depreciation | Assets |
+| 2150 | Advance from Customers | Liabilities |
+| 2220 / 2225 | TDS Payable / TCS Payable | Duties & Taxes (Output) |
+| 2400 (group) 2410, 2420 | Loans: Secured, Unsecured | Liabilities |
+| 3200 | Drawings | Capital & Equity |
+| 4200 | Discount Received | Income |
+| 5210 | Freight Inward | Direct Expenses |
+| 5520-5570 | Salaries & Wages, Rent, Electricity, Depreciation, Freight Outward, Interest on Loans | Indirect Expenses |
 
 ## Deploy (Cloud Run)
 
@@ -237,8 +411,12 @@ gcloud builds submit --config cloudbuild.yaml --substitutions=_ENV=dev,SHORT_SHA
 ## Known gaps / next steps
 
 - Changing a party's `type` does not move its account between Debtors and Creditors.
-- No year-end closing voucher yet (P&L accumulates in the balance sheet); the period lock protects closed months.
-- Bank-statement import (CSV/MT940) for auto-reconciliation.
+- Bank statements: MT940 and old `.xls` are not read; matching is one line ↔ one posting (no split/batch deposits).
+- TDS: purchase returns do not reverse an auto-194Q deduction; no Form 16A, 27Q (non-residents), 27EQ (TCS) export;
+  interest/late fee under 201(1A)/234E is not computed (enter `interest_paise` on the challan).
+- GST set-off: reverse-charge cash, interest and late fee are not posted; a set-off cannot be reopened (post a
+  correcting journal).
+- Cheque printing layout and bounce charges are not implemented.
 - Multiple bank accounts work (`POST /v1/accounts` with `is_bank`), but settlements and manual online receipts
   always post to the default *Bank Account* (1110); `bank_account_last` on the settlement is not yet matched.
 - `stock.moved` always uses *Stock - Finished Goods* 1310; raw-material purchases therefore show in 1310 while

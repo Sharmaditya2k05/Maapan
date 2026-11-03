@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/maapan/mool/httpx"
@@ -40,6 +41,8 @@ func isBadUUID(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "22P02"
 }
+
+func validUUID(s string) bool { return uuid.Validate(s) == nil }
 
 func isSerialization(err error) bool {
 	var pe *pgconn.PgError

@@ -14,23 +14,39 @@ var Services = []string{
 	"pehchaan", "bahi", "kar", "aadesh", "lenden", "soochna", "aayaat", "bhandar", "nirmaan", "buddhi",
 }
 
+// Route classes of public routes. Each class has its own rate-limit bucket.
+const (
+	// ClassOTP starts or finishes an OTP login. Its limit never fails open:
+	// when the limiter is unavailable the request is refused (503).
+	ClassOTP = "otp"
+	// ClassAuth is the rest of the token lifecycle (refresh, logout, onboarding).
+	ClassAuth = "auth"
+	// ClassWebhook is a provider callback (payment and SMS/WhatsApp delivery
+	// reports). Providers send these in bursts from a few IPs, so they get a
+	// separate, larger bucket; the service verifies the signature or token.
+	ClassWebhook = "webhook"
+)
+
 // publicRoutes need no JWT (ARCHITECTURE.md §2). Keyed "METHOD /api/path".
-var publicRoutes = map[string]bool{
-	"POST /api/pehchaan/v1/auth/otp/request": true,
-	"POST /api/pehchaan/v1/auth/otp/verify":  true,
-	"POST /api/pehchaan/v1/auth/refresh":     true,
-	"POST /api/pehchaan/v1/auth/logout":      true,
-	"POST /api/lenden/v1/webhooks/razorpay":  true,
-	"POST /api/lenden/v1/webhooks/cashfree":  true,
+var publicRoutes = map[string]string{
+	"POST /api/pehchaan/v1/auth/otp/request": ClassOTP,
+	"POST /api/pehchaan/v1/auth/otp/verify":  ClassOTP,
+	"POST /api/pehchaan/v1/auth/refresh":     ClassAuth,
+	"POST /api/pehchaan/v1/auth/logout":      ClassAuth,
 	// Onboarding carries pehchaan's own short-lived onboarding token, not an access token.
-	"POST /api/pehchaan/v1/onboarding": true,
+	"POST /api/pehchaan/v1/onboarding":      ClassAuth,
+	"POST /api/lenden/v1/webhooks/razorpay": ClassWebhook,
+	"POST /api/lenden/v1/webhooks/cashfree": ClassWebhook,
 	// SMS/WhatsApp delivery reports; soochna checks ?token= itself.
-	"POST /api/soochna/v1/webhooks/gupshup": true,
-	"POST /api/soochna/v1/webhooks/msg91":   true,
+	"POST /api/soochna/v1/webhooks/gupshup": ClassWebhook,
+	"POST /api/soochna/v1/webhooks/msg91":   ClassWebhook,
 }
 
 // IsPublic reports whether method+path can be called without a token.
-func IsPublic(method, path string) bool {
+func IsPublic(method, path string) bool { return PublicClass(method, path) != "" }
+
+// PublicClass returns the route class of a public route, "" for routes that need a token.
+func PublicClass(method, path string) string {
 	return publicRoutes[method+" "+strings.TrimRight(path, "/")]
 }
 

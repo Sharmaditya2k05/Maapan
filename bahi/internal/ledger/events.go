@@ -27,6 +27,7 @@ func (s *Service) EventRoutes() events.Router {
 		events.ProductionCompleted: s.onProduction,
 		events.StockMoved:          s.onStockMoved,
 		events.SettlementProcessed: s.onSettlement,
+		events.ReturnFiled:         s.onReturnFiled,
 	}
 }
 
@@ -95,8 +96,11 @@ func (s *Service) onInvoice(ctx context.Context, e events.Envelope) error {
 		if err := s.requireParties(ctx, tx, e.TenantID, v.Entries); err != nil {
 			return err
 		}
-		_, err := Post(ctx, tx, e.TenantID, "system:"+orDefault(p.CreatedBy, "aadesh"), v)
-		return err
+		posted, err := Post(ctx, tx, e.TenantID, "system:"+orDefault(p.CreatedBy, "aadesh"), v)
+		if err != nil {
+			return err
+		}
+		return s.autoTDSOnPurchase(ctx, tx, e.TenantID, p, posted.ID)
 	})
 }
 

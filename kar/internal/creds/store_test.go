@@ -110,3 +110,26 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal("empty input must fail")
 	}
 }
+
+// An edit that sends blank usernames (GET only returns them masked) keeps the
+// stored usernames, and a new password still replaces the old one.
+func TestStorePutBlankUsernameKeepsStored(t *testing.T) {
+	pool := testPool(t)
+	c, _ := NewCipher(DeriveKey("svc"))
+	s := &Store{DB: pool, Cipher: c}
+	ctx := context.Background()
+	tenant := uuid.NewString()
+	if _, err := s.Put(ctx, tenant, "27AAPFU0939F1ZV", Input{EInvoiceUsername: "acme_api", EInvoicePassword: "old", EWayUsername: "acme_ewb"}, "u"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Put(ctx, tenant, "27AAPFU0939F1ZV", Input{EInvoicePassword: "new"}, "u"); err != nil {
+		t.Fatalf("blank usernames on an existing GSTIN must be accepted: %v", err)
+	}
+	got, ok, err := s.Credentials(ctx, tenant, "27AAPFU0939F1ZV")
+	if err != nil || !ok {
+		t.Fatalf("credentials %v %v", ok, err)
+	}
+	if got.EInvoiceUsername != "acme_api" || got.EWayUsername != "acme_ewb" || got.EInvoicePassword != "new" {
+		t.Fatalf("got %+v", got)
+	}
+}

@@ -15,6 +15,7 @@ import { openPrint, thermalWidth } from '@/lib/pos/print'
 import { whatsappLink } from '@/lib/pos/invoice'
 import { InvoiceBadges, InvoiceDetail } from '@/components/invoice/InvoiceDetail'
 import { CancelDialog } from '@/components/invoice/CancelDialog'
+import { CompliancePanel } from '@/components/compliance/CompliancePanel'
 import { UpiQrDialog } from '@/components/invoice/UpiQrDialog'
 
 export default function SaleDetailPage() {
@@ -54,7 +55,7 @@ export default function SaleDetailPage() {
                 </>
               } />
             {doc.status === 'cancelled' && <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"><Badge tone="red">Cancelled</Badge> {doc.cancel_reason}{doc.cancelled_at ? ` · ${fmtDate(doc.cancelled_at, true)}` : ''}</div>}
-            <InvoiceDetail invoice={doc} party={party.data} />
+            <InvoiceDetail invoice={doc} party={party.data}><CompliancePanel invoice={doc} /></InvoiceDetail>
             <CancelDialog invoice={doc} open={cancelOpen} onClose={() => setCancelOpen(false)} onDone={() => toast(`${doc.number} cancelled`)} />
             <UpiQrDialog open={qrOpen} onClose={() => { setQrOpen(false); invalidate(`/aadesh/v1/invoices/${id}`) }} amountPaise={doc.balance_paise} create={createRequest} title={`Collect balance on ${doc.number}`}
               onPaid={() => { toast('Payment received'); setTimeout(() => invalidate(`/aadesh/v1/invoices/${id}`, '/aadesh/v1/invoices'), 1500) }} />

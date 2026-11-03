@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -45,24 +44,36 @@ func (g *Gupshup) Name() string { return "gupshup" }
 func (g *Gupshup) Send(ctx context.Context, m Message) (string, error) {
 	form := url.Values{}
 	form.Set("channel", "whatsapp")
-	form.Set("source", g.source)
+	source, appName := g.source, g.appName
+	if m.SenderID != "" { // per-tenant WhatsApp number from the registry
+		source = digits(m.SenderID)
+		if m.AppName != "" {
+			appName = m.AppName
+		}
+	}
+	form.Set("source", source)
 	form.Set("destination", digits(m.To))
-	form.Set("src.name", g.appName)
+	form.Set("src.name", appName)
 
+	tid := m.TemplateID
+	if tid == "" {
+		tid = g.templates[m.Template]
+	}
 	endpoint := "/wa/api/v1/msg"
-	if tid := g.templates[m.Template]; tid != "" {
+	name := fileName(m.MediaFilename, m.MediaURL)
+	if tid != "" {
 		endpoint = "/wa/api/v1/template/msg"
 		tpl, _ := json.Marshal(map[string]any{"id": tid, "params": templates.Positional(m.Template, m.Params)})
 		form.Set("template", string(tpl))
-		if m.MediaURL != "" {
+		if m.MediaURL != "" { // template with a DOCUMENT header
 			doc, _ := json.Marshal(map[string]any{"type": "document", "document": map[string]string{
-				"link": m.MediaURL, "filename": path.Base(m.MediaURL)}})
+				"link": m.MediaURL, "filename": name}})
 			form.Set("message", string(doc))
 		}
 	} else {
 		var msg []byte
 		if m.MediaURL != "" {
-			msg, _ = json.Marshal(map[string]string{"type": "file", "url": m.MediaURL, "filename": path.Base(m.MediaURL), "caption": m.Body})
+			msg, _ = json.Marshal(map[string]string{"type": "file", "url": m.MediaURL, "filename": name, "caption": m.Body})
 		} else {
 			msg, _ = json.Marshal(map[string]string{"type": "text", "text": m.Body})
 		}

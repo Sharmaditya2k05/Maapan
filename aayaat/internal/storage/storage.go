@@ -22,6 +22,8 @@ type Storage interface {
 	Name() string
 	Put(ctx context.Context, key string, r io.Reader, contentType string) (int64, error)
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
+	// Delete removes a stored file; a missing file is not an error.
+	Delete(ctx context.Context, key string) error
 }
 
 // Local stores files under Dir (STORAGE_DIR).
@@ -62,6 +64,17 @@ func (l Local) Open(_ context.Context, key string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return os.Open(p)
+}
+
+func (l Local) Delete(_ context.Context, key string) error {
+	p, err := l.path(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // GCS stores files in a Cloud Storage bucket (GCS_BUCKET) using the runtime
@@ -127,6 +140,27 @@ func (g *GCS) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("gcs download: %d %s", res.StatusCode, b)
 	}
 	return res.Body, nil
+}
+
+func (g *GCS) Delete(ctx context.Context, key string) error {
+	u := fmt.Sprintf("https://storage.googleapis.com/storage/v1/b/%s/o/%s", url.PathEscape(g.Bucket), url.PathEscape(key))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	if err := g.auth(ctx, req); err != nil {
+		return err
+	}
+	res, err := g.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 && res.StatusCode != http.StatusNotFound {
+		b, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+		return fmt.Errorf("gcs delete: %d %s", res.StatusCode, b)
+	}
+	return nil
 }
 
 func (g *GCS) auth(ctx context.Context, req *http.Request) error {

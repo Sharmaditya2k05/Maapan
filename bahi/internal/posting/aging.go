@@ -74,3 +74,58 @@ func Age(ms []Movement, asOf time.Time) Buckets {
 	}
 	return bk
 }
+
+// OpenBill is the unsettled part of one bill, for due-date aging.
+type OpenBill struct {
+	DueDate     time.Time
+	BillDate    time.Time
+	Outstanding int64
+}
+
+// DueBuckets is outstanding by days past the due date.
+type DueBuckets struct {
+	NotDue    int64  `json:"not_due_paise"`
+	D0to30    int64  `json:"d0_30_paise"` // 1-30 days overdue (due today counts here as 0)
+	D31to60   int64  `json:"d31_60_paise"`
+	D61to90   int64  `json:"d61_90_paise"`
+	Over90    int64  `json:"d90_plus_paise"`
+	Total     int64  `json:"total_paise"`      // Σ open bills
+	OnAccount int64  `json:"on_account_paise"` // unallocated settlements (advance); reduces the net
+	Net       int64  `json:"net_paise"`        // Total − OnAccount + unbilled debits = ledger balance
+	Oldest    string `json:"oldest_due_date,omitempty"`
+}
+
+// AgeByDue buckets open bills by how far past their due date they are at
+// asOf. A bill not yet due is NotDue. unallocated is ledger balance − Σ open
+// bills (negative = on-account credit not allocated to any bill).
+func AgeByDue(bills []OpenBill, unallocated int64, asOf time.Time) DueBuckets {
+	sort.SliceStable(bills, func(i, j int) bool { return bills[i].DueDate.Before(bills[j].DueDate) })
+	var bk DueBuckets
+	for _, b := range bills {
+		if b.Outstanding == 0 {
+			continue
+		}
+		if bk.Oldest == "" {
+			bk.Oldest = b.DueDate.Format(time.DateOnly)
+		}
+		days := int(asOf.Sub(b.DueDate).Hours() / 24)
+		switch {
+		case days < 0:
+			bk.NotDue += b.Outstanding
+		case days <= 30:
+			bk.D0to30 += b.Outstanding
+		case days <= 60:
+			bk.D31to60 += b.Outstanding
+		case days <= 90:
+			bk.D61to90 += b.Outstanding
+		default:
+			bk.Over90 += b.Outstanding
+		}
+		bk.Total += b.Outstanding
+	}
+	if unallocated < 0 {
+		bk.OnAccount = -unallocated
+	}
+	bk.Net = bk.Total + unallocated
+	return bk
+}

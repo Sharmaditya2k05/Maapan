@@ -489,7 +489,7 @@ func TestStockMovedPostsCOGS(t *testing.T) {
 	// Posting to the groups themselves is refused; their statements include the children.
 	ids, err := s.descendants(ctx, tenant, accountID(t, pool, tenant, posting.DirectExpenses))
 	must(err)
-	if len(ids) != 3 {
+	if len(ids) != 4 { // COGS, Stock Loss, Other Direct Expenses, Freight Inward (phase 4)
 		t.Fatalf("Direct Expenses group leaves: %d", len(ids))
 	}
 

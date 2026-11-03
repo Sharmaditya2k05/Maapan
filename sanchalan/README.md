@@ -13,13 +13,15 @@ architecture contract and the deployment plan.
 | `local/init-databases.sql` | Creates one database per service |
 | `scripts/run-local.sh` | Run Go services on your machine with `go run`, logs in `logs/` |
 | `scripts/gcp-bootstrap.sh` | One-time GCP setup per environment (APIs, VPC, bucket, secrets, service accounts; Cloud SQL/Memorystore only if chosen) |
-| `supabase/setup.sql` | Run in Supabase SQL Editor: one schema + login role per service |
+| `supabase/setup.sql` | Run in Supabase SQL Editor: one schema + login role per service, connection limit sized per service (max instances × pool) |
 | `scripts/supabase-secrets.sh` | Writes each service's Supabase connection string into Secret Manager |
-| `scripts/iam-invokers.sh` | Cloud Run `run.invoker` grants — who may call whom |
+| `scripts/iam-invokers.sh` | Cloud Run `run.invoker` grants — who may call whom (mirrors every `svc.New(…_URL)` client) |
 | `scripts/pubsub-setup.sh` | Topics, push subscriptions, dead-letter |
-| `scripts/scheduler-setup.sh` | Cloud Scheduler jobs |
+| `scripts/scheduler-setup.sh` | Cloud Scheduler jobs (OIDC token only, no secret in job headers) |
 | `scripts/triggers-setup.sh` | Cloud Build triggers per repo |
 | `scripts/deploy.sh` | Manual deploy of one / all repos |
+| [docs/runbooks/](docs/runbooks/) | [Dead-letter replay](docs/runbooks/dead-letter-replay.md) (Pub/Sub, soochna messages, bahi quarantine) · [Outbox dead rows](docs/runbooks/outbox-dead-rows.md) · [Period reopen](docs/runbooks/period-reopen.md) · [Render demo redeploy](docs/runbooks/render-demo-redeploy.md) |
+| `load/maapan.js` | k6 load test through dwaar: gateway reads + aadesh POS billing (see below) |
 
 ## Repos
 
@@ -81,3 +83,19 @@ ENV=dev ./scripts/scheduler-setup.sh
 ```
 
 Then follow the week-by-week plan in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Load test (k6)
+
+`load/maapan.js` drives dwaar with two scenarios: **gateway** (`/me`, invoice list, ledger summary) and
+**billing** (POS preview + `POST /v1/invoices`, with a deliberate resend of every 10th bill to check that
+aadesh deduplicates by `client_uuid`). Thresholds: < 1 % errors, invoice create p95 < 1.2 s.
+
+```bash
+# local stack (OTP 123456), 30-second smoke
+k6 run -e BASE_URL=http://localhost:8000 -e PHONE=9876543210 sanchalan/load/maapan.js
+# dev/staging, 7-minute steady load; several users' tokens keep you under dwaar's 600 req/min per user
+k6 run -e BASE_URL=https://api.dev.maapan.in -e TOKEN=<jwt1>,<jwt2> -e PROFILE=load sanchalan/load/maapan.js
+```
+
+Profiles: `smoke` (default), `load`, `stress`, `soak`. Every bill is a real sale: use a tenant made for
+load tests. The script refuses `api.maapan.in` unless `ALLOW_PROD=1`.

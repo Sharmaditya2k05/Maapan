@@ -229,3 +229,24 @@ type TenantCreatedPayload struct {
 	OwnerPhone   string `json:"owner_phone"`
 	StoreID      string `json:"store_id"` // the default store created with the tenant
 }
+
+// GSTUtilisation is one credit-to-liability transfer of a GSTR-3B set-off
+// (Rule 88A), in paise. Heads are igst | cgst | sgst | cess.
+type GSTUtilisation struct {
+	From        string `json:"from"` // credit head
+	To          string `json:"to"`   // liability head
+	AmountPaise int64  `json:"amount_paise"`
+}
+
+// ReturnFiledPayload is the data of kar.return.filed: a GST return was filed
+// for a registration and period. For GSTR-3B it carries the set-off kar
+// computed, so bahi can post the month's set-off journal.
+type ReturnFiledPayload struct {
+	ReturnType  string           `json:"return_type"` // GSTR3B | GSTR1 | …
+	GSTIN       string           `json:"gstin"`
+	Period      string           `json:"period"` // MMYYYY
+	ARN         string           `json:"arn,omitempty"`
+	FiledAt     string           `json:"filed_at"` // RFC3339
+	Utilisation []GSTUtilisation `json:"utilisation,omitempty"`
+	CashPaise   map[string]int64 `json:"cash_paise,omitempty"` // forward-charge liability paid from the cash ledger, by head
+}

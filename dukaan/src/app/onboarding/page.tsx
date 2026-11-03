@@ -9,6 +9,7 @@ import { api, errorMessage } from '@/lib/api'
 import { session } from '@/lib/session'
 import { refreshSessionUser } from '@/lib/pehchaan'
 import { STATES, validateGSTIN } from '@/lib/gst'
+import { isValidPin } from '@/lib/compliance'
 import type { PehchaanSession } from '@/lib/types'
 
 interface Handoff { token: string; phone: string }
@@ -16,7 +17,7 @@ interface Handoff { token: string; phone: string }
 export default function OnboardingPage() {
   const router = useRouter()
   const [handoff, setHandoff] = useState<Handoff | null>(null)
-  const [form, setForm] = useState({ owner_name: '', business_name: '', gstin: '', state_code: '', store_name: 'Main store', address: '' })
+  const [form, setForm] = useState({ owner_name: '', business_name: '', gstin: '', state_code: '', store_name: 'Main store', address: '', city: '', pin: '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }))
@@ -44,12 +45,13 @@ export default function OnboardingPage() {
     if (!form.business_name.trim()) return setErr('Business name is required.')
     if (!form.state_code) return setErr('Choose the state your business is registered in.')
     if (gstinError) return setErr(gstinError)
+    if (form.pin && !isValidPin(form.pin)) return setErr('PIN code is 6 digits.')
     if (!handoff) return
     setBusy(true)
     try {
       const sess = await api<PehchaanSession>('/pehchaan/v1/onboarding', {
         method: 'POST', auth: false, headers: { Authorization: `Bearer ${handoff.token}` },
-        body: { ...form, gstin: form.gstin.trim().toUpperCase() || undefined, address: form.address.trim() || undefined },
+        body: { ...form, gstin: form.gstin.trim().toUpperCase() || undefined, address: form.address.trim() || undefined, city: form.city.trim() || undefined, pin: form.pin.trim() || undefined },
       })
       sessionStorage.removeItem('maapan.onboarding')
       session.setTokens({ access_token: sess.access_token, refresh_token: sess.refresh_token })
@@ -87,7 +89,12 @@ export default function OnboardingPage() {
             <div className="relative"><Store size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><Input className="pl-9" value={form.store_name} onChange={(e) => set('store_name', e.target.value)} /></div>
           </Field>
           <Field label="Address (needed on invoices)" className="sm:col-span-2">
-            <Textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Shop no., street, city, PIN" />
+            <Textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Shop no., street, area" />
+          </Field>
+          <Field label="City (optional)"><Input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Pune" /></Field>
+          <Field label="PIN code (optional)" error={form.pin.length === 6 && !isValidPin(form.pin) ? 'PIN code is 6 digits, not starting with 0' : undefined}
+            hint="Needed for e-invoicing: the IRP rejects invoices whose seller has no city and PIN. You can add it later in Settings → GST registrations.">
+            <Input value={form.pin} inputMode="numeric" className="num" onChange={(e) => set('pin', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="411001" />
           </Field>
         </div>
         {err && <div className="mt-4"><ErrorBox message={err} /></div>}

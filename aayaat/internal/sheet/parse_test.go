@@ -65,6 +65,21 @@ func TestParseRateQtyDate(t *testing.T) {
 	if _, err := ParseDate("31st March"); err == nil {
 		t.Error("garbage date must fail")
 	}
+	// Tally XML dates and Tally's d-Mon-yyyy batch dates.
+	for in, want := range map[string]string{"20260401": "2026-04-01", "1-Jan-2026": "2026-01-01", "31-Dec-2026": "2026-12-31"} {
+		if got, err := ParseDate(in); err != nil || got != want {
+			t.Errorf("ParseDate(%q)=%q %v want %q", in, got, err, want)
+		}
+	}
+	// A bare year is not Excel serial 2027 (1905-07-19); small numbers are not dates.
+	for _, bad := range []string{"2027", "1999", "1500", "99999", "20261301"} {
+		if got, err := ParseDate(bad); err == nil {
+			t.Errorf("ParseDate(%q) = %q, want an error", bad, got)
+		}
+	}
+	if _, err := ParseDate("2027"); err == nil || !strings.Contains(err.Error(), "only a year") {
+		t.Errorf("bare year message: %v", err)
+	}
 }
 
 func TestCSVWorkbook(t *testing.T) {
@@ -77,7 +92,10 @@ func TestCSVWorkbook(t *testing.T) {
 	if len(rows) != 2 || rows[0][0] != "Party Name" || rows[1][1] != "27AAPFU0939F1ZV" {
 		t.Fatalf("rows %v", rows)
 	}
-	if _, err := Open(strings.NewReader(""), "old.xls"); err != ErrUnsupported {
-		t.Fatal("xls must be unsupported")
+	if _, err := Open(strings.NewReader(""), "empty.xls"); err != ErrUnsupported {
+		t.Fatal("an empty .xls is unsupported")
+	}
+	if _, err := Open(strings.NewReader("x"), "notes.docx"); err != ErrUnsupported {
+		t.Fatal("docx is unsupported")
 	}
 }

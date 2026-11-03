@@ -424,27 +424,10 @@ export interface TaxSettingsUpdate {
   b2cl_threshold_paise?: number
 }
 
-/** kar compliance.Transport (body of POST /v1/eway-bills/{id}/json). */
-export interface EwayTransportInput {
-  trans_mode: 'road' | 'rail' | 'air' | 'ship'
-  trans_distance: number
-  transporter_id?: string
-  transporter_name?: string
-  trans_doc_no?: string
-  trans_doc_date?: string
-  vehicle_no?: string
-  vehicle_type?: 'R' | 'O'
-  from_pincode?: number
-  to_pincode?: number
-}
+/** kar e-invoice / e-way records and inputs live in types.kar.ts. */
+export type { StoredCompliance } from './types.kar'
 
-export interface EwayResponse { invoice_id: string; below_threshold: boolean; warnings: string[]; payload: unknown }
-export interface EinvoiceInput { seller_pincode?: number; buyer_pincode?: number }
-export interface EinvoiceResponse { invoice_id: string; warnings?: string[]; payload: unknown }
-/** GET /v1/eway-bills/{id} and /v1/einvoices/{id}. */
-export interface StoredCompliance { invoice_number: string; payload: unknown; created_by: string; created_at: string }
-
-/* kar returns (GSTN offline-tool structure; amounts in rupees as floats) */
+/* kar returns (GSTN offline-tool structure; amounts in rupees as JSON numbers with two decimals) */
 
 export interface ItemDet { rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }
 export interface Itm { num: number; itm_det: ItemDet }
@@ -455,37 +438,95 @@ export interface B2CL { pos: string; inv: B2CLInv[] }
 export interface B2CS { sply_ty: 'INTRA' | 'INTER'; pos: string; typ: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }
 export interface CdnrNote { ntty: 'C' | 'D'; nt_num: string; nt_dt: string; val: number; pos: string; rchrg: string; inv_typ: string; itms: Itm[] }
 export interface CDNR { ctin: string; nt: CdnrNote[] }
+/** Credit/debit notes to unregistered buyers (typ B2CL | EXPWP | EXPWOP). */
+export interface CDNUR { typ: string; ntty: 'C' | 'D'; nt_num: string; nt_dt: string; val: number; pos?: string; itms: Itm[] }
+export interface ExpItm { txval: number; rt: number; iamt: number; csamt: number }
+export interface ExpInv { inum: string; idt: string; val: number; sbpcode?: string; sbnum?: string; sbdt?: string; itms: ExpItm[] }
+export interface EXP { exp_typ: 'WPAY' | 'WOPAY'; inv: ExpInv[] }
+/** Table 8: INTRB2B | INTRAB2B | INTRB2C | INTRAB2C. */
+export interface NilRow { sply_ty: string; expt_amt: number; nil_amt: number; ngsup_amt: number }
 export interface HSNRow { num: number; hsn_sc: string; desc: string; uqc: string; qty: number; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }
 export interface DocRange { num: number; from: string; to: string; totnum: number; cancel: number; net_issue: number }
-export interface DocDet { doc_num: number; docs: DocRange[] }
+export interface DocDet { doc_num: number; doc_typ?: string; docs: DocRange[] }
+export interface SectionTotal { records: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }
 
-/** kar returns.GSTR1. */
+/** kar returns.GSTR1 (GET /v1/returns/gstr1): GSTN sections plus a UI summary and warnings. */
 export interface GSTR1 {
   gstin: string
   fp: string
+  version?: string
+  hash?: string
   b2b: B2B[]
   b2cl: B2CL[]
   b2cs: B2CS[]
   cdnr: CDNR[]
-  hsn: { data: HSNRow[] | null }
+  cdnur?: CDNUR[]
+  exp?: EXP[]
+  nil?: { inv: NilRow[] | null }
+  hsn: { hsn_b2b?: HSNRow[] | null; hsn_b2c?: HSNRow[] | null }
   doc_issue: { doc_det: DocDet[] | null }
-  warnings?: string[]
+  summary?: {
+    sections: Record<string, SectionTotal>
+    documents: number
+    cancelled: number
+    excluded: number
+    liability: { igst: number; cgst: number; sgst: number; cess: number }
+  }
+  warnings?: string[] | null
 }
 
 export interface TaxHead { txval?: number; iamt: number; camt: number; samt: number; csamt: number }
 export interface UnregSupply { pos: string; txval: number; iamt: number }
 export interface ITCRow extends TaxHead { ty: string }
 export interface Taxes { igst: number; cgst: number; sgst: number; cess: number }
-export interface SetOff { liability: Taxes; itc_available: Taxes; itc_utilised: Taxes; cash_payable: Taxes; itc_carry_forward: Taxes }
+export interface Utilisation { from: string; to: string; amount: number }
+export interface PayRow { head: string; liability: number; paid_igst: number; paid_cgst: number; paid_sgst: number; paid_cess: number; cash: number }
+export interface SetOff {
+  liability: Taxes
+  itc_available: Taxes
+  itc_utilised: Taxes
+  cash_payable: Taxes
+  itc_carry_forward: Taxes
+  utilisation?: Utilisation[] | null
+  payable?: PayRow[] | null
+  opening_itc?: Taxes
+  current_itc?: Taxes
+  reverse_charge_cash?: Taxes
+  total_cash?: Taxes
+}
+export interface ITCBooks {
+  eligible: TaxHead
+  ineligible_17_5: TaxHead
+  ineligible_other: TaxHead
+  reverse_charge: TaxHead
+  no_supplier_gstin: TaxHead
+  no_supplier_gstin_bills: number
+  net_claimed: TaxHead
+  purchase_bills: number
+  purchase_returns: number
+}
+export interface ITCComparison {
+  books: Taxes
+  gstr2b: Taxes
+  difference: Taxes
+  detail?: import('./types.kar').ITCSummary
+  imported: boolean
+  note?: string
+}
 
-/** kar returns.GSTR3B. */
+/** kar returns.GSTR3B (GET /v1/returns/gstr3b). */
 export interface GSTR3B {
   gstin: string
   ret_period: string
   sup_details: { osup_det: TaxHead; osup_zero: TaxHead; osup_nil_exmp: TaxHead; isup_rev: TaxHead; osup_nongst: TaxHead }
-  inter_sup: { unreg_details: UnregSupply[] }
-  itc_elg: { itc_avl: ITCRow[]; itc_rev: ITCRow[]; itc_net: TaxHead }
+  inter_sup: { unreg_details: UnregSupply[] | null; comp_details?: UnregSupply[] | null; uin_details?: UnregSupply[] | null }
+  itc_elg: { itc_avl: ITCRow[]; itc_rev: ITCRow[]; itc_net: TaxHead; itc_inelg?: ITCRow[] | null }
+  inward_sup?: { isup_details: { ty: string; inter: number; intra: number }[] | null }
   computation: SetOff
+  itc_books?: ITCBooks
+  itc_2b?: ITCComparison | null
+  summary?: { documents: number; excluded: number; outward_reverse_charge?: TaxHead }
+  warnings?: string[] | null
 }
 
 /** Re-exported for pickers that hand invoices around. */

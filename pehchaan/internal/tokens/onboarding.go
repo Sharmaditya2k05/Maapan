@@ -22,11 +22,14 @@ type OnboardingClaims struct {
 
 // IssueOnboarding signs an onboarding token for userID/phone.
 func IssueOnboarding(secret []byte, userID, phone string, now time.Time) (string, error) {
-	c := OnboardingClaims{Phone: phone, RegisteredClaims: jwt.RegisteredClaims{
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, onboardingClaims(userID, phone, now)).SignedString(secret)
+}
+
+func onboardingClaims(userID, phone string, now time.Time) OnboardingClaims {
+	return OnboardingClaims{Phone: phone, RegisteredClaims: jwt.RegisteredClaims{
 		Subject: userID, Issuer: OnboardingIssuer,
 		IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(OnboardingTTL)),
 	}}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(secret)
 }
 
 // ParseOnboarding verifies an onboarding token.

@@ -1,4 +1,4 @@
-// aayaat (आयात) — import service: MargBooks / Excel / CSV migration into bahi and bhandar.
+// aayaat (आयात) — import service: MargBooks / Tally / Excel / CSV migration into bahi and bhandar.
 //
 // Normal mode serves HTTP. Worker mode (`aayaat -job <id> -tenant <id>`) commits
 // one large import and exits; it runs as the `aayaat-worker` Cloud Run Job.
@@ -59,6 +59,10 @@ func run(ctx context.Context, jobID, tenantID string) error {
 		Targets: clients.Targets{
 			Bahi:    svc.New(config.String("BAHI_URL", "http://localhost:7002"), secret, idTok),
 			Bhandar: svc.New(config.String("BHANDAR_URL", "http://localhost:7008"), secret, idTok),
+			// Fields bahi / bhandar do not accept yet (PAN, shipping address,
+			// alt units, batch mfg date / MRP, opening line external_ref).
+			BahiExtras:    config.Bool("BAHI_EXTRAS", false),
+			BhandarExtras: config.Bool("BHANDAR_EXTRAS", false),
 		},
 		LargeRows: config.Int("LARGE_IMPORT_ROWS", 50_000),
 	}
@@ -80,7 +84,8 @@ func run(ctx context.Context, jobID, tenantID string) error {
 		return app.Relay.Flush(ctx) // publish aayaat.import.completed before exiting
 	}
 
-	s.RecoverStale(ctx, 15*time.Minute)
+	// Release imports interrupted on any instance, at start and every 5 minutes.
+	go s.Maintain(ctx, config.Duration("RECOVER_EVERY", 5*time.Minute), config.Duration("STALE_AFTER", 15*time.Minute))
 	mux := http.NewServeMux()
 	s.Routes(mux, app.Verifier)
 	return app.Run(ctx, mux)

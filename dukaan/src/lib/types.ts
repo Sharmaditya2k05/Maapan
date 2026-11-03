@@ -3,7 +3,7 @@ import type { GstLine } from './gst'
 import type { Role } from './rbac'
 
 /** pehchaan Store. */
-export interface Store { id: string; tenant_id?: string; name: string; code: string; state_code: string; gstin?: string; address?: string; phone?: string; active?: boolean }
+export interface Store { id: string; tenant_id?: string; name: string; code: string; state_code: string; gstin?: string; address?: string; phone?: string; active?: boolean; registration_id?: string }
 
 /** Built by loadSessionUser() from pehchaan GET /v1/me + GET /v1/stores. */
 export interface SessionUser {
@@ -111,11 +111,16 @@ export type TenderMode = 'cash' | 'card' | 'upi' | 'bank' | 'credit' | 'other'
 /** A counter payment. payment_request_id links a UPI/card tender to the lenden request it was confirmed through. */
 export interface Tender { mode: TenderMode; amount_paise: number; reference?: string; payment_request_id?: string }
 
+/** Purchase-side ITC eligibility (GSTR-3B Table 4); sales lines never carry it. */
+export type ItcEligibility = 'eligible' | 'ineligible_17_5' | 'ineligible_other'
+
 export interface InvoiceLineInput extends GstLine {
   item_id?: string
   name: string
   unit?: string
   batch_no?: string
+  /** Purchase bills and debit notes only (aadesh rejects it on sales). */
+  itc_eligibility?: ItcEligibility
 }
 
 export type DocType = 'sale' | 'purchase' | 'sale_return' | 'purchase_return'
@@ -200,7 +205,24 @@ export interface Invoice {
   /** grand total − credited − paid, never below 0. */
   balance_paise: number
   amount_in_words: string
+  registration_id?: string
+  /** e-Invoice (kar → aadesh). */
   irn?: string
+  ack_no?: string
+  ack_date?: string
+  signed_qr?: string
+  einvoice_status?: 'generated' | 'cancelled' | 'failed' | string
+  einvoice_error?: string
+  einvoice_error_code?: string
+  irn_cancelled_at?: string
+  /** e-Way bill (kar → aadesh). */
+  ewb_no?: string
+  ewb_date?: string
+  ewb_valid_upto?: string
+  ewb_status?: 'generated' | 'cancelled' | 'failed' | string
+  ewb_error?: string
+  ewb_vehicle_no?: string
+  ewb_distance_km?: number
   notes?: string
   cancel_reason?: string
   cancelled_at?: string
