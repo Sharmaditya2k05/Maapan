@@ -33,6 +33,11 @@ func TestClientIP(t *testing.T) {
 		{[]string{"6.6.6.6, 203.0.113.7"}, 0, "192.0.2.1"},             // header not trusted at all
 		{[]string{"not-an-ip"}, 1, "192.0.2.1"},                        // garbage falls back to the peer
 		{[]string{"2001:db8::1"}, 1, "2001:db8::1"},
+		{[]string{"203.0.113.7, 10.201.4.9"}, 1, "203.0.113.7"},           // Render: internal hop behind the edge
+		{[]string{"6.6.6.6, 203.0.113.7, 10.201.4.9"}, 1, "203.0.113.7"},  // ...spoofed first hop still ignored
+		{[]string{"203.0.113.7, 172.16.0.2, 10.0.0.1"}, 1, "203.0.113.7"}, // several internal hops
+		{[]string{"10.0.0.5"}, 1, "10.0.0.5"},                             // only internal hops: keep it
+		{[]string{"192.168.1.20, 127.0.0.1"}, 1, "192.168.1.20"},          // local dev: leftmost private
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest("GET", "/", nil) // RemoteAddr 192.0.2.1:1234

@@ -17,6 +17,12 @@ import (
 // not append), the leftmost entry is used: every entry present then came from
 // a trusted hop.
 //
+// A private or loopback address at that position is one of the platform's own
+// internal hops (Render puts a 10.x proxy behind its edge), never a public
+// client, so ClientIP keeps moving left past such entries to the first public
+// one. Everything it passes was appended by infrastructure, and a public entry
+// it stops on was too, so a spoofed first hop still cannot be picked.
+//
 // Typical values: 1 behind Cloud Run's or Render's front end, 2 behind a
 // Google external HTTPS load balancer in front of Cloud Run (it appends
 // "<client>, <lb>").
@@ -39,6 +45,9 @@ func ClientIP(r *http.Request, trustedProxies int) string {
 			if i < 0 {
 				i = 0
 			}
+			for i > 0 && internalIP(hops[i]) {
+				i--
+			}
 			if ip := cleanIP(hops[i]); ip != "" {
 				return ip
 			}
@@ -59,6 +68,12 @@ func cleanIP(s string) string {
 		}
 	}
 	return ""
+}
+
+// internalIP reports whether s is a private, loopback or link-local address.
+func internalIP(s string) bool {
+	ip := net.ParseIP(cleanIP(s))
+	return ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast())
 }
 
 func peerIP(remote string) string {
