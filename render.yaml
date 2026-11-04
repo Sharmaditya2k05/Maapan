@@ -85,6 +85,8 @@ services:
           property: connectionString
       - key: UPSTREAM_TIMEOUT
         value: 90s     # a sleeping free service takes about a minute to wake
+      - key: CLIENT_IP_HEADER
+        value: CF-Connecting-IP   # Render's Cloudflare edge sets it to the real client
 
   - type: web
     name: maapan-pehchaan

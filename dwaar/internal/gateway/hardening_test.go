@@ -297,3 +297,33 @@ func TestStatusAndMetrics(t *testing.T) {
 		t.Fatalf("status must be cached, probed %d times", probes.Load())
 	}
 }
+
+// Behind Cloudflare (Render) the edge's CF-Connecting-IP names the client; the
+// X-Forwarded-For hops nearest dwaar are Cloudflare and Render's own proxy.
+func TestClientIPHeader(t *testing.T) {
+	var seen atomic.Value
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Store(r.Header.Get("X-Forwarded-For"))
+		io.WriteString(w, "ok")
+	}))
+	defer up.Close()
+	u, _ := url.Parse(up.URL)
+	for _, c := range []struct{ header, cf, want string }{
+		{"CF-Connecting-IP", "182.77.72.107", "182.77.72.107"},
+		{"CF-Connecting-IP", "", "172.71.124.73"},        // header missing: X-Forwarded-For
+		{"CF-Connecting-IP", "garbage", "172.71.124.73"}, // unparsable: X-Forwarded-For
+		{"", "182.77.72.107", "172.71.124.73"},           // not configured: header ignored
+	} {
+		g := New(Options{JWTSecret: secret, Upstreams: Upstreams{"pehchaan": u}, Limiter: ratelimit.NewMemory(),
+			Limits: Limits{PublicPerMinute: 100}, TrustedProxies: 1, ClientIPHeader: c.header})
+		req := httptest.NewRequest("POST", "/api/pehchaan/v1/auth/otp/request", nil)
+		req.Header.Set("X-Forwarded-For", "182.77.72.107, 172.71.124.73, 10.29.161.137")
+		if c.cf != "" {
+			req.Header.Set("CF-Connecting-IP", c.cf)
+		}
+		g.ServeHTTP(httptest.NewRecorder(), req)
+		if got := seen.Load(); got != c.want {
+			t.Errorf("%+v: upstream X-Forwarded-For = %q", c, got)
+		}
+	}
+}

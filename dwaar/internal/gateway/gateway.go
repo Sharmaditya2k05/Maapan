@@ -45,6 +45,11 @@ type Options struct {
 	// TrustedProxies is how many proxies in front of dwaar append to
 	// X-Forwarded-For (see ClientIP). 0 uses the TCP peer address.
 	TrustedProxies int
+	// ClientIPHeader, when set, names a header the edge always overwrites with
+	// the caller's address (CF-Connecting-IP behind Cloudflare, as on Render);
+	// it wins over X-Forwarded-For. Leave it empty anywhere a client could
+	// reach dwaar without passing that edge, or the client could forge it.
+	ClientIPHeader string
 	// Catalog is CatalogPublic, CatalogAuth or CatalogOff ("" = public).
 	Catalog string
 	// StatusTTL caches GET /api/_status results (default 10s); StatusTimeout
@@ -176,6 +181,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, g.opt.MaxBodyBytes)
 
 	ip := ClientIP(r, g.opt.TrustedProxies)
+	if h := g.opt.ClientIPHeader; h != "" {
+		if v := cleanIP(strings.TrimSpace(r.Header.Get(h))); v != "" {
+			ip = v
+		}
+	}
 	ctx := context.WithValue(r.Context(), clientIPKey{}, ip)
 	if class := PublicClass(r.Method, r.URL.Path); class != "" {
 		key, limit := "ip:"+ip, g.opt.Limits.PublicPerMinute

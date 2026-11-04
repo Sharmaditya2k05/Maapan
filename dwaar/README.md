@@ -77,7 +77,7 @@ Errors use the platform shape `{"error":{"code","message"}}`: `400 bad_request` 
 
 See `.env.example`. Key variables: `JWT_SECRET`, `JWT_SECRET_PREVIOUS` (rotation), `SERVICE_SECRET`, `CORS_ORIGINS`,
 `REDIS_URL`, `RATE_LIMIT_PUBLIC_PER_MIN` (20), `RATE_LIMIT_WEBHOOK_PER_MIN` (1200), `RATE_LIMIT_USER_PER_MIN` (600),
-`TRUSTED_PROXIES` (1; 2 behind the Google HTTPS load balancer), `API_CATALOG` (`public|auth|off`; default `auth` in prod),
+`TRUSTED_PROXIES` (1; 2 behind the Google HTTPS load balancer), `CLIENT_IP_HEADER` (empty; `CF-Connecting-IP` on Render, whose Cloudflare edge overwrites it with the real client — never set it where clients can bypass that edge), `API_CATALOG` (`public|auth|off`; default `auth` in prod),
 `STATUS_CACHE` (10s), `STATUS_TIMEOUT` (3s), `MAX_BODY_MB`, `UPSTREAM_TIMEOUT`, `EDGE_RETRY` (75s), `USE_ID_TOKENS`,
 and one `<SERVICE>_URL` per upstream.
 

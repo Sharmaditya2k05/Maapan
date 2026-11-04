@@ -79,6 +79,7 @@ func run(ctx context.Context) error {
 			UserPerMinute:    config.Int("RATE_LIMIT_USER_PER_MIN", 600),
 		},
 		TrustedProxies:  config.Int("TRUSTED_PROXIES", 1),
+		ClientIPHeader:  config.String("CLIENT_IP_HEADER", ""),
 		Catalog:         catalog,
 		StatusTTL:       config.Duration("STATUS_CACHE", 10*time.Second),
 		StatusTimeout:   config.Duration("STATUS_TIMEOUT", 3*time.Second),
